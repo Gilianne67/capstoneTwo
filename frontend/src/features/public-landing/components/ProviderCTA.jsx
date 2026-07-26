@@ -1,7 +1,8 @@
 import React from 'react';
-import { CheckCircle2, LayoutDashboard, ArrowRight, Building2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { CheckCircle2, Megaphone, ArrowRight, Building2 } from 'lucide-react';
 
-export default function ProviderCTA({ onNavigate }) {
+export default function ProviderCTA() {
   return (
     <section id="providers" className="py-20 px-4 bg-primary relative overflow-hidden text-white">
       
@@ -20,63 +21,63 @@ export default function ProviderCTA({ onNavigate }) {
           </div>
 
           <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">
-            For Scholarship Providers
+            Publish Your Scholarships Easily
           </h2>
 
           <p className="text-blue-100/90 text-base max-w-xl leading-relaxed">
-            Join our platform and connect with thousands of qualified and deserving Filipino students nationwide.
+            Reach thousands of qualified, deserving Filipino students across the country by listing your grants on IskolarMatch.
           </p>
 
           <ul className="space-y-3 text-sm text-blue-50/90 pt-2">
             <li className="flex items-center gap-3">
               <CheckCircle2 className="h-5 w-5 text-accent shrink-0" />
-              <span>Post and manage your scholarship programs seamlessly</span>
+              <span>Post and showcase your scholarship listings in minutes</span>
             </li>
             <li className="flex items-center gap-3">
               <CheckCircle2 className="h-5 w-5 text-accent shrink-0" />
-              <span>Automated matching with qualified students via vector algorithms</span>
+              <span>Define eligibility criteria (GWA, income, location, course)</span>
             </li>
             <li className="flex items-center gap-3">
               <CheckCircle2 className="h-5 w-5 text-accent shrink-0" />
-              <span>Custom dynamic weighting (GWA, income, location, degree)</span>
+              <span>Automatic mathematical weighted scoring ranks matches for students</span>
             </li>
             <li className="flex items-center gap-3">
               <CheckCircle2 className="h-5 w-5 text-accent shrink-0" />
-              <span>Streamlined applicant review and verification dashboard</span>
+              <span>Direct students to your external application portal or office</span>
             </li>
           </ul>
 
           <div className="pt-4">
-            <button
-              onClick={() => onNavigate && onNavigate('signup')}
-              className="bg-accent hover:bg-amber-500 text-slate-950 font-extrabold text-sm px-8 py-3.5 rounded-xl shadow-lg hover:shadow-xl transition-all active:scale-95 flex items-center gap-2 group"
+            <Link
+              to="/auth?mode=signup&role=provider"
+              className="inline-flex items-center gap-2 bg-accent hover:bg-amber-500 text-slate-950 font-extrabold text-sm px-8 py-3.5 rounded-xl shadow-lg hover:shadow-xl transition-all active:scale-95 group"
             >
-              Register as Provider 
+              <span>List a Scholarship</span>
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-            </button>
+            </Link>
           </div>
         </div>
 
-        {/* Right Column: Dashboard Card Preview */}
+        {/* Right Column: Information Card */}
         <div className="lg:col-span-5 bg-card-bg p-8 sm:p-10 rounded-3xl border border-slate-200/20 shadow-2xl text-center relative overflow-hidden group">
           
           {/* Top Accent Bar */}
           <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-accent via-amber-300 to-accent" />
 
           <div className="w-16 h-16 mx-auto rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-5 transition-transform duration-300 group-hover:scale-110">
-            <LayoutDashboard className="h-8 w-8 text-primary" />
+            <Megaphone className="h-8 w-8 text-primary" />
           </div>
 
-          <h3 className="font-extrabold text-app-text text-lg tracking-tight">
-            PROVIDER DASHBOARD PREVIEW
+          <h3 className="font-extrabold text-app-text text-lg tracking-tight uppercase">
+            Scholarship Directory Portal
           </h3>
 
           <p className="mt-2 text-xs sm:text-sm text-text-muted leading-relaxed max-w-xs mx-auto">
-            Manage applications, configure custom criteria, and view applicant analytics in real-time.
+            Easily manage your active listings, update submission guidelines, and help eligible students find your organization.
           </p>
 
           <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-center gap-2 text-xs font-semibold text-primary">
-            <span>Enterprise-Grade Verification</span>
+            <span>Direct Student Navigation</span>
             <span className="w-1.5 h-1.5 rounded-full bg-secondary" />
           </div>
         </div>

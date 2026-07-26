@@ -11,39 +11,39 @@ export default function FAQSection() {
 
   const studentFaqs = [
     {
-      question: 'Is IskolarMatch completely free to use for students?',
-      answer: 'Yes! Creating an account, matching with scholarships, and submitting applications through IskolarMatch is 100% free for all students.',
+      question: 'Is IskolarMatch completely free for students?',
+      answer: 'Yes! Creating an account, viewing your matched scholarships, and getting application links is 100% free for all students.',
     },
     {
-      question: 'How does IskolarMatch find scholarships for me?',
-      answer: 'When you set up your profile with details like your location, course, grades, and household income, our system automatically compares your details with active scholarship requirements to show you your best matches.',
+      question: 'How does the scholarship matching system work?',
+      answer: 'When you create your profile (grades, location, field of study, and household income), our algorithm uses transparent mathematical weighted scoring to calculate match percentage scores and rank scholarships you qualify for.',
     },
     {
-      question: 'Can I apply for more than one scholarship at the same time?',
-      answer: 'Yes, you can apply to multiple scholarships! However, make sure to read each provider’s rules, as some scholarships do not allow you to hold two major grants simultaneously.',
+      question: 'Do I submit my application directly on IskolarMatch?',
+      answer: 'No, IskolarMatch is a discovery and directory portal. Once you find a matched scholarship, we provide direct links, submission guidelines, and clear details on where and how to submit your official application to the provider.',
     },
     {
-      question: 'What documents do I usually need to get ready?',
-      answer: 'Most scholarships ask for basic documents like your Grade Slip or Report Card (Form 137/138), Certificate of Indigency or Income Tax Return (ITR), and a valid ID or Student ID.',
+      question: 'Can I view scholarships without creating an account?',
+      answer: 'You can browse featured listings, but creating a free account allows our weighted scoring system to automatically evaluate your specific qualifications and rank grants tailored to your profile.',
     },
   ];
 
   const providerFaqs = [
     {
-      question: 'How do we list our scholarship program on the platform?',
-      answer: 'You can create a Provider account, set your scholarship criteria (such as minimum GPA, course, or location), and publish your listing once verified by our team.',
+      question: 'How do scholarship providers publish their grants?',
+      answer: 'Providers simply register an account, fill out their scholarship details and eligibility requirements (such as minimum GWA, target location, or income bracket), and publish their listing on our platform.',
     },
     {
-      question: 'How does IskolarMatch help us find qualified applicants?',
-      answer: 'Instead of receiving thousands of unqualified forms, our system automatically filters candidates based on your exact requirements before they can apply.',
+      question: 'How do students apply to our scholarships?',
+      answer: 'When posting a grant, you provide your official application portal URL, email submission details, or physical office address. IskolarMatch directs qualified, pre-matched students straight to your destination.',
     },
     {
-      question: 'Can we review and manage student applications directly here?',
-      answer: 'Yes! We give you a simple dashboard where you can check submitted documents, update application statuses, and notify shortlisted students.',
+      question: 'Do providers review or process student applications inside IskolarMatch?',
+      answer: 'No. IskolarMatch operates purely as a discovery and matching directory. Application processing remains entirely on your own website, portal, or physical office workflow.',
     },
     {
-      question: 'Is there support available if we need help setting up?',
-      answer: 'Our support team is ready to assist you through setup, verification, and managing your listings anytime via email or direct message.',
+      question: 'Is there support available for setting up our organization’s listing?',
+      answer: 'Yes! Our team is available to assist you in creating, updating, and formatting your scholarship listings anytime.',
     },
   ];
 
@@ -55,7 +55,6 @@ export default function FAQSection() {
         
         {/* Section Header */}
         <div className="text-center max-w-2xl mx-auto mb-10 space-y-3">
-          
           <h2 className="text-3xl sm:text-4xl font-extrabold text-app-text tracking-tight">
             Frequently Asked Questions
           </h2>
