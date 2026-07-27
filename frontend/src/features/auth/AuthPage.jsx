@@ -14,10 +14,12 @@ import {
   ShieldCheck,
   Zap
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 
 export default function AuthPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { login, register } = useAuth();
 
   const [isSignUp, setIsSignUp] = useState(false);
   const [signupRole, setSignupRole] = useState('student');
@@ -49,69 +51,57 @@ export default function AuthPage() {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const loginWithDemoAccount = async (email, password, role) => {
+  // Quick Demo Login (for development testing only)
+  const loginWithDemoAccount = async (email, password) => {
     setIsLoading(true);
     setErrorMessage('');
-    setIsSignUp(false);
-
-    setFormData({ fullName: '', organizationName: '', email, password });
-
-    await new Promise((resolve) => setTimeout(resolve, 300));
-
-    const mockSession = {
-      email,
-      role,
-      name: role === 'admin' ? 'System Administrator' : role === 'provider' ? 'DOST Scholarship Office' : 'Juan Dela Cruz',
-      token: 'mock-jwt-token-xyz-123'
-    };
-    
-    localStorage.setItem('iskolar_session', JSON.stringify(mockSession));
-    setIsLoading(false);
-    navigate(`/dashboard/${role}`);
+    try {
+      const authenticatedUser = await login(email, password);
+      navigate(`/dashboard/${authenticatedUser.role}`);
+    } catch (err) {
+      setErrorMessage(err.message || 'Demo login failed.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
+  // Production Form Submission
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     setErrorMessage('');
 
+    const emailTrimmed = formData.email.trim().toLowerCase();
+    const passwordTrimmed = formData.password.trim();
+
     try {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      const emailLower = formData.email.trim().toLowerCase();
-      const password = formData.password.trim();
+      let authenticatedUser;
 
-      let userRole = signupRole;
+      if (isSignUp) {
+        // Build payload based on user role
+        const payload = {
+          email: emailTrimmed,
+          password: passwordTrimmed,
+          role: signupRole,
+          name: signupRole === 'provider' ? formData.organizationName.trim() : formData.fullName.trim(),
+        };
 
-      if (!isSignUp) {
-        if (emailLower.includes('admin') || password === 'pass123') {
-          userRole = 'admin';
-        } else if (emailLower.includes('provider') || emailLower.includes('sponsor')) {
-          userRole = 'provider';
-        } else {
-          userRole = 'student';
-        }
+        authenticatedUser = await register(payload);
+      } else {
+        authenticatedUser = await login(emailTrimmed, passwordTrimmed);
       }
 
-      const mockSession = {
-        email: emailLower,
-        role: userRole,
-        name: isSignUp 
-          ? (signupRole === 'provider' ? formData.organizationName : formData.fullName)
-          : emailLower.split('@')[0],
-        token: 'mock-jwt-token-xyz-123'
-      };
-      
-      localStorage.setItem('iskolar_session', JSON.stringify(mockSession));
-      navigate(`/dashboard/${userRole}`);
-
+      // Navigate dynamically based on role returned from backend API
+      navigate(`/dashboard/${authenticatedUser.role}`);
     } catch (err) {
-      setErrorMessage('Invalid credentials. Please check your email and password.');
+      setErrorMessage(err.message || 'Authentication failed. Please check your details.');
     } finally {
       setIsLoading(false);
     }
   };
 
   const isProvider = isSignUp && signupRole === 'provider';
+  const showDevHelpers = process.env.NODE_ENV !== 'production';
 
   return (
     <div className="min-h-screen bg-app-bg text-app-text flex flex-col justify-between relative overflow-hidden pt-20">
@@ -125,10 +115,7 @@ export default function AuthPage() {
           {/* Left Hero Panel */}
           <div className={`lg:col-span-5 ${isProvider ? 'bg-emerald-900' : 'bg-primary'} text-white p-8 sm:p-12 flex flex-col justify-between relative overflow-hidden transition-colors duration-500`}>
             
-            {/* Geometric Rotated Card Accent */}
             <div className="absolute -right-10 -bottom-10 w-64 h-64 border border-white/10 rounded-3xl rotate-12 bg-white/[0.04] pointer-events-none" />
-            
-            {/* Geometric Dotted Background Overlay */}
             <div className="absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.15)_1px,transparent_1px)] [background-size:20px_20px] pointer-events-none" />
 
             <div className="relative z-10 space-y-6">
@@ -203,17 +190,17 @@ export default function AuthPage() {
                 </button>
               </div>
 
-              {/* Quick Test Logins Bar */}
-              {!isSignUp && (
+              {/* Quick Test Logins Bar (Visible only during Development) */}
+              {!isSignUp && showDevHelpers && (
                 <div className="p-3.5 bg-app-bg border border-app-text/10 rounded-2xl space-y-2">
                   <div className="flex items-center gap-1.5 text-[10px] font-extrabold text-text-muted uppercase tracking-wider">
                     <Zap className="h-3.5 w-3.5 text-accent" />
-                    <span>Quick Test Accounts</span>
+                    <span>Quick Test Accounts (Dev Only)</span>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     <button
                       type="button"
-                      onClick={() => loginWithDemoAccount('student@iskolar.ph', 'user123', 'student')}
+                      onClick={() => loginWithDemoAccount('student@iskolar.ph', 'user123')}
                       className="py-1.5 px-2 bg-card-bg border border-app-text/10 rounded-xl text-xs font-bold text-app-text hover:border-primary hover:text-primary transition-all flex items-center justify-center gap-1 shadow-sm"
                     >
                       <GraduationCap className="h-3.5 w-3.5 text-primary" />
@@ -222,7 +209,7 @@ export default function AuthPage() {
 
                     <button
                       type="button"
-                      onClick={() => loginWithDemoAccount('provider@iskolar.ph', 'provider123', 'provider')}
+                      onClick={() => loginWithDemoAccount('provider@iskolar.ph', 'provider123')}
                       className="py-1.5 px-2 bg-card-bg border border-app-text/10 rounded-xl text-xs font-bold text-app-text hover:border-emerald-900 hover:text-emerald-900 transition-all flex items-center justify-center gap-1 shadow-sm"
                     >
                       <Building2 className="h-3.5 w-3.5 text-emerald-900" />
@@ -231,7 +218,7 @@ export default function AuthPage() {
 
                     <button
                       type="button"
-                      onClick={() => loginWithDemoAccount('admin@iskolar.ph', 'pass123', 'admin')}
+                      onClick={() => loginWithDemoAccount('admin@iskolar.ph', 'pass123')}
                       className="py-1.5 px-2 bg-card-bg border border-app-text/10 rounded-xl text-xs font-bold text-app-text hover:border-accent hover:text-accent transition-all flex items-center justify-center gap-1 shadow-sm"
                     >
                       <ShieldCheck className="h-3.5 w-3.5 text-accent" />
@@ -329,9 +316,9 @@ export default function AuthPage() {
                       Password
                     </label>
                     {!isSignUp && (
-                      <a href="#forgot" className="text-xs font-medium text-primary hover:underline">
+                      <Link to="/forgot-password" className="text-xs font-medium text-primary hover:underline">
                         Forgot password?
-                      </a>
+                      </Link>
                     )}
                   </div>
                   <div className="relative">
