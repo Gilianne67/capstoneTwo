@@ -1,51 +1,137 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { 
+  Building2, 
+  AlertTriangle, 
+  CheckSquare, 
+  Activity,
+  Check,
+  X,
+  SlidersHorizontal
+} from 'lucide-react';
+
+// Imported Reusable Components
+import PageHeader from '../../../components/common/PageHeader';
+import MetricCard from '../../../components/common/MetricCard';
+import StatusBadge from '../../../components/common/StatusBadge';
+import ConfirmModal from '../../../components/common/ConfirmModal';
+
 
 export default function AdminDashboard() {
+  const [activeTab, setActiveTab] = useState('providers');
+  const [selectedAction, setSelectedAction] = useState(null);
+
+  // TODO: Replace with your actual user state/auth context when backend is connected
+  // Example: const { user } = useAuth();
+  const user = {
+    name: "Admin User", // Fallback name until connected
+    role: "System Administrator"
+  };
+
+  // Helper function to generate time-based greeting
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 18) return 'Good afternoon';
+    return 'Good evening';
+  };
+
+  const metrics = [
+    { label: 'Pending Verifications', value: '6', icon: CheckSquare, color: 'amber' },
+    { label: 'Flagged Content', value: '2', icon: AlertTriangle, color: 'rose' },
+    { label: 'Active Providers', value: '142', icon: Building2, color: 'emerald' },
+    { label: 'System Uptime', value: '99.9%', icon: Activity, color: 'blue' },
+  ];
+
+  const pendingProviders = [
+    { id: 'prov-101', name: 'Innovate Tech Foundation', email: 'contact@innovatetech.org', taxId: 'SEC-2024-109', submitted: '2 hours ago' },
+    { id: 'prov-102', name: 'Apex Student Trust', email: 'admin@apextrust.edu', taxId: 'LGU-2024-882', submitted: '5 hours ago' },
+  ];
+
+  const handleActionClick = (id, type) => {
+    setSelectedAction({ id, type });
+  };
+
   return (
     <div className="space-y-6">
-      {/* Admin Title */}
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-        <h1 className="text-2xl font-black text-slate-800">
-          Welcome back, <span className="text-[#1e1b4b]">Administrator! 🔑</span>
-        </h1>
-        <p className="text-xs text-slate-500 mt-1">Web-Based Scholarship Matching System Administration Console</p>
-      </div>
+      {/* Dynamic Header Greeting */}
+      <PageHeader 
+        title={`${getGreeting()}, ${user.name}`} 
+        subtitle="Approve providers, review flagged listings, and monitor platform audit logs."
+      />
 
-      {/* Admin Quick Metrics */}
+      {/* Metrics Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: 'Total Users', val: '12,458', change: '+12.5% from last month' },
-          { label: 'Students', val: '10,342', change: '+10.3% from last month' },
-          { label: 'Providers', val: '216', change: '+5.2% from last month' },
-          { label: 'Scholarships', val: '1,245', change: '+2.7% from last month' },
-        ].map((card, i) => (
-          <div key={i} className="p-5 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-1">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{card.label}</span>
-            <span className="block text-2xl font-black text-[#1e1b4b]">{card.val}</span>
-            <span className="text-[11px] text-emerald-600 font-bold">{card.change}</span>
-          </div>
+        {metrics.map((m, idx) => (
+          <MetricCard key={idx} {...m} />
         ))}
       </div>
 
-      {/* Admin System Activity */}
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-        <h2 className="font-extrabold text-slate-800 text-sm">Recent Platform Activity</h2>
-        <div className="divide-y divide-slate-100 text-xs">
-          {[
-            { action: 'New Student registered', target: 'Juan Dela Cruz', time: '2 mins ago' },
-            { action: 'New scholarship added', target: 'DOST-SEI Undergraduate', time: '15 mins ago' },
-            { action: 'New provider registered', target: 'Aboitiz Foundation', time: '1 hour ago' },
-            { action: 'System backup completed', target: 'Database Backup', time: '2 hours ago' },
-          ].map((act, i) => (
-            <div key={i} className="py-3 flex items-center justify-between">
-              <div>
-                <span className="font-bold text-slate-800">{act.action}</span> — <span className="text-slate-500">{act.target}</span>
-              </div>
-              <span className="text-[11px] text-slate-400 font-medium">{act.time}</span>
-            </div>
-          ))}
+      {/* Queue Workbench Section */}
+      <div className="bg-white border border-slate-200/80 rounded-2xl p-5 space-y-5 shadow-xs">
+        
+        {/* Queue Navigation Tabs */}
+        <div className="flex border-b border-slate-200 gap-6">
+          <button 
+            onClick={() => setActiveTab('providers')}
+            className={`pb-3 text-xs font-bold transition-all relative ${
+              activeTab === 'providers' ? 'text-amber-600 border-b-2 border-amber-600' : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            Provider Verifications (2)
+          </button>
+          <button 
+            onClick={() => setActiveTab('scholarships')}
+            className={`pb-3 text-xs font-bold transition-all relative ${
+              activeTab === 'scholarships' ? 'text-amber-600 border-b-2 border-amber-600' : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            Pending Listings (4)
+          </button>
         </div>
+
+        {/* Provider Approval Queue List */}
+        {activeTab === 'providers' && (
+          <div className="space-y-3">
+            {pendingProviders.map((prov) => (
+              <div key={prov.id} className="flex items-center justify-between p-4 bg-slate-50 border border-slate-200/60 rounded-xl">
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900">{prov.name}</h4>
+                  <div className="flex items-center gap-4 text-xs text-slate-500 mt-1">
+                    <span>Email: <strong>{prov.email}</strong></span>
+                    <span>Registration ID: <strong>{prov.taxId}</strong></span>
+                    <span>Submitted: {prov.submitted}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => handleActionClick(prov.id, 'reject')}
+                    className="p-2 text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-xl text-xs font-bold transition-all"
+                    title="Reject"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                  <button 
+                    onClick={() => handleActionClick(prov.id, 'approve')}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all"
+                  >
+                    <Check className="h-4 w-4" /> Approve
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* Action Modal */}
+      <ConfirmModal
+        isOpen={Boolean(selectedAction)}
+        onClose={() => setSelectedAction(null)}
+        onConfirm={() => setSelectedAction(null)}
+        title={selectedAction?.type === 'approve' ? 'Approve Provider' : 'Reject Verification'}
+        message={`Are you sure you want to ${selectedAction?.type} this organization? This action will immediately update their account status.`}
+      />
     </div>
   );
 }

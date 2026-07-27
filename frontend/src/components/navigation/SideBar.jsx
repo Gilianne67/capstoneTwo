@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavLink, useNavigate, useLocation, Link } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { 
   GraduationCap, 
   LayoutDashboard, 
@@ -13,12 +13,15 @@ import {
   HelpCircle, 
   LogOut, 
   Building2, 
-  Users, 
   ShieldCheck, 
   BarChart3, 
-  Folder, 
   ChevronLeft, 
-  ChevronRight
+  ChevronRight,
+  PlusCircle,
+  CheckSquare,
+  Tags,
+  AlertTriangle,
+  Layers
 } from 'lucide-react';
 
 export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) {
@@ -34,7 +37,6 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
       activeBg: 'bg-blue-100/80 text-[#2563eb]',
       hoverBg: 'hover:bg-blue-100/50 text-slate-600 hover:text-slate-900',
       badgeBg: 'bg-blue-200/80 text-[#2563eb]',
-      // Geometric Visual Shapes
       geoGradient: 'from-blue-600/20 via-blue-400/15 to-transparent',
       geoCircle: 'border-blue-500/25 bg-blue-500/10',
       geoPattern: 'rgba(37, 99, 235, 0.18)',
@@ -46,7 +48,6 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
       activeBg: 'bg-emerald-100/80 text-[#047857]',
       hoverBg: 'hover:bg-emerald-100/50 text-slate-600 hover:text-slate-900',
       badgeBg: 'bg-emerald-200/80 text-[#047857]',
-      // Geometric Visual Shapes
       geoGradient: 'from-emerald-600/20 via-emerald-400/15 to-transparent',
       geoCircle: 'border-emerald-500/25 bg-emerald-500/10',
       geoPattern: 'rgba(5, 150, 105, 0.18)',
@@ -58,7 +59,6 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
       activeBg: 'bg-amber-100/80 text-[#b45309]',
       hoverBg: 'hover:bg-amber-100/50 text-slate-600 hover:text-slate-900',
       badgeBg: 'bg-amber-200/80 text-[#b45309]',
-      // Geometric Visual Shapes
       geoGradient: 'from-amber-600/20 via-amber-400/15 to-transparent',
       geoCircle: 'border-amber-500/25 bg-amber-500/10',
       geoPattern: 'rgba(217, 119, 6, 0.18)',
@@ -67,21 +67,20 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
 
   const currentTheme = themes[role] || themes.student;
 
-  // Split Nav Items into MENU and GENERAL sections
+  // Navigation Items mapped strictly to Module Requirements
   const getNavSections = () => {
     if (role === 'provider') {
       return {
         menu: [
           { label: 'Dashboard', path: '/dashboard/provider', icon: LayoutDashboard },
-          { label: 'Scholarships', path: '/dashboard/provider/scholarships', icon: Award, badge: 'Active' },
-          { label: 'Applications', path: '/dashboard/provider/applications', icon: FileText },
-          { label: 'Shortlisted', path: '/dashboard/provider/shortlist', icon: Users },
-          { label: 'Analytics', path: '/dashboard/provider/analytics', icon: BarChart3 },
-          { label: 'Provider Profile', path: '/dashboard/provider/profile', icon: Building2 },
+          { label: 'Scholarship Listings', path: '/dashboard/provider/listings', icon: Layers },
+          { label: 'Create Listing', path: '/dashboard/provider/listings/create', icon: PlusCircle },
+          { label: 'Performance & Analytics', path: '/dashboard/provider/analytics', icon: BarChart3 },
+          { label: 'Organization Verification', path: '/dashboard/provider/profile', icon: Building2 },
         ],
         general: [
-          { label: 'Settings', path: '/dashboard/provider/settings', icon: Settings },
-          { label: 'Help', path: '/dashboard/provider/help', icon: HelpCircle },
+          { label: 'Settings & RBAC', path: '/dashboard/provider/settings', icon: Settings },
+          { label: 'Help & Support', path: '/dashboard/provider/help', icon: HelpCircle },
         ]
       };
     }
@@ -89,19 +88,16 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
     if (role === 'admin') {
       return {
         menu: [
-          { label: 'Dashboard', path: '/dashboard/admin', icon: LayoutDashboard },
-          { label: 'Users', path: '/dashboard/admin/users', icon: Users },
-          { label: 'Providers', path: '/dashboard/admin/providers', icon: Building2 },
-          { label: 'Scholarships', path: '/dashboard/admin/scholarships', icon: Award },
-          { label: 'Applications', path: '/dashboard/admin/applications', icon: FileText },
-          { label: 'Analytics', path: '/dashboard/admin/analytics', icon: BarChart3 },
-          { label: 'Files', path: '/dashboard/admin/files', icon: Folder },
-          { label: 'Audit Logs', path: '/dashboard/admin/audit-logs', icon: ShieldCheck },
+          { label: 'Operations Dashboard', path: '/dashboard/admin', icon: LayoutDashboard },
+          { label: 'Verification Queue', path: '/dashboard/admin/verifications', icon: CheckSquare, badge: 'Pending' },
+          { label: 'Content Moderation', path: '/dashboard/admin/moderation', icon: AlertTriangle },
+          { label: 'Taxonomy & Tags', path: '/dashboard/admin/taxonomy', icon: Tags },
+          { label: 'Audit & Compliance', path: '/dashboard/admin/audit-logs', icon: ShieldCheck },
         ],
         general: [
           { label: 'System Settings', path: '/dashboard/admin/settings', icon: Settings },
           { label: 'Notifications', path: '/dashboard/admin/notifications', icon: Bell },
-          { label: 'Help', path: '/dashboard/admin/help', icon: HelpCircle },
+          { label: 'Help Center', path: '/dashboard/admin/help', icon: HelpCircle },
         ]
       };
     }
@@ -110,16 +106,16 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
     return {
       menu: [
         { label: 'Dashboard', path: '/dashboard/student', icon: LayoutDashboard },
-        { label: 'My Profile', path: '/dashboard/student/profile', icon: User },
-        { label: 'Search', path: '/dashboard/student/search', icon: Search },
-        { label: 'Match Results', path: '/dashboard/student/matches', icon: Award, badge: '12+' },
-        { label: 'Saved Matches', path: '/dashboard/student/saved', icon: Bookmark },
-        { label: 'Applications', path: '/dashboard/student/applications', icon: FileText },
+        { label: 'Student Profile', path: '/dashboard/student/profile', icon: User },
+        { label: 'Scholarship Search', path: '/dashboard/student/search', icon: Search },
+        { label: 'Matched Feed', path: '/dashboard/student/matches', icon: Award, badge: 'Live' },
+        { label: 'Saved Scholarships', path: '/dashboard/student/saved', icon: Bookmark },
+        { label: 'Application Tracker', path: '/dashboard/student/applications', icon: FileText },
       ],
       general: [
-        { label: 'Notifications', path: '/dashboard/student/notifications', icon: Bell },
+        { label: 'Deadline Alerts', path: '/dashboard/student/notifications', icon: Bell },
         { label: 'Settings', path: '/dashboard/student/settings', icon: Settings },
-        { label: 'Help', path: '/dashboard/student/help', icon: HelpCircle },
+        { label: 'Help Center', path: '/dashboard/student/help', icon: HelpCircle },
       ]
     };
   };
@@ -146,7 +142,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
         } ${isCollapsed ? 'justify-center px-0' : ''}`}
         title={isCollapsed ? item.label : undefined}
       >
-        {/* Active Pill Left Bar */}
+        {/* Active Pill Bar */}
         {isActive && (
           <span className={`absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-6 rounded-r-full ${currentTheme.pillBg}`} />
         )}
@@ -156,7 +152,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
           {!isCollapsed && <span className="truncate">{item.label}</span>}
         </div>
 
-        {/* Optional Right Pill Badge */}
+        {/* Optional Badge */}
         {!isCollapsed && item.badge && (
           <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${currentTheme.badgeBg}`}>
             {item.badge}
@@ -169,16 +165,11 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
   return (
     <aside className={`relative ${currentTheme.sidebarBg} border-r border-slate-200/80 text-slate-800 flex flex-col justify-between transition-colors duration-300 z-30 ${isCollapsed ? 'w-20' : 'w-64'}`}>
       
-      {/* GEOMETRIC BACKGROUND ACCENTS (STRICTLY CLIPPED TO SIDEBAR BOUNDS) */}
+      {/* GEOMETRIC BACKGROUND ACCENTS */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
-        {/* Large Corner Gradient Glow */}
         <div className={`absolute -right-20 -bottom-20 w-80 h-80 bg-gradient-to-tl ${currentTheme.geoGradient} rounded-full blur-2xl`} />
-
-        {/* Structured Geometric Bottom Shapes */}
         <div className={`absolute -right-12 -bottom-10 w-48 h-48 border-2 ${currentTheme.geoCircle} rounded-3xl rotate-45`} />
         <div className={`absolute right-6 bottom-24 w-28 h-28 border ${currentTheme.geoCircle} rounded-full`} />
-
-        {/* Overlay Grid Pattern */}
         <div 
           className="absolute inset-0 opacity-80"
           style={{
@@ -188,7 +179,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
         />
       </div>
 
-      {/* High-Visibility Collapse Toggle Button */}
+      {/* Collapse Toggle Button */}
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
         className="absolute -right-3.5 top-6 bg-white text-slate-800 border border-slate-300 rounded-full p-1.5 shadow-lg hover:bg-slate-50 hover:scale-110 active:scale-95 transition-all z-50 cursor-pointer"
@@ -197,17 +188,18 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
         {isCollapsed ? <ChevronRight className="h-4 w-4 stroke-[2.5]" /> : <ChevronLeft className="h-4 w-4 stroke-[2.5]" />}
       </button>
 
-     {/* Brand Header */}
-        <div className="p-5 flex items-center h-20 relative z-10">
+      {/* Brand Header */}
+      <div className="p-5 flex items-center h-20 relative z-10">
         <div className="flex items-center gap-2.5 group">
-            <GraduationCap className={`h-7 w-7 transition-all duration-300 group-hover:scale-110 ${currentTheme.roleAccent}`} />
-            {!isCollapsed && (
+          <GraduationCap className={`h-7 w-7 transition-all duration-300 group-hover:scale-110 ${currentTheme.roleAccent}`} />
+          {!isCollapsed && (
             <span className="font-bold text-xl tracking-tight text-slate-900">
-                Iskolar<span className={currentTheme.roleAccent}>Match</span>
+              Iskolar<span className={currentTheme.roleAccent}>Match</span>
             </span>
-            )}
+          )}
         </div>
-        </div>
+      </div>
+
       {/* Navigation Body */}
       <div className="flex-1 px-3 py-2 space-y-6 overflow-y-auto custom-scrollbar relative z-10">
         
