@@ -1,34 +1,182 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Sparkles, 
   Bookmark, 
   Send, 
   Clock, 
   ExternalLink, 
-  SlidersHorizontal,
   MapPin,
   GraduationCap,
-  Coins
+  Coins,
+  Info,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
+  AlertCircle,
+  Inbox
 } from 'lucide-react';
 
-// Imported Reusable Components
+import { useAuth } from '../../../context/AuthContext';
 import PageHeader from '../../../components/common/PageHeader';
 import MetricCard from '../../../components/common/MetricCard';
 import StatusBadge from '../../../components/common/StatusBadge';
 import ConfirmModal from '../../../components/common/ConfirmModal';
 
-export default function StudentDashboard() {
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedScholarship, setSelectedScholarship] = useState(null);
+// Mock Data Fallbacks for Local Testing / Offline Mode
+const MOCK_FALLBACK_MATCHES = [
+  {
+    _id: 'm1',
+    title: 'Camarines Sur Academic Excellence Grant',
+    provider: 'Provincial Government of CamSur',
+    amount: 25000,
+    amountPeriod: 'sem',
+    deadline: '2026-08-30',
+    weightedScore: 96,
+    isSaved: false,
+    externalUrl: 'https://camsur.gov.ph',
+    matchBreakdown: {
+      gwa: { score: 40, max: 40, detail: 'GWA fits priority tier' },
+      location: { score: 30, max: 30, detail: 'Camarines Sur Resident' },
+      financial: { score: 26, max: 30, detail: 'Low-Income Tier verified' }
+    }
+  },
+  {
+    _id: 'm2',
+    title: 'DOST-SEI Merit Scholarship',
+    provider: 'Department of Science and Technology',
+    amount: 40000,
+    amountPeriod: 'yr',
+    deadline: '2026-08-10',
+    weightedScore: 88,
+    isSaved: true,
+    externalUrl: 'https://sei.dost.gov.ph',
+    matchBreakdown: {
+      gwa: { score: 38, max: 40, detail: 'High Academic Standing' },
+      location: { score: 25, max: 30, detail: 'Regional Priority' },
+      financial: { score: 25, max: 30, detail: 'Standard Bracket' }
+    }
+  }
+];
 
-  // TODO: Replace with your actual user state/auth context when backend is connected
-  // Example: const { user } = useAuth();
-  const user = {
-    name: "Juan Dela Cruz", // Fallback student name
-    role: "Student"
+const MOCK_FALLBACK_APPS = [
+  {
+    _id: 'a1',
+    scholarshipTitle: 'CHED Tulong Dunong Program',
+    provider: 'CHED Regional Office V',
+    status: 'In Review',
+    submittedAt: '2026-07-01'
+  }
+];
+
+const formatCurrency = (amount, currency = 'PHP') => {
+  if (typeof amount !== 'number' || isNaN(amount)) return '₱0';
+  return new Intl.NumberFormat('en-PH', {
+    style: 'currency',
+    currency,
+    maximumFractionDigits: 0,
+  }).format(amount);
+};
+
+export default function StudentDashboard() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+
+  const userProfile = {
+    name: user?.name || 'Iskolar',
+    gwa: user?.profile?.gwa || '1.25',
+    location: user?.profile?.location || 'Pili, Camarines Sur',
+    financialBracket: user?.profile?.financialBracket || 'Low-Income Tier'
   };
 
-  // Helper function to generate time-based greeting
+  const [metrics, setMetrics] = useState({
+    weightedMatchesCount: 0,
+    savedCount: 0,
+    trackedCount: 0,
+    urgentDeadlinesCount: 0
+  });
+  const [weightedMatches, setWeightedMatches] = useState([]);
+  const [trackedApplications, setTrackedApplications] = useState([]);
+  
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSavingId, setIsSavingId] = useState(null);
+  const [isUsingFallback, setIsUsingFallback] = useState(false);
+
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedScholarship, setSelectedScholarship] = useState(null);
+  const [expandedMatchId, setExpandedMatchId] = useState(null);
+
+  // Helper to safely parse API responses and detect HTML 404 errors
+  const safeFetchJson = async (url, options) => {
+    const res = await fetch(url, options);
+    const contentType = res.headers.get('content-type');
+    
+    // Check if the server returned HTML instead of JSON (common with missing backend/proxy)
+    if (!res.ok || (contentType && contentType.includes('text/html'))) {
+      throw new Error(`Server returned HTML or non-OK status: ${res.status}`);
+    }
+    return await res.json();
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchDashboardData = async () => {
+      setIsLoading(true);
+
+      try {
+        const token = localStorage.getItem('token');
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+        // Attempt live API requests
+        const [matchesData, appsData] = await Promise.all([
+          safeFetchJson('/api/v1/scholarships/recommended', { headers }),
+          safeFetchJson('/api/v1/students/applications', { headers })
+        ]);
+
+        if (!isMounted) return;
+
+        setWeightedMatches(matchesData);
+        setTrackedApplications(appsData);
+        updateMetrics(matchesData, appsData);
+        setIsUsingFallback(false);
+
+      } catch (err) {
+        console.warn('API unreachable or returning HTML. Switching to local testing mode:', err.message);
+        
+        if (!isMounted) return;
+
+        // Fallback gracefully so you can still test UI without API server running
+        setWeightedMatches(MOCK_FALLBACK_MATCHES);
+        setTrackedApplications(MOCK_FALLBACK_APPS);
+        updateMetrics(MOCK_FALLBACK_MATCHES, MOCK_FALLBACK_APPS);
+        setIsUsingFallback(true);
+
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+
+    fetchDashboardData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const updateMetrics = (matchesData, appsData) => {
+    setMetrics({
+      weightedMatchesCount: matchesData.length,
+      savedCount: matchesData.filter(m => m.isSaved).length,
+      trackedCount: appsData.length,
+      urgentDeadlinesCount: matchesData.filter(m => {
+        if (!m.deadline) return false;
+        const daysLeft = (new Date(m.deadline) - new Date()) / (1000 * 60 * 60 * 24);
+        return daysLeft > 0 && daysLeft <= 14;
+      }).length
+    });
+  };
+
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 12) return 'Good morning';
@@ -36,42 +184,48 @@ export default function StudentDashboard() {
     return 'Good evening';
   };
 
-  // Metrics focused on profile weights and matching
-  const metrics = [
-    { label: 'Weighted Matches', value: '18', icon: Sparkles, trend: 'Based on GWA & Financial Need', color: 'blue' },
-    { label: 'Saved Items', value: '6', icon: Bookmark, color: 'indigo' },
-    { label: 'Tracked Outbound', value: '4', icon: Send, color: 'emerald' },
-    { label: 'Deadlines < 14 Days', value: '2', icon: Clock, trend: 'Action required', color: 'amber' },
-  ];
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'N/A';
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: '2-digit',
+      year: 'numeric'
+    });
+  };
 
-  // Weighted Scoring Match Feed
-  const weightedMatches = [
-    {
-      id: 'sch-101',
-      title: 'National STEM Excellence Grant 2026',
-      provider: 'Department of Science and Technology',
-      amount: '₱80,000 / yr',
-      deadline: 'Aug 20, 2026',
-      weightedScore: '96% Match',
-      matchBreakdown: { GWA: '1.25', location: 'Bicol Region', financial: 'Tier 1 Need' },
-      externalUrl: 'https://official.dost.gov.ph/apply'
-    },
-    {
-      id: 'sch-102',
-      title: 'Provincial Youth Tertiary Assistance',
-      provider: 'Provincial Government Office',
-      amount: '₱25,000 / sem',
-      deadline: 'Sep 05, 2026',
-      weightedScore: '89% Match',
-      matchBreakdown: { GWA: '1.75', location: 'Pili / Local Resident', financial: 'Tier 2 Need' },
-      externalUrl: 'https://pili.gov.ph/scholarships'
+  const handleToggleSave = async (scholarshipId) => {
+    setIsSavingId(scholarshipId);
+
+    try {
+      if (!isUsingFallback) {
+        const token = localStorage.getItem('token');
+        await safeFetchJson(`/api/v1/scholarships/${scholarshipId}/bookmark`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          }
+        });
+      }
+
+      // Optimistic update
+      setWeightedMatches((prev) =>
+        prev.map((item) =>
+          item._id === scholarshipId ? { ...item, isSaved: !item.isSaved } : item
+        )
+      );
+    } catch (err) {
+      console.error('Failed to persist bookmark state:', err);
+    } finally {
+      setIsSavingId(null);
     }
-  ];
+  };
 
-  const trackedApplications = [
-    { id: '1', title: 'National STEM Excellence Grant', provider: 'DOST', status: 'Applied', updated: 'Yesterday' },
-    { id: '2', title: 'CHED Merit Scholarship Program', provider: 'CHED', status: 'Under Review', updated: '5 days ago' },
-  ];
+  const handleExploreAllFilters = () => {
+    navigate('/student/scholarships');
+  };
 
   const handleApplyClick = (item) => {
     setSelectedScholarship(item);
@@ -85,124 +239,231 @@ export default function StudentDashboard() {
     setIsModalOpen(false);
   };
 
+  const toggleBreakdown = (id) => {
+    setExpandedMatchId((prev) => (prev === id ? null : id));
+  };
+
+  const metricsConfig = [
+    { label: 'Weighted Matches', value: metrics.weightedMatchesCount.toString(), icon: Sparkles, trend: 'Based on GWA & Need', color: 'blue' },
+    { label: 'Saved Items', value: metrics.savedCount.toString(), icon: Bookmark, color: 'indigo' },
+    { label: 'Tracked Outbound', value: metrics.trackedCount.toString(), icon: Send, color: 'emerald' },
+    { label: 'Deadlines < 14 Days', value: metrics.urgentDeadlinesCount.toString(), icon: Clock, trend: 'Action required', color: 'amber' },
+  ];
+
+  if (isLoading) {
+    return (
+      <div className="min-h-[400px] flex flex-col items-center justify-center gap-3">
+        <Loader2 className="h-8 w-8 text-primary animate-spin" />
+        <p className="text-xs text-text-muted font-medium">Syncing scholarship matches...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      {/* Dynamic Header Greeting */}
-      <PageHeader 
-        title={`${getGreeting()}, ${user.name}`} 
-        subtitle="AI-weighted scholarship matching based on your official GWA, location, and financial status."
-      />
-
-      {/* Weighted Profile Criteria Summary Bar */}
-      <div className="bg-blue-50/70 border border-blue-200/80 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-4 text-xs font-bold text-slate-700">
-          <span className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-xl border border-blue-100 shadow-xs">
-            <GraduationCap className="h-4 w-4 text-blue-600" /> Target GWA: <strong>1.25–1.75</strong>
-          </span>
-          <span className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-xl border border-blue-100 shadow-xs">
-            <MapPin className="h-4 w-4 text-blue-600" /> Location: <strong>Bicol Region</strong>
-          </span>
-          <span className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-xl border border-blue-100 shadow-xs">
-            <Coins className="h-4 w-4 text-blue-600" /> Financial bracket: <strong>Low-Income Tier</strong>
+      {/* Test-mode Alert Banner */}
+      {isUsingFallback && (
+        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 p-3 rounded-xl flex items-center justify-between text-xs font-medium">
+          <span className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            Backend API offline/unreachable. Showing mock preview mode for testing.
           </span>
         </div>
-        <button className="flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all">
-          <SlidersHorizontal className="h-3.5 w-3.5" /> Refine Weights
+      )}
+
+      {/* Header */}
+      <PageHeader 
+        title={`${getGreeting()}, ${userProfile.name}`} 
+        subtitle="Weighted scholarship matching based on your official GWA, location, and financial status."
+      />
+
+      {/* Student Profile Overview Bar */}
+      <div className="bg-primary/5 border border-primary/15 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-3 text-xs font-bold text-app-text">
+          <span className="flex items-center gap-1.5 bg-card-bg px-3 py-1.5 rounded-xl border border-app-text/10 shadow-xs">
+            <GraduationCap className="h-4 w-4 text-primary" /> Current GWA: <strong>{userProfile.gwa}</strong>
+          </span>
+          <span className="flex items-center gap-1.5 bg-card-bg px-3 py-1.5 rounded-xl border border-app-text/10 shadow-xs">
+            <MapPin className="h-4 w-4 text-primary" /> Location: <strong>{userProfile.location}</strong>
+          </span>
+          <span className="flex items-center gap-1.5 bg-card-bg px-3 py-1.5 rounded-xl border border-app-text/10 shadow-xs">
+            <Coins className="h-4 w-4 text-primary" /> Financial Tier: <strong>{userProfile.financialBracket}</strong>
+          </span>
+        </div>
+
+        <button 
+          type="button"
+          onClick={() => navigate('/student/profile')}
+          className="text-xs font-semibold text-primary hover:underline cursor-pointer bg-transparent border-0 transition-all"
+        >
+          Update Profile Data
         </button>
       </div>
 
       {/* Metrics Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {metrics.map((m, idx) => (
+        {metricsConfig.map((m, idx) => (
           <MetricCard key={idx} {...m} />
         ))}
       </div>
 
-      {/* Main Grid */}
+      {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        {/* Left: Weighted Matches Feed */}
+        {/* Left: Matches Feed */}
         <div className="lg:col-span-2 space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-blue-600" /> Highest Weighted Matches
+            <h3 className="text-base font-bold text-app-text flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" /> Highest Weighted Matches
             </h3>
-            <span className="text-xs font-semibold text-blue-600 hover:underline cursor-pointer">Explore All Filters</span>
+
+            <button 
+              type="button"
+              onClick={handleExploreAllFilters}
+              className="text-xs font-semibold text-primary hover:underline cursor-pointer bg-transparent border-0 transition-all"
+            >
+              Explore All Filters
+            </button>
           </div>
 
-          <div className="space-y-3">
-            {weightedMatches.map((item) => (
-              <div key={item.id} className="bg-white border border-slate-200/80 rounded-2xl p-5 hover:border-blue-300 transition-all shadow-xs">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <span className="inline-block px-2.5 py-0.5 bg-blue-100 text-blue-800 text-[10px] font-black rounded-full mb-2">
-                      {item.weightedScore}
-                    </span>
-                    <h4 className="text-sm font-bold text-slate-900">{item.title}</h4>
-                    <p className="text-xs text-slate-500 font-medium">{item.provider}</p>
-                  </div>
-                  <button className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors">
-                    <Bookmark className="h-4 w-4" />
-                  </button>
-                </div>
+          {weightedMatches.length === 0 ? (
+            <div className="bg-card-bg border border-app-text/10 rounded-2xl p-8 text-center space-y-3">
+              <Inbox className="h-10 w-10 text-text-muted mx-auto" />
+              <p className="text-sm font-bold text-app-text">No matches found</p>
+              <p className="text-xs text-text-muted">Try updating your academic profile or exploring all available filters.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {weightedMatches.map((item) => {
+                const isExpanded = expandedMatchId === item._id;
 
-                {/* Score Factor Badges */}
-                <div className="flex flex-wrap items-center gap-2 my-3 text-[10px] font-bold">
-                  <span className="px-2 py-1 bg-slate-100 text-slate-700 rounded-lg">GWA: {item.matchBreakdown.GWA}</span>
-                  <span className="px-2 py-1 bg-slate-100 text-slate-700 rounded-lg">Location: {item.matchBreakdown.location}</span>
-                  <span className="px-2 py-1 bg-slate-100 text-slate-700 rounded-lg">Need: {item.matchBreakdown.financial}</span>
-                </div>
+                return (
+                  <div key={item._id} className="bg-card-bg border border-app-text/10 rounded-2xl p-5 hover:border-primary/40 transition-all shadow-xs">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="inline-block px-2.5 py-0.5 bg-primary/10 text-primary text-[11px] font-black rounded-full">
+                            {item.weightedScore || item.matchScore}% Match
+                          </span>
+                          {item.matchBreakdown && (
+                            <button 
+                              type="button"
+                              onClick={() => toggleBreakdown(item._id)}
+                              className="flex items-center gap-1 text-[11px] text-text-muted hover:text-primary font-medium cursor-pointer"
+                            >
+                              <Info className="h-3 w-3" />
+                              <span>Score Breakdown</span>
+                              {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                            </button>
+                          )}
+                        </div>
+                        <h4 className="text-sm font-bold text-app-text">{item.title}</h4>
+                        <p className="text-xs text-text-muted font-medium">{item.provider}</p>
+                      </div>
 
-                <div className="flex items-center justify-between pt-3 border-t border-slate-100 text-xs">
-                  <div>
-                    <span className="text-slate-400 font-medium">Grant Value: </span>
-                    <span className="font-extrabold text-slate-900">{item.amount}</span>
+                      <button 
+                        type="button"
+                        onClick={() => handleToggleSave(item._id)}
+                        disabled={isSavingId === item._id}
+                        aria-label="Bookmark scholarship"
+                        className={`p-2 rounded-xl transition-colors cursor-pointer ${
+                          item.isSaved 
+                            ? 'text-primary bg-primary/10' 
+                            : 'text-text-muted hover:text-primary hover:bg-primary/10'
+                        }`}
+                      >
+                        {isSavingId === item._id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Bookmark className="h-4 w-4" fill={item.isSaved ? 'currentColor' : 'none'} />
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Scoring Breakdown */}
+                    {isExpanded && item.matchBreakdown && (
+                      <div className="my-3 p-3 bg-app-bg rounded-xl border border-app-text/10 text-xs space-y-2 animate-in fade-in duration-200">
+                        <p className="font-bold text-app-text text-[11px] uppercase tracking-wider">Scoring Breakdown</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
+                          <div className="bg-card-bg p-2 rounded-lg border border-app-text/10">
+                            <span className="text-text-muted block">Academic (GWA)</span>
+                            <strong className="text-app-text">{item.matchBreakdown.gwa?.score}/{item.matchBreakdown.gwa?.max}</strong>
+                            <span className="text-[10px] text-text-muted block mt-0.5">{item.matchBreakdown.gwa?.detail}</span>
+                          </div>
+                          <div className="bg-card-bg p-2 rounded-lg border border-app-text/10">
+                            <span className="text-text-muted block">Location Fit</span>
+                            <strong className="text-app-text">{item.matchBreakdown.location?.score}/{item.matchBreakdown.location?.max}</strong>
+                            <span className="text-[10px] text-text-muted block mt-0.5">{item.matchBreakdown.location?.detail}</span>
+                          </div>
+                          <div className="bg-card-bg p-2 rounded-lg border border-app-text/10">
+                            <span className="text-text-muted block">Financial Need</span>
+                            <strong className="text-app-text">{item.matchBreakdown.financial?.score}/{item.matchBreakdown.financial?.max}</strong>
+                            <span className="text-[10px] text-text-muted block mt-0.5">{item.matchBreakdown.financial?.detail}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between pt-3 mt-3 border-t border-app-text/10 text-xs">
+                      <div>
+                        <span className="text-text-muted font-medium">Grant Value: </span>
+                        <span className="font-extrabold text-app-text">
+                          {formatCurrency(item.amount)} / {item.amountPeriod || 'yr'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-text-muted text-[11px]">Due: <strong>{formatDate(item.deadline)}</strong></span>
+                        <button 
+                          type="button"
+                          onClick={() => handleApplyClick(item)}
+                          className="flex items-center gap-1.5 px-3.5 py-1.5 bg-app-text text-card-bg hover:bg-primary hover:text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
+                        >
+                          Apply Directly <ExternalLink className="h-3 w-3" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-slate-500 text-[11px]">Due: <strong>{item.deadline}</strong></span>
-                    <button 
-                      onClick={() => handleApplyClick(item)}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-slate-900 hover:bg-blue-600 text-white rounded-xl text-xs font-bold transition-all"
-                    >
-                      Apply Directly <ExternalLink className="h-3 w-3" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Right: Outbound Tracker */}
         <div className="space-y-4">
-          <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+          <h3 className="text-base font-bold text-app-text flex items-center gap-2">
             <Send className="h-4 w-4 text-emerald-600" /> Outbound Application Tracker
           </h3>
 
-          <div className="bg-white border border-slate-200/80 rounded-2xl p-4 space-y-3 shadow-xs">
-            {trackedApplications.map((app) => (
-              <div key={app.id} className="p-3 bg-slate-50/80 rounded-xl border border-slate-100 space-y-2">
-                <div className="flex items-center justify-between">
-                  <h5 className="text-xs font-bold text-slate-800 truncate max-w-[140px]">{app.title}</h5>
-                  <StatusBadge status={app.status} />
+          <div className="bg-card-bg border border-app-text/10 rounded-2xl p-4 space-y-3 shadow-xs">
+            {trackedApplications.length === 0 ? (
+              <p className="text-xs text-text-muted text-center py-4">No active applications tracked yet.</p>
+            ) : (
+              trackedApplications.map((app) => (
+                <div key={app._id} className="p-3 bg-app-bg rounded-xl border border-app-text/10 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="text-xs font-bold text-app-text truncate">{app.scholarshipTitle || app.title}</h4>
+                    <StatusBadge status={app.status} />
+                  </div>
+                  <div className="flex justify-between items-center text-[10px] text-text-muted">
+                    <span>{app.provider}</span>
+                    <span>Updated {formatDate(app.updatedAt || app.submittedAt)}</span>
+                  </div>
                 </div>
-                <div className="flex justify-between items-center text-[10px] text-slate-500">
-                  <span>{app.provider}</span>
-                  <span>Updated {app.updated}</span>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
 
       </div>
 
+      {/* Redirect Confirmation Modal */}
       <ConfirmModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onConfirm={confirmRedirect}
         title="Official Portal Redirect"
-        message={`You are leaving IskolarMatch to access the official application portal for ${selectedScholarship?.provider}. Direct application hosting is not performed on our platform.`}
+        message={`You are leaving IskolarMatch to access the official application portal for ${selectedScholarship?.provider || 'this provider'}.`}
         confirmText="Open Official Website"
       />
     </div>

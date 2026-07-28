@@ -14,8 +14,14 @@ import AuthPage from './features/auth/AuthPage';
 
 // Module Dashboards
 import StudentDashboard from './features/student/pages/StudentDashboard';
+import StudentProfile from './features/student/pages/StudentProfile';
+import ScholarshipSearch from './features/student/pages/ScholarshipSearch';
+import MatchFeed from './features/student/pages/MatchFeed';
+import SavedScholarships from './features/student/pages/SavedScholarships';
+import ApplicationTracker from './features/student/pages/ApplicationTracker';
 import ProviderDashboard from './features/provider/pages/ProviderDashboard';
 import AdminDashboard from './features/admin/pages/AdminDashboard';
+
 
 /**
  * Guard component that handles authentication & role-based route protection
@@ -37,12 +43,20 @@ function ProtectedRoute({ allowedRoles, children }) {
     return <Navigate to="/auth?mode=signin" state={{ from: location }} replace />;
   }
 
-  // 2. If user exists but role doesn't match the current dashboard route, send them to THEIR dashboard
+  // 2. If user exists but role doesn't match the current route, send them to THEIR dashboard
   if (allowedRoles && !allowedRoles.includes(user.role)) {
     return <Navigate to={`/dashboard/${user.role}`} replace />;
   }
 
   return children;
+}
+
+/**
+ * Helper to dynamically redirect `/dashboard` to the user's role-specific home
+ */
+function DashboardRedirect() {
+  const { user } = useAuth();
+  return <Navigate to={`/dashboard/${user?.role || 'student'}`} replace />;
 }
 
 export default function App() {
@@ -59,6 +73,10 @@ export default function App() {
 
           {/* 2. PROTECTED DASHBOARD ROUTES */}
           <Route path="/dashboard" element={<AppLayout />}>
+            {/* Redirect /dashboard to /dashboard/:role */}
+            <Route index element={<DashboardRedirect />} />
+
+            {/* Student Routes */}
             <Route 
               path="student" 
               element={
@@ -68,6 +86,50 @@ export default function App() {
               } 
             />
             <Route 
+              path="student/search" 
+              element={
+                <ProtectedRoute allowedRoles={['student']}>
+                  <ScholarshipSearch />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="student/matches" 
+              element={
+                <ProtectedRoute allowedRoles={['student']}>
+                  <MatchFeed />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="student/profile" 
+              element={
+                <ProtectedRoute allowedRoles={['student']}>
+                  <StudentProfile />
+                </ProtectedRoute>
+              } 
+            />
+
+            <Route 
+              path="student/saved" 
+              element={
+                <ProtectedRoute allowedRoles={['student']}>
+                  <SavedScholarships />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="student/applications" 
+              element={
+                <ProtectedRoute allowedRoles={['student']}>
+                  <ApplicationTracker />
+                </ProtectedRoute>
+              } 
+            />
+      
+
+            {/* Provider Route */}
+            <Route 
               path="provider" 
               element={
                 <ProtectedRoute allowedRoles={['provider']}>
@@ -75,6 +137,8 @@ export default function App() {
                 </ProtectedRoute>
               } 
             />
+
+            {/* Admin Route */}
             <Route 
               path="admin" 
               element={
@@ -85,7 +149,7 @@ export default function App() {
             />
           </Route>
 
-          {/* Catch-all redirect */}
+          {/* Catch-all fallback */}
           <Route path="*" element={<Navigate to="/auth?mode=signin" replace />} />
         </Routes>
       </BrowserRouter>
