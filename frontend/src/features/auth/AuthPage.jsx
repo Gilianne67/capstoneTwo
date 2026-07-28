@@ -34,6 +34,7 @@ export default function AuthPage() {
     password: '',
   });
 
+  // Sync state with URL Search Parameters
   useEffect(() => {
     const mode = searchParams.get('mode');
     const roleParam = searchParams.get('role');
@@ -46,26 +47,40 @@ export default function AuthPage() {
     }
   }, [searchParams]);
 
+  // Handle Input Changes
   const handleChange = (e) => {
-    setErrorMessage('');
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    if (errorMessage) setErrorMessage('');
+    setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
-  // Quick Demo Login (for development testing only)
+  // Switch between Sign In and Sign Up modes cleanly
+  const toggleAuthMode = () => {
+    setIsSignUp((prev) => !prev);
+    setErrorMessage('');
+    setFormData({
+      fullName: '',
+      organizationName: '',
+      email: '',
+      password: '',
+    });
+  };
+
+  // Dev Quick-Login Helper
   const loginWithDemoAccount = async (email, password) => {
     setIsLoading(true);
     setErrorMessage('');
     try {
       const authenticatedUser = await login(email, password);
-      navigate(`/dashboard/${authenticatedUser.role}`);
+      const targetRole = authenticatedUser?.role || 'student';
+      navigate(`/dashboard/${targetRole}`);
     } catch (err) {
-      setErrorMessage(err.message || 'Demo login failed.');
+      setErrorMessage(err?.message || 'Demo login failed. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Production Form Submission
+  // Form Submission
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
@@ -78,12 +93,19 @@ export default function AuthPage() {
       let authenticatedUser;
 
       if (isSignUp) {
-        // Build payload based on user role
+        const name = signupRole === 'provider' 
+          ? formData.organizationName.trim() 
+          : formData.fullName.trim();
+
+        if (!name) {
+          throw new Error('Please enter your name or organization name.');
+        }
+
         const payload = {
           email: emailTrimmed,
           password: passwordTrimmed,
           role: signupRole,
-          name: signupRole === 'provider' ? formData.organizationName.trim() : formData.fullName.trim(),
+          name,
         };
 
         authenticatedUser = await register(payload);
@@ -91,30 +113,33 @@ export default function AuthPage() {
         authenticatedUser = await login(emailTrimmed, passwordTrimmed);
       }
 
-      // Navigate dynamically based on role returned from backend API
-      navigate(`/dashboard/${authenticatedUser.role}`);
+      const targetRole = authenticatedUser?.role || (isSignUp ? signupRole : 'student');
+      navigate(`/dashboard/${targetRole}`);
     } catch (err) {
-      setErrorMessage(err.message || 'Authentication failed. Please check your details.');
+      setErrorMessage(err?.message || 'Authentication failed. Please check your credentials.');
     } finally {
       setIsLoading(false);
     }
   };
 
   const isProvider = isSignUp && signupRole === 'provider';
-  const showDevHelpers = process.env.NODE_ENV !== 'production';
+  
+  // Safely check environment for dev helpers (supports Vite & CRA)
+  const isDevEnvironment = 
+    (typeof import.meta !== 'undefined' && import.meta.env?.DEV) ||
+    process.env.NODE_ENV !== 'production';
 
   return (
     <div className="min-h-screen bg-app-bg text-app-text flex flex-col justify-between relative overflow-hidden pt-20">
-      {/* Top Accent Line */}
+      {/* Top Accent Bar */}
       <div className={`h-1.5 w-full transition-colors duration-300 ${isProvider ? 'bg-emerald-900' : 'bg-primary'}`} />
 
-      {/* Main Content Container */}
+      {/* Main Container */}
       <div className="max-w-6xl w-full mx-auto px-4 py-8 sm:px-6 lg:px-8 flex-1 flex items-center justify-center relative z-10">
         <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-0 items-stretch bg-card-bg border border-app-text/10 rounded-3xl shadow-2xl overflow-hidden">
           
           {/* Left Hero Panel */}
           <div className={`lg:col-span-5 ${isProvider ? 'bg-emerald-900' : 'bg-primary'} text-white p-8 sm:p-12 flex flex-col justify-between relative overflow-hidden transition-colors duration-500`}>
-            
             <div className="absolute -right-10 -bottom-10 w-64 h-64 border border-white/10 rounded-3xl rotate-12 bg-white/[0.04] pointer-events-none" />
             <div className="absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.15)_1px,transparent_1px)] [background-size:20px_20px] pointer-events-none" />
 
@@ -142,7 +167,7 @@ export default function AuthPage() {
               </div>
             </div>
 
-            {/* Feature Highlights */}
+            {/* Features List */}
             <div className="relative z-10 space-y-3 my-8">
               {[
                 'Transparent Eligibility Matching Engine',
@@ -165,7 +190,7 @@ export default function AuthPage() {
           <div className="lg:col-span-7 p-6 sm:p-10 lg:p-12 flex flex-col justify-center">
             <div className="max-w-md mx-auto w-full space-y-6">
               
-              {/* Form Title & Switcher */}
+              {/* Header */}
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-2xl font-black text-app-text">
@@ -180,22 +205,19 @@ export default function AuthPage() {
                 
                 <button
                   type="button"
-                  onClick={() => {
-                    setIsSignUp(!isSignUp);
-                    setErrorMessage('');
-                  }}
+                  onClick={toggleAuthMode}
                   className="text-xs font-bold text-primary hover:underline focus:outline-none"
                 >
                   {isSignUp ? 'Sign In' : 'Sign Up'}
                 </button>
               </div>
 
-              {/* Quick Test Logins Bar (Visible only during Development) */}
-              {!isSignUp && showDevHelpers && (
+              {/* Dev Quick Test Accounts */}
+              {!isSignUp && isDevEnvironment && (
                 <div className="p-3.5 bg-app-bg border border-app-text/10 rounded-2xl space-y-2">
                   <div className="flex items-center gap-1.5 text-[10px] font-extrabold text-text-muted uppercase tracking-wider">
                     <Zap className="h-3.5 w-3.5 text-accent" />
-                    <span>Quick Test Accounts (Dev Only)</span>
+                    <span>Quick Test Accounts (Dev Mode)</span>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     <button
@@ -228,7 +250,7 @@ export default function AuthPage() {
                 </div>
               )}
 
-              {/* Account Type Selector (Sign Up Mode Only) */}
+              {/* Role Toggle for Sign Up */}
               {isSignUp && (
                 <div className="grid grid-cols-2 gap-2 p-1 bg-app-bg rounded-2xl border border-app-text/10">
                   <button
@@ -258,7 +280,7 @@ export default function AuthPage() {
                 </div>
               )}
 
-              {/* Error Message Alert */}
+              {/* Error Alert */}
               {errorMessage && (
                 <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-center gap-2.5 text-xs text-rose-600">
                   <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
@@ -266,7 +288,7 @@ export default function AuthPage() {
                 </div>
               )}
 
-              {/* Form Fields */}
+              {/* Form Body */}
               <form onSubmit={handleSubmit} className="space-y-4">
                 {isSignUp && (
                   <div>
@@ -334,7 +356,8 @@ export default function AuthPage() {
                     />
                     <button
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      onClick={() => setShowPassword((prev) => !prev)}
                       className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-app-text"
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -368,10 +391,7 @@ export default function AuthPage() {
                   {isSignUp ? 'Already have an account?' : "Don't have an account yet?"}{' '}
                   <button
                     type="button"
-                    onClick={() => {
-                      setIsSignUp(!isSignUp);
-                      setErrorMessage('');
-                    }}
+                    onClick={toggleAuthMode}
                     className="font-bold text-primary hover:underline"
                   >
                     {isSignUp ? 'Sign In' : 'Register now'}
