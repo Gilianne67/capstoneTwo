@@ -12,15 +12,27 @@ import AppLayout from './layouts/AppLayout';
 import HomePage from './features/public-landing/pages/HomePage';
 import AuthPage from './features/auth/AuthPage';
 
-// Module Dashboards
+// Student Module Pages
 import StudentDashboard from './features/student/pages/StudentDashboard';
 import StudentProfile from './features/student/pages/StudentProfile';
 import ScholarshipSearch from './features/student/pages/ScholarshipSearch';
 import MatchFeed from './features/student/pages/MatchFeed';
 import SavedScholarships from './features/student/pages/SavedScholarships';
 import ApplicationTracker from './features/student/pages/ApplicationTracker';
+
+// Provider Module Pages
 import ProviderDashboard from './features/provider/pages/ProviderDashboard';
+import ScholarshipListings from './features/provider/pages/ScholarshipListings';
+import CreateListing from './features/provider/pages/CreateListing';
+import PerformanceAnalytics from './features/provider/pages/PerformanceAnalytics';
+import OrganizationVerification from './features/provider/pages/OrganizationVerification';
+
+// Admin Module Pages
 import AdminDashboard from './features/admin/pages/AdminDashboard';
+import VerificationQueue from './features/admin/pages/VerificationQueue';
+import ContentModeration from './features/admin/pages/ContentModeration';
+import TaxonomyTags from './features/admin/pages/TaxonomyTags';
+import AuditCompliance from './features/admin/pages/AuditCompliance';
 
 
 /**
@@ -109,7 +121,6 @@ export default function App() {
                 </ProtectedRoute>
               } 
             />
-
             <Route 
               path="student/saved" 
               element={
@@ -126,9 +137,8 @@ export default function App() {
                 </ProtectedRoute>
               } 
             />
-      
 
-            {/* Provider Route */}
+            {/* Provider Routes */}
             <Route 
               path="provider" 
               element={
@@ -137,13 +147,77 @@ export default function App() {
                 </ProtectedRoute>
               } 
             />
+            <Route 
+              path="provider/listings" 
+              element={
+                <ProtectedRoute allowedRoles={['provider']}>
+                  <ScholarshipListings />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="provider/create" 
+              element={
+                <ProtectedRoute allowedRoles={['provider']}>
+                  <CreateListing />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="provider/analytics" 
+              element={
+                <ProtectedRoute allowedRoles={['provider']}>
+                  <PerformanceAnalytics />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="provider/verification" 
+              element={
+                <ProtectedRoute allowedRoles={['provider']}>
+                  <OrganizationVerification />
+                </ProtectedRoute>
+              } 
+            />
 
-            {/* Admin Route */}
+            {/* Admin Routes */}
             <Route 
               path="admin" 
               element={
                 <ProtectedRoute allowedRoles={['admin']}>
                   <AdminDashboard />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="admin/verification" 
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <VerificationQueue />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="admin/moderation" 
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <ContentModeration />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="admin/taxonomy" 
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <TaxonomyTags />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="admin/audit-log" 
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <AuditCompliance />
                 </ProtectedRoute>
               } 
             />

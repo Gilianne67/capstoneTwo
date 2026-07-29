@@ -68,57 +68,63 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
   const currentTheme = themes[role] || themes.student;
 
   // Navigation Items mapped strictly to Module Requirements
-  const getNavSections = () => {
-    if (role === 'provider') {
-      return {
-        menu: [
-          { label: 'Dashboard', path: '/dashboard/provider', icon: LayoutDashboard },
-          { label: 'Scholarship Listings', path: '/dashboard/provider/listings', icon: Layers },
-          { label: 'Create Listing', path: '/dashboard/provider/listings/create', icon: PlusCircle },
-          { label: 'Performance & Analytics', path: '/dashboard/provider/analytics', icon: BarChart3 },
-          { label: 'Organization Verification', path: '/dashboard/provider/profile', icon: Building2 },
-        ],
-        general: [
-          { label: 'Settings & RBAC', path: '/dashboard/provider/settings', icon: Settings },
-          { label: 'Help & Support', path: '/dashboard/provider/help', icon: HelpCircle },
-        ]
-      };
-    }
+ // In Sidebar.jsx, update getNavSections():
 
-    if (role === 'admin') {
-      return {
-        menu: [
-          { label: 'Operations Dashboard', path: '/dashboard/admin', icon: LayoutDashboard },
-          { label: 'Verification Queue', path: '/dashboard/admin/verifications', icon: CheckSquare, badge: 'Pending' },
-          { label: 'Content Moderation', path: '/dashboard/admin/moderation', icon: AlertTriangle },
-          { label: 'Taxonomy & Tags', path: '/dashboard/admin/taxonomy', icon: Tags },
-          { label: 'Audit & Compliance', path: '/dashboard/admin/audit-logs', icon: ShieldCheck },
-        ],
-        general: [
-          { label: 'System Settings', path: '/dashboard/admin/settings', icon: Settings },
-          { label: 'Notifications', path: '/dashboard/admin/notifications', icon: Bell },
-          { label: 'Help Center', path: '/dashboard/admin/help', icon: HelpCircle },
-        ]
-      };
-    }
-
-    // Default: Student Module
+const getNavSections = () => {
+  if (role === 'provider') {
     return {
       menu: [
-        { label: 'Dashboard', path: '/dashboard/student', icon: LayoutDashboard },
-        { label: 'Student Profile', path: '/dashboard/student/profile', icon: User },
-        { label: 'Scholarship Search', path: '/dashboard/student/search', icon: Search },
-        { label: 'Matched Feed', path: '/dashboard/student/matches', icon: Award, badge: 'Live' },
-        { label: 'Saved Scholarships', path: '/dashboard/student/saved', icon: Bookmark },
-        { label: 'Application Tracker', path: '/dashboard/student/applications', icon: FileText },
+        { label: 'Dashboard', path: '/dashboard/provider', icon: LayoutDashboard },
+        { label: 'Scholarship Listings', path: '/dashboard/provider/listings', icon: Layers },
+        // Fixed: changed from '/dashboard/provider/listings/create' to '/dashboard/provider/create'
+        { label: 'Create Listing', path: '/dashboard/provider/create', icon: PlusCircle },
+        { label: 'Performance & Analytics', path: '/dashboard/provider/analytics', icon: BarChart3 },
+        { label: 'Organization Verification', path: '/dashboard/provider/verification', icon: Building2 },
       ],
       general: [
-        { label: 'Deadline Alerts', path: '/dashboard/student/notifications', icon: Bell },
-        { label: 'Settings', path: '/dashboard/student/settings', icon: Settings },
-        { label: 'Help Center', path: '/dashboard/student/help', icon: HelpCircle },
+        { label: 'Settings & RBAC', path: '/dashboard/provider/settings', icon: Settings },
+        { label: 'Help & Support', path: '/dashboard/provider/help', icon: HelpCircle },
       ]
     };
+  }
+
+  if (role === 'admin') {
+    return {
+      menu: [
+        { label: 'Operations Dashboard', path: '/dashboard/admin', icon: LayoutDashboard },
+        // Fixed: changed from '/dashboard/admin/verifications' to '/dashboard/admin/verification'
+        { label: 'Verification Queue', path: '/dashboard/admin/verification', icon: CheckSquare, badge: 'Pending' },
+        { label: 'Content Moderation', path: '/dashboard/admin/moderation', icon: AlertTriangle },
+        { label: 'Taxonomy & Tags', path: '/dashboard/admin/taxonomy', icon: Tags },
+        // Fixed: changed from '/dashboard/admin/audit-logs' to '/dashboard/admin/audit-log'
+        { label: 'Audit & Compliance', path: '/dashboard/admin/audit-log', icon: ShieldCheck },
+      ],
+      general: [
+        { label: 'System Settings', path: '/dashboard/admin/settings', icon: Settings },
+        { label: 'Notifications', path: '/dashboard/admin/notifications', icon: Bell },
+        { label: 'Help Center', path: '/dashboard/admin/help', icon: HelpCircle },
+      ]
+    };
+  }
+
+  // Default: Student Module
+  return {
+    menu: [
+      { label: 'Dashboard', path: '/dashboard/student', icon: LayoutDashboard },
+      { label: 'Student Profile', path: '/dashboard/student/profile', icon: User },
+      { label: 'Scholarship Search', path: '/dashboard/student/search', icon: Search },
+      { label: 'Matched Feed', path: '/dashboard/student/matches', icon: Award, badge: 'Live' },
+      { label: 'Saved Scholarships', path: '/dashboard/student/saved', icon: Bookmark },
+      { label: 'Application Tracker', path: '/dashboard/student/applications', icon: FileText },
+    ],
+    general: [
+      { label: 'Deadline Alerts', path: '/dashboard/student/notifications', icon: Bell },
+      { label: 'Settings', path: '/dashboard/student/settings', icon: Settings },
+      { label: 'Help Center', path: '/dashboard/student/help', icon: HelpCircle },
+    ]
   };
+};
+
 
   const { menu, general } = getNavSections();
 
