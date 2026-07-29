@@ -139,20 +139,40 @@ export default function ScholarshipSearch() {
   const [bookmarkedIds, setBookmarkedIds] = useState([]);
   const [expandedMatchId, setExpandedMatchId] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isUsingFallback, setIsUsingFallback] = useState(false);
   const [savingBookmarkId, setSavingBookmarkId] = useState(null);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedScholarship, setSelectedScholarship] = useState(null);
 
-  // User Profile Attributes (Synced with Dashboard)
-  const studentProfile = useMemo(() => ({
-    gwa: user?.profile?.gwa || '1.45',
-    region: user?.profile?.location || 'Region V (Bicol Region)',
-    degreeLevel: user?.profile?.degreeLevel || 'Undergraduate',
-  }), [user]);
+  // Dynamic User Profile Attributes (Synced with Logged-in Student Auth state)
+  const studentProfile = useMemo(() => {
+    const profile = user?.profile || user || {};
+    return {
+      gwa: profile.gwa || profile.academicInfo?.gwa || '1.45',
+      region: profile.region || profile.location || profile.address?.region || 'Region V (Bicol Region)',
+      degreeLevel: profile.degreeLevel || profile.educationLevel || 'Undergraduate',
+      flags: profile.targetFlags || profile.eligibilityFlags || []
+    };
+  }, [user]);
 
-  // 1. Fetch Data with Dashboard Information Parity
+  // Sync profile options into filter states upon profile load
+  useEffect(() => {
+    if (user) {
+      if (studentProfile.region && studentProfile.region !== 'All') {
+        setSelectedRegion(studentProfile.region);
+      }
+      if (studentProfile.degreeLevel && studentProfile.degreeLevel !== 'All') {
+        setSelectedDegree(studentProfile.degreeLevel);
+      }
+      if (Array.isArray(studentProfile.flags) && studentProfile.flags.length > 0) {
+        setSelectedFlags(studentProfile.flags);
+      }
+    }
+  }, [user, studentProfile]);
+
+  // 1. Fetch Data with Dynamic Fallback Handling
   useEffect(() => {
     let isMounted = true;
 
@@ -172,8 +192,10 @@ export default function ScholarshipSearch() {
           if (scholarshipsRes.status === 'fulfilled' && scholarshipsRes.value.ok) {
             const list = await scholarshipsRes.value.json();
             setScholarships(Array.isArray(list) && list.length > 0 ? list : MOCK_SCHOLARSHIPS);
+            setIsUsingFallback(false);
           } else {
             setScholarships(MOCK_SCHOLARSHIPS);
+            setIsUsingFallback(true);
           }
 
           if (bookmarksRes.status === 'fulfilled' && bookmarksRes.value.ok) {
@@ -186,8 +208,9 @@ export default function ScholarshipSearch() {
         }
       } catch (err) {
         if (isMounted) {
-          console.warn('API connection failed, loading dashboard matched grant dataset:', err);
+          console.warn('Backend API connection offline/failed, loading mock preview mode:', err);
           setScholarships(MOCK_SCHOLARSHIPS);
+          setIsUsingFallback(true);
         }
       } finally {
         if (isMounted) setIsLoading(false);
@@ -323,6 +346,16 @@ export default function ScholarshipSearch() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
+      {/* Test-mode Alert Banner */}
+      {isUsingFallback && (
+        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 p-3 rounded-xl flex items-center justify-between text-xs font-medium">
+          <span className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            Backend API offline/unreachable. Showing mock preview mode for testing.
+          </span>
+        </div>
+      )}
+
       {/* Search Header & Dashboard Metrics Bar */}
       <div className="bg-card-bg rounded-2xl border border-app-text/10 p-4 shadow-xs space-y-4">
         {/* Search Controls */}
@@ -379,16 +412,7 @@ export default function ScholarshipSearch() {
               <p className="text-[10px] font-bold text-text-muted uppercase">Matched Grants</p>
               <p className="text-xs font-black text-app-text">{dashboardStats.totalMatched} Opportunities</p>
             </div>
-          </div>
-
-          <div className="bg-app-bg p-2.5 rounded-xl border border-app-text/5 flex items-center gap-2.5">
-            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-600 shrink-0">
-              <TrendingUp className="w-4 h-4" />
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-text-muted uppercase">Est. Potential Aid</p>
-              <p className="text-xs font-black text-app-text">{formatCurrency(dashboardStats.totalPotentialValue)}</p>
-            </div>
+                      
           </div>
 
           <div className="bg-app-bg p-2.5 rounded-xl border border-app-text/5 flex items-center gap-2.5">
