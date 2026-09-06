@@ -33,14 +33,16 @@ export default function TaxonomyTags() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   
-  // New Tag Form State
+  // Form State
   const [newTagName, setNewTagName] = useState('');
   const [newTagCategory, setNewTagCategory] = useState('Field of Study');
   const [isAdding, setIsAdding] = useState(false);
+  const [formError, setFormError] = useState(null);
 
   // Deletion Modal State
   const [tagToDelete, setTagToDelete] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -80,19 +82,13 @@ export default function TaxonomyTags() {
     };
   }, []);
 
-  // Handle Tag Creation
+  // Safe Tag Creation
   const handleCreateTag = async (e) => {
     e.preventDefault();
     if (!newTagName.trim()) return;
 
     setIsAdding(true);
-    const tempTag = {
-      _id: `tag-${Date.now()}`,
-      name: newTagName.trim(),
-      category: newTagCategory,
-      usageCount: 0,
-      isSystem: false
-    };
+    setFormError(null);
 
     try {
       const token = localStorage.getItem('token');
@@ -107,26 +103,43 @@ export default function TaxonomyTags() {
         body: JSON.stringify({ name: newTagName.trim(), category: newTagCategory })
       });
 
-      if (res.ok) {
-        const createdTag = await res.json();
-        setTags(prev => [createdTag, ...prev]);
-      } else {
-        throw new Error('Server rejected tag creation');
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.message || 'Server rejected tag creation');
       }
-    } catch (err) {
-      console.warn('Backend offline. Optimistically adding tag locally:', err);
-      setTags(prev => [tempTag, ...prev]);
-    } finally {
+
+      const createdTag = await res.json();
+      setTags(prev => [createdTag, ...prev]);
       setNewTagName('');
+    } catch (err) {
+      console.error('Create Tag Error:', err);
+      
+      if (isUsingFallback) {
+        // Fallback execution mode
+        const tempTag = {
+          _id: `tag-${Date.now()}`,
+          name: newTagName.trim(),
+          category: newTagCategory,
+          usageCount: 0,
+          isSystem: false
+        };
+        setTags(prev => [tempTag, ...prev]);
+        setNewTagName('');
+      } else {
+        setFormError(err.message);
+      }
+    } finally {
       setIsAdding(false);
     }
   };
 
-  // Handle Tag Deletion
+  // Safe Tag Deletion
   const handleConfirmDelete = async () => {
     if (!tagToDelete) return;
 
     setIsDeleting(true);
+    setDeleteError(null);
+
     try {
       const token = localStorage.getItem('token');
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -136,13 +149,25 @@ export default function TaxonomyTags() {
         headers
       });
 
-      if (!res.ok) throw new Error('Delete failed on server');
-    } catch (err) {
-      console.warn('Backend offline. Optimistically removing tag locally:', err);
-    } finally {
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.message || 'Delete failed on server');
+      }
+
+      // Safe update state ONLY on 2xx success
       setTags(prev => prev.filter(t => t._id !== tagToDelete._id));
-      setIsDeleting(false);
       setTagToDelete(null);
+    } catch (err) {
+      console.error('Delete Tag Error:', err);
+
+      if (isUsingFallback) {
+        setTags(prev => prev.filter(t => t._id !== tagToDelete._id));
+        setTagToDelete(null);
+      } else {
+        setDeleteError(err.message);
+      }
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -188,6 +213,12 @@ export default function TaxonomyTags() {
         <h3 className="text-xs font-bold text-slate-900 flex items-center gap-2">
           <FolderTree className="w-4 h-4 text-emerald-600" /> Add New Category Tag
         </h3>
+
+        {formError && (
+          <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-medium">
+            {formError}
+          </div>
+        )}
 
         <form onSubmit={handleCreateTag} className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
           <input 
@@ -272,7 +303,10 @@ export default function TaxonomyTags() {
                 {!tag.isSystem && (
                   <button
                     type="button"
-                    onClick={() => setTagToDelete(tag)}
+                    onClick={() => {
+                      setDeleteError(null);
+                      setTagToDelete(tag);
+                    }}
                     className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 rounded-lg transition-colors cursor-pointer shrink-0"
                     title="Delete Tag"
                   >
@@ -288,11 +322,18 @@ export default function TaxonomyTags() {
       {/* Confirmation Modal */}
       <ConfirmModal
         isOpen={Boolean(tagToDelete)}
-        onClose={() => setTagToDelete(null)}
+        onClose={() => {
+          setTagToDelete(null);
+          setDeleteError(null);
+        }}
         onConfirm={handleConfirmDelete}
         isLoading={isDeleting}
         title="Delete Taxonomy Tag"
-        message={`Are you sure you want to delete "${tagToDelete?.name}"? Existing scholarships with this tag will keep their record, but it will be removed from future filters.`}
+        message={
+          deleteError
+            ? `Server Error: ${deleteError}`
+            : `Are you sure you want to delete "${tagToDelete?.name}"? Existing scholarships with this tag will keep their record, but it will be removed from future filters.`
+        }
       />
     </div>
   );

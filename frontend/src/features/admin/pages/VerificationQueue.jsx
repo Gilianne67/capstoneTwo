@@ -63,7 +63,8 @@ export default function VerificationQueue() {
   const [statusFilter, setStatusFilter] = useState('Pending Review');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAction, setSelectedAction] = useState(null); // { id, type: 'approve'|'reject' }
-  const [selectedDocViewer, setSelectedDocViewer] = useState(null); // Document inspection modal
+  const [actionError, setActionError] = useState(null);
+  const [selectedDocViewer, setSelectedDocViewer] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -83,7 +84,7 @@ export default function VerificationQueue() {
             setIsUsingFallback(false);
           }
         } else {
-          throw new Error('Verification Queue API error');
+          throw new Error('Failed to load verification queue');
         }
       } catch (err) {
         if (isMounted) {
@@ -108,6 +109,7 @@ export default function VerificationQueue() {
     if (!selectedAction) return;
 
     setIsProcessing(true);
+    setActionError(null);
     const { id, type } = selectedAction;
     const newStatus = type === 'approve' ? 'Verified' : 'Rejected';
 
@@ -124,14 +126,25 @@ export default function VerificationQueue() {
         body: JSON.stringify({ status: newStatus })
       });
 
-      if (!res.ok) throw new Error('Action failed on server');
-    } catch (err) {
-      console.warn('Backend server offline. Optimistically updating local verification status:', err);
-    } finally {
-      // Optimistic state update
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.message || 'Verification update failed on server');
+      }
+
+      // Update state ONLY on successful server response
       setVerifications(prev => prev.map(v => v._id === id ? { ...v, status: newStatus } : v));
-      setIsProcessing(false);
       setSelectedAction(null);
+    } catch (err) {
+      console.error('API Error:', err);
+      setActionError(err.message);
+
+      // Fallback behavior for local presentation testing
+      if (isUsingFallback) {
+        setVerifications(prev => prev.map(v => v._id === id ? { ...v, status: newStatus } : v));
+        setSelectedAction(null);
+      }
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -176,7 +189,7 @@ export default function VerificationQueue() {
       <div className="bg-white border border-slate-200/80 rounded-2xl p-5 space-y-4 shadow-xs">
         {/* Controls Bar */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {['Pending Review', 'Verified', 'Rejected', 'All'].map((status) => (
               <button
                 key={status}
@@ -247,14 +260,20 @@ export default function VerificationQueue() {
                   <div className="flex justify-end gap-2 pt-2 border-t border-slate-200/40">
                     <button
                       type="button"
-                      onClick={() => setSelectedAction({ id: item._id, type: 'reject' })}
+                      onClick={() => {
+                        setActionError(null);
+                        setSelectedAction({ id: item._id, type: 'reject' });
+                      }}
                       className="px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1"
                     >
                       <X className="w-3.5 h-3.5" /> Reject Application
                     </button>
                     <button
                       type="button"
-                      onClick={() => setSelectedAction({ id: item._id, type: 'approve' })}
+                      onClick={() => {
+                        setActionError(null);
+                        setSelectedAction({ id: item._id, type: 'approve' });
+                      }}
                       className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs flex items-center gap-1"
                     >
                       <Check className="w-3.5 h-3.5" /> Grant Verification
@@ -270,11 +289,18 @@ export default function VerificationQueue() {
       {/* Confirmation Modal */}
       <ConfirmModal
         isOpen={Boolean(selectedAction)}
-        onClose={() => setSelectedAction(null)}
+        onClose={() => {
+          setSelectedAction(null);
+          setActionError(null);
+        }}
         onConfirm={handleConfirmAction}
         isLoading={isProcessing}
         title={selectedAction?.type === 'approve' ? 'Grant Verification Status' : 'Reject Verification Request'}
-        message={`Are you sure you want to ${selectedAction?.type} this organization's verification submission?`}
+        message={
+          actionError 
+            ? `Server Error: ${actionError}` 
+            : `Are you sure you want to ${selectedAction?.type} this organization's verification submission?`
+        }
       />
 
       {/* Document Viewer Modal */}

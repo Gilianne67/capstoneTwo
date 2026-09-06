@@ -19,6 +19,9 @@ import ScholarshipSearch from './features/student/pages/ScholarshipSearch';
 import MatchFeed from './features/student/pages/MatchFeed';
 import SavedScholarships from './features/student/pages/SavedScholarships';
 import ApplicationTracker from './features/student/pages/ApplicationTracker';
+import DeadlineAlerts from './features/student/pages/DeadlineAlerts';
+import Settings from './features/student/pages/Settings';
+import HelpCenter from './features/student/pages/HelpCenter';
 
 // Provider Module Pages
 import ProviderDashboard from './features/provider/pages/ProviderDashboard';
@@ -26,6 +29,8 @@ import ScholarshipListings from './features/provider/pages/ScholarshipListings';
 import CreateListing from './features/provider/pages/CreateListing';
 import PerformanceAnalytics from './features/provider/pages/PerformanceAnalytics';
 import OrganizationVerification from './features/provider/pages/OrganizationVerification';
+import ProviderSettings from './features/provider/pages/ProviderSettings';
+import HelpSupport from './features/provider/pages/HelpSupport';
 
 // Admin Module Pages
 import AdminDashboard from './features/admin/pages/AdminDashboard';
@@ -33,7 +38,9 @@ import VerificationQueue from './features/admin/pages/VerificationQueue';
 import ContentModeration from './features/admin/pages/ContentModeration';
 import TaxonomyTags from './features/admin/pages/TaxonomyTags';
 import AuditCompliance from './features/admin/pages/AuditCompliance';
-
+import SystemSettings from './features/admin/pages/SystemSettings';
+import AdminNotifications from './features/admin/pages/AdminNotifications';
+import AdminHelp from './features/admin/pages/AdminHelp';
 
 /**
  * Guard component that handles authentication & role-based route protection
@@ -137,6 +144,38 @@ export default function App() {
                 </ProtectedRoute>
               } 
             />
+            <Route 
+              path="student/notifications" 
+              element={
+                <ProtectedRoute allowedRoles={['student']}>
+                  <DeadlineAlerts />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="student/alerts" 
+              element={
+                <ProtectedRoute allowedRoles={['student']}>
+                  <Settings />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="student/settings" 
+              element={
+                <ProtectedRoute allowedRoles={['student']}>
+                  <Settings />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="student/help" 
+              element={
+                <ProtectedRoute allowedRoles={['student']}>
+                  <HelpCenter />
+                </ProtectedRoute>
+              } 
+            />
 
             {/* Provider Routes */}
             <Route 
@@ -179,6 +218,22 @@ export default function App() {
                 </ProtectedRoute>
               } 
             />
+            <Route 
+              path="provider/settings" 
+              element={
+                <ProtectedRoute allowedRoles={['provider']}>
+                  <ProviderSettings />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="provider/help" 
+              element={
+                <ProtectedRoute allowedRoles={['provider']}>
+                  <HelpSupport />
+                </ProtectedRoute>
+              } 
+            />
 
             {/* Admin Routes */}
             <Route 
@@ -218,6 +273,30 @@ export default function App() {
               element={
                 <ProtectedRoute allowedRoles={['admin']}>
                   <AuditCompliance />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="admin/settings" 
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <SystemSettings />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="admin/notifications" 
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <AdminNotifications />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="admin/help" 
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <AdminHelp />
                 </ProtectedRoute>
               } 
             />

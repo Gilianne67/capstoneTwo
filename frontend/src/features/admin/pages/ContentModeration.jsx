@@ -8,7 +8,8 @@ import {
   Search, 
   AlertCircle, 
   Loader2,
-  X 
+  X,
+  ExternalLink
 } from 'lucide-react';
 
 import PageHeader from '../../../components/common/PageHeader';
@@ -19,6 +20,7 @@ import ConfirmModal from '../../../components/common/ConfirmModal';
 const MOCK_FLAGGED_CONTENT = [
   {
     _id: 'flag-01',
+    listingId: 'sch-101',
     listingTitle: 'Guaranteed Overseas Student Grant 2026',
     providerName: 'Unverified Global Study Corp',
     reason: 'Suspicious processing fee requested prior to application.',
@@ -29,6 +31,7 @@ const MOCK_FLAGGED_CONTENT = [
   },
   {
     _id: 'flag-02',
+    listingId: 'sch-102',
     listingTitle: 'National Tech Scholars Allowance',
     providerName: 'Apex Student Educational Trust',
     reason: 'Expired application link and inaccurate grant value listed.',
@@ -39,6 +42,7 @@ const MOCK_FLAGGED_CONTENT = [
   },
   {
     _id: 'flag-03',
+    listingId: 'sch-103',
     listingTitle: 'LGU Provincial Excellence Assistance',
     providerName: 'Provincial LGU Board',
     reason: 'Duplicate listing entry in catalog.',
@@ -56,7 +60,8 @@ export default function ContentModeration() {
   const [isUsingFallback, setIsUsingFallback] = useState(false);
   const [statusFilter, setStatusFilter] = useState('Pending Review');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedAction, setSelectedAction] = useState(null); // { id, type: 'dismiss'|'remove' }
+  const [selectedAction, setSelectedAction] = useState(null); // { id, type: 'dismiss' | 'remove' }
+  const [actionError, setActionError] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -96,14 +101,15 @@ export default function ContentModeration() {
     };
   }, []);
 
-  // Handle Moderation Resolution
+  // Handle Moderation Resolution safely
   const handleConfirmAction = async () => {
     if (!selectedAction) return;
 
     setIsProcessing(true);
+    setActionError(null);
     const { id, type } = selectedAction;
     const newStatus = 'Resolved';
-    const resolution = type === 'remove' ? 'Listing Removed' : 'Report Dismissed';
+    const resolutionAction = type === 'remove' ? 'REMOVE_LISTING' : 'DISMISS_REPORT';
 
     try {
       const token = localStorage.getItem('token');
@@ -115,16 +121,32 @@ export default function ContentModeration() {
       const res = await fetch(`/api/v1/admin/moderation/reports/${id}`, {
         method: 'PATCH',
         headers,
-        body: JSON.stringify({ status: newStatus, resolution })
+        body: JSON.stringify({ 
+          status: newStatus, 
+          action: resolutionAction,
+          resolvedAt: new Date().toISOString()
+        })
       });
 
-      if (!res.ok) throw new Error('Resolution failed on server');
-    } catch (err) {
-      console.warn('Backend server offline. Optimistically updating report state:', err);
-    } finally {
-      setReports(prev => prev.map(r => r._id === id ? { ...r, status: newStatus } : r));
-      setIsProcessing(false);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.message || 'Moderation action failed on server');
+      }
+
+      // Safe State Update only after 2xx HTTP response
+      setReports(prev => prev.map(r => r._id === id ? { ...r, status: newStatus, resolution: resolutionAction } : r));
       setSelectedAction(null);
+    } catch (err) {
+      console.error('Moderation API Error:', err);
+      setActionError(err.message);
+
+      // Fallback update path for offline demonstration mode
+      if (isUsingFallback) {
+        setReports(prev => prev.map(r => r._id === id ? { ...r, status: newStatus } : r));
+        setSelectedAction(null);
+      }
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -220,7 +242,17 @@ export default function ContentModeration() {
                       Posted by: <strong className="text-slate-700">{report.providerName}</strong>
                     </p>
                   </div>
-                  <span className="text-[11px] text-slate-400 font-medium">Flagged: {report.flaggedAt}</span>
+                  <div className="flex items-center gap-3">
+                    <a 
+                      href={`/scholarships/${report.listingId}`} 
+                      target="_blank" 
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 hover:text-emerald-700"
+                    >
+                      <Eye className="w-3.5 h-3.5" /> View Listing
+                    </a>
+                    <span className="text-[11px] text-slate-400 font-medium">Flagged: {report.flaggedAt}</span>
+                  </div>
                 </div>
 
                 {/* Report Reason Box */}
@@ -237,14 +269,20 @@ export default function ContentModeration() {
                   <div className="flex justify-end gap-2 pt-2 border-t border-slate-200/40">
                     <button
                       type="button"
-                      onClick={() => setSelectedAction({ id: report._id, type: 'dismiss' })}
+                      onClick={() => {
+                        setActionError(null);
+                        setSelectedAction({ id: report._id, type: 'dismiss' });
+                      }}
                       className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1"
                     >
                       <CheckCircle2 className="w-3.5 h-3.5 text-slate-500" /> Dismiss Report
                     </button>
                     <button
                       type="button"
-                      onClick={() => setSelectedAction({ id: report._id, type: 'remove' })}
+                      onClick={() => {
+                        setActionError(null);
+                        setSelectedAction({ id: report._id, type: 'remove' });
+                      }}
                       className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs flex items-center gap-1"
                     >
                       <Trash2 className="w-3.5 h-3.5" /> Remove Listing
@@ -260,11 +298,18 @@ export default function ContentModeration() {
       {/* Confirmation Modal */}
       <ConfirmModal
         isOpen={Boolean(selectedAction)}
-        onClose={() => setSelectedAction(null)}
+        onClose={() => {
+          setSelectedAction(null);
+          setActionError(null);
+        }}
         onConfirm={handleConfirmAction}
         isLoading={isProcessing}
         title={selectedAction?.type === 'remove' ? 'Remove Flagged Listing' : 'Dismiss Flag Report'}
-        message={`Are you sure you want to ${selectedAction?.type === 'remove' ? 'take down this scholarship listing from the public feed' : 'dismiss this report'}?`}
+        message={
+          actionError 
+            ? `Server Error: ${actionError}`
+            : `Are you sure you want to ${selectedAction?.type === 'remove' ? 'take down this scholarship listing from the public feed' : 'dismiss this report'}?`
+        }
       />
     </div>
   );
