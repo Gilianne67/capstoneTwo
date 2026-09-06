@@ -12,7 +12,6 @@ import {
 } from 'lucide-react';
 
 import PageHeader from '../../../components/common/PageHeader';
-import StatusBadge from '../../../components/common/StatusBadge';
 
 // Fallback Mock Audit Logs
 const MOCK_AUDIT_LOGS = [
@@ -103,32 +102,36 @@ export default function AuditCompliance() {
     };
   }, []);
 
-  // Export CSV Compliance Report
+  // Safe CSV Exporter using Blob & Proper Escaping
   const handleExportCSV = () => {
-    const csvRows = [
-      ['Timestamp', 'Actor', 'Role', 'Action', 'Details', 'IP Address', 'Severity']
-    ];
+    const escapeCSV = (val) => {
+      if (val === null || val === undefined) return '""';
+      const str = String(val).replace(/"/g, '""'); // Escape double quotes
+      return `"${str}"`;
+    };
 
-    logs.forEach(l => {
-      csvRows.push([
-        l.timestamp,
-        `"${l.actor}"`,
-        `"${l.role}"`,
-        l.action,
-        `"${l.details}"`,
-        l.ipAddress,
-        l.severity
-      ]);
-    });
+    const headers = ['Timestamp', 'Actor', 'Role', 'Action', 'Details', 'IP Address', 'Severity'];
+    const rows = filteredLogs.map(l => [
+      escapeCSV(l.timestamp),
+      escapeCSV(l.actor),
+      escapeCSV(l.role),
+      escapeCSV(l.action),
+      escapeCSV(l.details),
+      escapeCSV(l.ipAddress),
+      escapeCSV(l.severity)
+    ]);
 
-    const csvContent = 'data:text/csv;charset=utf-8,' + csvRows.map(e => e.join(',')).join('\n');
-    const encodedUri = encodeURI(csvContent);
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
+    link.href = url;
     link.setAttribute('download', `Audit_Compliance_Report_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const filteredLogs = logs.filter((l) => {
@@ -165,7 +168,8 @@ export default function AuditCompliance() {
         <button
           type="button"
           onClick={handleExportCSV}
-          className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center justify-center gap-2 shadow-xs shrink-0 self-start sm:self-auto"
+          disabled={filteredLogs.length === 0}
+          className="px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center justify-center gap-2 shadow-xs shrink-0 self-start sm:self-auto"
         >
           <Download className="w-4 h-4 text-emerald-400" /> Export Compliance CSV
         </button>

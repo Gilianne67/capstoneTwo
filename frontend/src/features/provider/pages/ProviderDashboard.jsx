@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   Building2, 
   Layers, 
@@ -32,7 +32,7 @@ import CreateListing from './CreateListing';
 // FALLBACK MOCK DATA & IN-MEMORY TEST STORE
 // ==========================================
 const MOCK_PROVIDER_USER = {
-  name: 'DOST Scholarship Office',
+  name: 'Scholarship Provider',
   role: 'Scholarship Provider'
 };
 
@@ -155,7 +155,7 @@ export default function ProviderDashboard() {
       } else {
         throw new Error('API server returned unexpected status code');
       }
-    } catch (err) {
+    } catch {
       // Graceful Mock Fallback for Local Testing
       setIsUsingFallback(true);
       setProviderUser(MOCK_PROVIDER_USER);
@@ -189,7 +189,7 @@ export default function ProviderDashboard() {
       if (!res.ok) throw new Error('Status update failed on server');
       showToast(`Scholarship status changed to ${newStatus}.`, 'success');
       fetchDashboardData();
-    } catch (err) {
+    } catch {
       // Local Mock Execution if API Offline
       setListings((prev) => {
         const updated = prev.map((item) => 
@@ -227,7 +227,7 @@ export default function ProviderDashboard() {
       if (!res.ok) throw new Error('Delete operation failed on server');
       showToast(`"${title}" has been deleted.`, 'success');
       fetchDashboardData();
-    } catch (err) {
+    } catch  {
       // Local Mock Execution if API Offline
       setListings((prev) => {
         const updated = prev.filter((item) => item._id !== listingId);

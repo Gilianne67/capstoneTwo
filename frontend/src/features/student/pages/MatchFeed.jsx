@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  Sparkles, 
+  
   Bookmark, 
   ExternalLink, 
   ChevronDown, 
@@ -15,52 +15,67 @@ import {
 import { useAuth } from '../../../context/AuthContext';
 import ConfirmModal from '../../../components/common/ConfirmModal';
 
-// Mock Seed Data (Fallback Data for Match Feed)
-const MOCK_MATCHES = [
+// Shared Mock Seed Data (Fallback aligned with StudentDashboard)
+const MOCK_FALLBACK_MATCHES = [
   {
-    _id: 'feed-1',
-    title: 'DA-ACE Agricultural & Educational Grant 2026',
-    provider: 'Department of Agriculture (DA)',
-    score: 98,
-    amount: '₱50,000 / year',
-    deadline: 'Aug 20, 2026',
-    matchedFlags: ['Child of Farmer / Fisherfolk'],
+    _id: 'm1',
+    title: 'Camarines Sur Academic Excellence Grant',
+    provider: 'Provincial Government of CamSur',
+    amount: '₱25,000 / semester',
+    deadline: 'Aug 30, 2026',
+    score: 96,
+    matchedFlags: ['Local Resident', 'Top Academic Tier'],
+    url: 'https://camsur.gov.ph',
     breakdown: {
-      'Special Flag Match': '35/35 (Matched: Child of Farmer)',
-      'Academic Compatibility': '35/35 (GWA 1.45 qualifies)',
-      'Regional Priority': '28/30 (Bicol Region priority)'
-    },
-    url: 'https://da.gov.ph'
+      'Academic Compatibility': '40/40 (GWA 1.25 qualifies)',
+      'Location Residency': '30/30 (Priority CamSur resident)',
+      'Socioeconomic Need': '26/30 (Low-income tier)'
+    }
   },
   {
-    _id: 'feed-2',
+    _id: 'm2',
     title: 'DOST-SEI Merit Scholarship Program',
     provider: 'Department of Science and Technology',
-    score: 94,
-    amount: '₱80,000 / year',
-    deadline: 'Sep 15, 2026',
-    matchedFlags: ['4Ps Beneficiary'],
+    amount: '₱40,000 / year',
+    deadline: 'Aug 10, 2026',
+    score: 92,
+    matchedFlags: ['STEM Priority'],
+    url: 'https://sei.dost.gov.ph',
     breakdown: {
-      'Academic Rank': '40/40 (Top tier GWA)',
-      'Financial Need': '28/30 (Low-income bracket)',
-      'Socioeconomic Priority': '26/30 (4Ps Member)'
-    },
-    url: 'https://sei.dost.gov.ph'
+      'Academic Rank': '39/40 (Excellent standing)',
+      'Regional Priority': '28/30 (Region V allocation)',
+      'Financial Eligibility': '25/30 (Merit bracket)'
+    }
   },
   {
-    _id: 'feed-3',
-    title: 'Camarines Sur Tertiary Education Assistance',
-    provider: 'Provincial Government Office',
+    _id: 'm3',
+    title: 'CHED Tulong Dunong Program (TDP-TES)',
+    provider: 'Commission on Higher Education (CHED RO5)',
+    amount: '₱15,000 / semester',
+    deadline: 'Sep 15, 2026',
     score: 89,
-    amount: '₱25,000 / semester',
-    deadline: 'Oct 01, 2026',
-    matchedFlags: ['4Ps Beneficiary', 'Local Resident'],
+    matchedFlags: ['4Ps Beneficiary', 'Government Backed'],
+    url: 'https://ched.gov.ph',
     breakdown: {
-      'Location Residency': '30/30 (Pili, Camarines Sur)',
-      'Socioeconomic Need': '30/35 (4Ps Beneficiary)',
-      'Academic Fit': '29/35 (GWA 1.45)'
-    },
-    url: 'https://camarinessur.gov.ph'
+      'Academic Fit': '35/40 (Passing GWA qualification)',
+      'Residency': '26/30 (Bicol Region priority)',
+      'Financial Need': '28/30 (High assistance tier)'
+    }
+  },
+  {
+    _id: 'm4',
+    title: 'SM Foundation College Scholarship',
+    provider: 'SM Foundation Inc.',
+    amount: '₱30,000 / semester',
+    deadline: 'Aug 20, 2026',
+    score: 85,
+    matchedFlags: ['Private Partner'],
+    url: 'https://www.sm-foundation.org',
+    breakdown: {
+      'Academic Compatibility': '36/40 (Meets threshold)',
+      'Location Residency': '22/30 (Provincial coverage)',
+      'Socioeconomic Need': '27/30 (Low-income family tier)'
+    }
   }
 ];
 
@@ -91,23 +106,23 @@ export default function MatchFeed() {
         const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
         const [matchesRes, bookmarksRes] = await Promise.allSettled([
-          fetch('/api/v1/scholarships/matches', { headers }),
+          fetch('/api/v1/scholarships/recommended', { headers }),
           fetch('/api/v1/students/bookmarks', { headers })
         ]);
 
         if (isMounted) {
-          // Handle Matches Endpoint Response
+          // Handle Matches Endpoint
           if (matchesRes.status === 'fulfilled' && matchesRes.value.ok) {
             const data = await matchesRes.value.json();
             const list = Array.isArray(data) ? data : (data.matches || []);
-            setMatches(list.length > 0 ? list : MOCK_MATCHES);
+            setMatches(list.length > 0 ? list : MOCK_FALLBACK_MATCHES);
             setIsUsingFallback(list.length === 0);
           } else {
-            setMatches(MOCK_MATCHES);
+            setMatches(MOCK_FALLBACK_MATCHES);
             setIsUsingFallback(true);
           }
 
-          // Handle Bookmarks Endpoint Response
+          // Handle Bookmarks Endpoint
           if (bookmarksRes.status === 'fulfilled' && bookmarksRes.value.ok) {
             const bookmarks = await bookmarksRes.value.json();
             const ids = Array.isArray(bookmarks)
@@ -118,8 +133,8 @@ export default function MatchFeed() {
         }
       } catch (err) {
         if (isMounted) {
-          console.warn('Backend connection offline, using mock match feed:', err);
-          setMatches(MOCK_MATCHES);
+          console.warn('Backend connection offline, using fallback match feed:', err);
+          setMatches(MOCK_FALLBACK_MATCHES);
           setIsUsingFallback(true);
         }
       } finally {
@@ -146,10 +161,13 @@ export default function MatchFeed() {
 
     try {
       const token = localStorage.getItem('token');
-      if (token) {
-        await fetch(`/api/v1/students/bookmarks/${id}`, {
-          method: isBookmarked ? 'DELETE' : 'POST',
-          headers: { Authorization: `Bearer ${token}` }
+      if (token && !isUsingFallback) {
+        await fetch(`/api/v1/scholarships/${id}/bookmark`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}) 
+          }
         });
       }
     } catch (error) {
@@ -197,7 +215,6 @@ export default function MatchFeed() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-bold text-app-text flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-primary" />
             Your Top Scholarship Matches
           </h2>
           <p className="text-xs text-text-muted">Ranked using your GWA, location, and special eligibility flags.</p>
@@ -217,8 +234,8 @@ export default function MatchFeed() {
             const id = item._id || item.id;
             const isExpanded = expandedId === id;
             const isBookmarked = bookmarkedIds.includes(id);
-            const score = item.score ?? item.matchScore ?? 80;
-            const flags = item.matchedFlags || item.targetFlags || [];
+            const score = item.score ?? item.weightedScore ?? item.matchScore ?? 80;
+            const flags = item.matchedFlags || (item.tag ? [item.tag] : []);
 
             return (
               <div 
@@ -263,14 +280,16 @@ export default function MatchFeed() {
                 </div>
 
                 {/* Match Criteria Drawer */}
-                {isExpanded && item.breakdown && (
+                {isExpanded && (item.breakdown || item.matchBreakdown) && (
                   <div className="p-3 bg-app-bg rounded-xl border border-app-text/10 text-xs space-y-2 animate-in fade-in">
                     <p className="font-extrabold text-text-muted text-[10px] uppercase tracking-wider">Weighted Algorithm Calculation</p>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      {Object.entries(item.breakdown).map(([key, val]) => (
+                      {Object.entries(item.breakdown || item.matchBreakdown).map(([key, val]) => (
                         <div key={key} className="bg-card-bg p-2 rounded-lg border border-app-text/10">
-                          <span className="text-text-muted text-[10px] font-bold block">{key}</span>
-                          <strong className="text-app-text text-xs">{typeof val === 'object' ? `${val.score} (${val.detail})` : val}</strong>
+                          <span className="text-text-muted text-[10px] font-bold block capitalize">{key}</span>
+                          <strong className="text-app-text text-xs">
+                            {typeof val === 'object' ? `${val.score}/${val.max} (${val.detail})` : val}
+                          </strong>
                         </div>
                       ))}
                     </div>
@@ -282,9 +301,11 @@ export default function MatchFeed() {
                   <div className="flex items-center gap-4">
                     <div>
                       <span className="text-text-muted font-medium">Grant Value: </span>
-                      <strong className="text-app-text font-bold">{item.amount || 'Financial Grant'}</strong>
+                      <strong className="text-app-text font-bold">
+                        {typeof item.amount === 'number' ? `₱${item.amount.toLocaleString()} / ${item.amountPeriod || 'yr'}` : (item.amount || 'Financial Grant')}
+                      </strong>
                     </div>
-                    {item.breakdown && (
+                    {(item.breakdown || item.matchBreakdown) && (
                       <button
                         type="button"
                         onClick={() => setExpandedId(isExpanded ? null : id)}

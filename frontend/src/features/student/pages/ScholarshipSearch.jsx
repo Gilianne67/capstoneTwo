@@ -18,7 +18,6 @@ import {
   AlertCircle,
   Inbox,
   Sparkles,
-  TrendingUp,
   Clock,
   Award
 } from 'lucide-react';
@@ -192,7 +191,7 @@ export default function ScholarshipSearch() {
           if (scholarshipsRes.status === 'fulfilled' && scholarshipsRes.value.ok) {
             const list = await scholarshipsRes.value.json();
             setScholarships(Array.isArray(list) && list.length > 0 ? list : MOCK_SCHOLARSHIPS);
-            setIsUsingFallback(false);
+            setIsUsingFallback(!Array.isArray(list) || list.length === 0);
           } else {
             setScholarships(MOCK_SCHOLARSHIPS);
             setIsUsingFallback(true);
@@ -302,11 +301,6 @@ export default function ScholarshipSearch() {
 
   // Dashboard Information Metrics Computed Live
   const dashboardStats = useMemo(() => {
-    const totalPotentialValue = filteredScholarships.reduce((sum, item) => {
-      const val = item.amountValue || (typeof item.amount === 'number' ? item.amount : 0);
-      return sum + val;
-    }, 0);
-
     const now = new Date();
     const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
     const closingSoonCount = filteredScholarships.filter(item => {
@@ -317,7 +311,6 @@ export default function ScholarshipSearch() {
 
     return {
       totalMatched: filteredScholarships.length,
-      totalPotentialValue,
       closingSoonCount,
       activeBookmarksCount: bookmarkedIds.length,
     };
@@ -403,7 +396,7 @@ export default function ScholarshipSearch() {
         </div>
 
         {/* Dashboard Dynamic Summary Metrics Bar */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-3 border-t border-app-text/10">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-3 border-t border-app-text/10">
           <div className="bg-app-bg p-2.5 rounded-xl border border-app-text/5 flex items-center gap-2.5">
             <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
               <Sparkles className="w-4 h-4" />
@@ -412,7 +405,6 @@ export default function ScholarshipSearch() {
               <p className="text-[10px] font-bold text-text-muted uppercase">Matched Grants</p>
               <p className="text-xs font-black text-app-text">{dashboardStats.totalMatched} Opportunities</p>
             </div>
-                      
           </div>
 
           <div className="bg-app-bg p-2.5 rounded-xl border border-app-text/5 flex items-center gap-2.5">
