@@ -3,9 +3,10 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 const AuthContext = createContext(null);
 
 // 🛠️ TOGGLE THIS SWITCH: Set to false when your real API/Backend is ready
-const USE_MOCK_API = true; 
+const USE_MOCK_API = false; 
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.iskolarmatch.ph/v1';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
+
 // Preset test accounts for development
 const MOCK_USERS = {
   'student@iskolar.ph': { id: 'usr_1', email: 'student@iskolar.ph', name: 'Juan Dela Cruz', role: 'student' },
@@ -15,34 +16,66 @@ const MOCK_USERS = {
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [token, setToken] = useState(localStorage.getItem('token') || null);
   const [loading, setLoading] = useState(true);
 
-  // Restore session on refresh
+  // Single initialization effect
   useEffect(() => {
     const initializeAuth = async () => {
-      const savedSession = localStorage.getItem('iskolar_session');
-      if (savedSession) {
+      if (USE_MOCK_API) {
+        // Restore mock session from localStorage
+        const savedSession = localStorage.getItem('iskolar_session');
+        if (savedSession) {
+          try {
+            setUser(JSON.parse(savedSession));
+          } catch (e) {
+            localStorage.removeItem('iskolar_session');
+          }
+        }
+        setLoading(false);
+      } else {
+        // Real API session check
+        const storedToken = localStorage.getItem('token');
+        if (!storedToken) {
+          setUser(null);
+          setLoading(false);
+          return;
+        }
+
         try {
-          setUser(JSON.parse(savedSession));
-        } catch (e) {
-          localStorage.removeItem('iskolar_session');
+          const res = await fetch(`${API_BASE_URL}/auth/me`, {
+            headers: {
+              'Authorization': `Bearer ${storedToken}`,
+            },
+            credentials: 'include',
+          });
+          const data = await res.json();
+          if (data.success) {
+            setUser(data.data || data.user);
+            setToken(storedToken);
+          } else {
+            setUser(null);
+            localStorage.removeItem('token');
+          }
+        } catch (err) {
+          console.error('Session initialization error:', err);
+          setUser(null);
+        } finally {
+          setLoading(false);
         }
       }
-      setLoading(false);
     };
 
     initializeAuth();
   }, []);
 
-  // Login Handler (Supports Mock & Real API)
+  // Login Handler
   const login = async (email, password) => {
     const emailLower = email.trim().toLowerCase();
 
     if (USE_MOCK_API) {
-      // Simulate network delay
       await new Promise((resolve) => setTimeout(resolve, 300));
 
-      // Match preset mock user or generate dynamic mock user based on email
       let authenticatedUser = MOCK_USERS[emailLower];
 
       if (!authenticatedUser) {
@@ -63,22 +96,24 @@ export function AuthProvider({ children }) {
       return authenticatedUser;
     }
 
-    // --- REAL BACKEND LOGIC (Used when USE_MOCK_API = false) ---
+    // Real Backend Login
     const response = await fetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: emailLower, password })
+      body: JSON.stringify({ email: emailLower, password }),
     });
 
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Invalid email or password.');
 
-    localStorage.setItem('iskolar_token', data.token);
+    const jwtToken = data.token;
+    localStorage.setItem('token', jwtToken);
+    setToken(jwtToken);
     setUser(data.user);
     return data.user;
   };
 
-  // Register Handler (Supports Mock & Real API)
+  // Register Handler
   const register = async (payload) => {
     if (USE_MOCK_API) {
       await new Promise((resolve) => setTimeout(resolve, 400));
@@ -95,30 +130,45 @@ export function AuthProvider({ children }) {
       return newUser;
     }
 
-    // --- REAL BACKEND LOGIC ---
+    // Real Backend Registration
     const response = await fetch(`${API_BASE_URL}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Registration failed.');
 
-    localStorage.setItem('iskolar_token', data.token);
+    const jwtToken = data.token;
+    localStorage.setItem('token', jwtToken);
+    setToken(jwtToken);
     setUser(data.user);
     return data.user;
   };
 
+  const resetPassword = async (email) => {
+  const res = await fetch('/api/v1/auth/forgotpassword', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to send reset email');
+  return data;
+};
+
   // Logout Handler
   const logout = () => {
     localStorage.removeItem('iskolar_session');
-    localStorage.removeItem('iskolar_token');
+    localStorage.removeItem('token');
     setUser(null);
+    setToken(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, token, loading, login, register, logout }}>
       {!loading && children}
     </AuthContext.Provider>
   );

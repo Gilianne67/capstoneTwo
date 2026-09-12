@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 const UserSchema = new mongoose.Schema(
   {
@@ -22,7 +23,7 @@ const UserSchema = new mongoose.Schema(
       type: String,
       required: [true, 'Please add a password'],
       minlength: 6,
-      select: false, // Hides password field by default on queries
+      select: false,
     },
     role: {
       type: String,
@@ -38,24 +39,28 @@ const UserSchema = new mongoose.Schema(
       default: false,
     },
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
-// Encrypt password before saving using Bcrypt
+// Encrypt password using bcrypt before saving
 UserSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) {
-    next();
-  }
+  if (!this.isModified('password')) return next();
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
 });
 
-// Compare entered password with hashed password in database
+// Compare user-entered password to hashed password in database
 UserSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
-// Replace the last line of backend/models/User.js with this safe export:
+// Sign JWT and return token string
+UserSchema.methods.getSignedJwtToken = function () {
+  return jwt.sign(
+    { id: this._id.toString(), role: this.role },
+    process.env.JWT_SECRET || 'fallback_secret',
+    { expiresIn: process.env.JWT_EXPIRE || '30d' }
+  );
+};
+
 module.exports = mongoose.models.User || mongoose.model('User', UserSchema);

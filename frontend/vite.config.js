@@ -7,4 +7,15 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  css: {
+    postcss: {}, // Bypasses external PostCSS config searching
+  },
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+      },
+    },
+  },
 })
