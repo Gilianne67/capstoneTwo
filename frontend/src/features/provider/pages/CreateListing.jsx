@@ -227,71 +227,65 @@ export default function CreateListing({ onBack, onSuccess }) {
 
   // Final Action Executed inside Confirm Modal
   const handleExecutePublish = async () => {
-    setShowConfirmModal(false);
-    setIsSubmitting(true);
+  setShowConfirmModal(false);
+  setIsSubmitting(true);
 
-    const newListingPayload = {
-      title,
-      grantValue,
-      category,
-      deadline,
-      portalUrl: portalUrl || '#',
-      description,
-      
-      hardFilters: {
-        academicLevel,
-        citizenship,
-        maxGwa: parseFloat(maxGwa) || 2.00,
-        annualIncomeCap: parseFloat(maxIncome) || 250000,
-        allowedCourses,
-        allowedLocations,
-        customHardFilters: customHardFilters.map(item => ({
-          label: item.label,
-          value: item.value
-        })),
-        requiredEligibilityTags: requiredTags
-      },
+  // Build full payload for MongoDB
+  const newListingPayload = {
+    title,
+    grantValue,
+    category,
+    deadline,
+    portalUrl: portalUrl || '#',
+    description,
+    hardFilters: {
+      academicLevel,
+      citizenship,
+      maxGwa: parseFloat(maxGwa) || 2.00,
+      annualIncomeCap: parseFloat(maxIncome) || 250000,
+      allowedCourses,
+      allowedLocations,
+      customHardFilters: customHardFilters.map(item => ({
+        label: item.label,
+        value: item.value
+      })),
+      requiredEligibilityTags: requiredTags
+    },
+    scoringWeights: {
+      wGpa: Number(weights.gpaWeight) / 100,
+      wIncome: Number(weights.incomeWeight) / 100,
+      wTags: Number(weights.tagsWeight) / 100
+    },
+    preferredEligibilityTags: preferredTags,
+    requiredDocuments: requirements,
+    status: 'Active'
+  };
 
-      scoringWeights: {
-        wGpa: Number(weights.gpaWeight) / 100,
-        wIncome: Number(weights.incomeWeight) / 100,
-        wTags: Number(weights.tagsWeight) / 100
-      },
-
-      preferredEligibilityTags: preferredTags,
-      requiredDocuments: requirements,
-      status: 'Active',
-      createdAt: new Date().toISOString()
-    };
-
-    try {
-      const token = localStorage.getItem('token');
-      const headers = {
+  try {
+    const token = localStorage.getItem('token');
+    const response = await fetch('/api/v1/provider/scholarships', {
+      method: 'POST',
+      headers: {
         'Content-Type': 'application/json',
         ...(token && { Authorization: `Bearer ${token}` })
-      };
+      },
+      body: JSON.stringify(newListingPayload)
+    });
 
-      const res = await fetch('/api/v1/provider/scholarships', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(newListingPayload)
-      });
+    const data = await response.json();
 
-      if (res.ok) {
-        setIsSubmitting(false);
-        setShowSuccessModal(true);
-      } else {
-        throw new Error('Backend server returned an error response.');
-      }
-    } catch (err) {
-      console.warn('Backend server unavailable. Executing fallback mock simulation:', err);
-      
-      setTimeout(() => {
-        setIsSubmitting(false);
-        setShowSuccessModal(true);
-      }, 800);
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to publish listing');
     }
-  };
+
+    setShowSuccessModal(true);
+  } catch (err) {
+    console.error('Submission failed:', err);
+    alert(err.message || 'Server error. Please try again.');
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   // Navigate to provider/listings or ScholarshipListings view on close
   const handleSuccessClose = () => {
