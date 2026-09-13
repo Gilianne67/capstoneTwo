@@ -2,8 +2,8 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext(null);
 
-// 🛠️ TOGGLE THIS SWITCH: Set to false when your real API/Backend is ready
-const USE_MOCK_API = true; 
+// TOGGLE THIS SWITCH: Set to false when your real API/Backend is ready
+const USE_MOCK_API = false;
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.iskolarmatch.ph/v1';
 // Preset test accounts for development
