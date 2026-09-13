@@ -3,6 +3,8 @@ import { Outlet, useNavigate } from 'react-router-dom';
 import { Bell, LogOut, Loader2, User as UserIcon, WifiOff } from 'lucide-react';
 import Sidebar from '../components/navigation/Sidebar';
 
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL || 'https://api.iskolarmatch.ph/v1';
 
 export default function AppLayout() {
   const navigate = useNavigate();
@@ -19,66 +21,66 @@ export default function AppLayout() {
 
   // 1. Session & Auth Verification with Fallback
   useEffect(() => {
-    let isMounted = true;
+  let isMounted = true;
 
-    const verifySession = async () => {
-      const token = localStorage.getItem('token');
-      const rawSession = localStorage.getItem('iskolar_session');
+  const verifySession = async () => {
+    const token = localStorage.getItem('iskolar_token');
 
-      // Attempt parsing local cached session safely
-      let cachedSession = null;
-      if (rawSession) {
-        try {
-          cachedSession = JSON.parse(rawSession);
-        } catch (_err) {
-          console.warn('Malformed local session cleared.');
-          localStorage.removeItem('iskolar_session');
-        }
+    if (!token) {
+      if (isMounted) {
+        setSession(null);
+        setIsUsingMockData(false);
+        setIsLoadingSession(false);
+      }
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/me`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.message || 'Session verification failed');
       }
 
-      // If no token exists, fall back to mock preview state
-      if (!token) {
-        if (isMounted) {
-          setSession(cachedSession || MOCK_FALLBACK_SESSION);
-          setIsUsingMockData(true);
-          setIsLoadingSession(false);
-        }
-        return;
+      if (isMounted) {
+        setSession(data.user);
+        setIsUsingMockData(false);
+        localStorage.setItem(
+          'iskolar_session',
+          JSON.stringify(data.user)
+        );
+      }
+    } catch (err) {
+      console.error('Session verification failed:', err);
+
+      localStorage.removeItem('iskolar_token');
+      localStorage.removeItem('iskolar_session');
+
+      if (isMounted) {
+        setSession(null);
+        setIsUsingMockData(false);
       }
 
-      // Try Backend Verification
-      try {
-        const res = await fetch('/api/v1/auth/me', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (res.ok) {
-          const userData = await res.json();
-          if (isMounted) {
-            setSession(userData);
-            setIsUsingMockData(false);
-            localStorage.setItem('iskolar_session', JSON.stringify(userData));
-          }
-        } else {
-          throw new Error('Backend session rejected or token expired');
-        }
-      } catch (_err) {
-        console.warn('API connection failed. Falling back to frontend preview mode.');
-        if (isMounted) {
-          setSession(cachedSession || MOCK_FALLBACK_SESSION);
-          setIsUsingMockData(true);
-        }
-      } finally {
-        if (isMounted) setIsLoadingSession(false);
+      navigate('/auth?mode=signin', { replace: true });
+    } finally {
+      if (isMounted) {
+        setIsLoadingSession(false);
       }
-    };
+    }
+  };
 
-    verifySession();
+  verifySession();
 
-    return () => {
-      isMounted = false;
-    };
-  }, [navigate]);
+  return () => {
+    isMounted = false;
+  };
+}, [navigate]);
 
   // 2. Notifications Check with Mock Fallback
   useEffect(() => {
@@ -90,7 +92,7 @@ export default function AppLayout() {
         const token = localStorage.getItem('token');
         if (!token) return;
 
-        const res = await fetch('/api/v1/notifications/unread-count', {
+        const res = await fetch(`${API_BASE_URL}/notifications/unread-count`, {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -113,9 +115,9 @@ export default function AppLayout() {
   // 3. Logout Handler
   const handleLogout = useCallback(async () => {
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('iskolar_token');
       if (token) {
-        await fetch('/api/v1/auth/logout', {
+        await fetch(`${API_BASE_URL}/auth/logout`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -147,8 +149,7 @@ export default function AppLayout() {
         isCollapsed={isCollapsed}
         setIsCollapsed={setIsCollapsed}
         role={role}
-        session={session || MOCK_FALLBACK_SESSION}
-      />
+        session={session}      />
 
       {/* Main Workspace Area */}
       <div className="flex-1 flex flex-col h-screen overflow-y-auto">
