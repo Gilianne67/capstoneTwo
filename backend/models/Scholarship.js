@@ -176,11 +176,11 @@ const scholarshipSchema = new mongoose.Schema(
 
 
 
-scholarshipSchema.pre('validate', function (next) {
+scholarshipSchema.pre('validate', function () {
   const weights = this.criteriaWeights;
 
   if (!weights) {
-    return next();
+    return;
   }
 
   const total =
@@ -188,16 +188,11 @@ scholarshipSchema.pre('validate', function (next) {
     weights.incomeWeight +
     weights.tagsWeight;
 
-
   if (Math.abs(total - 1.0) > 0.0001) {
-    return next(
-      new Error(
-        'GPA, income, and special eligibility weights must total 100%.'
-      )
+    throw new Error(
+      'GPA, income, and special eligibility weights must total 100%.'
     );
   }
-
-  next();
 });
 
 

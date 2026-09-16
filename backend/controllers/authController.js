@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const Provider = require('../models/Provider');
 const jwt = require('jsonwebtoken');
 
 const generateToken = (id) => {
@@ -23,6 +24,15 @@ exports.register = async (req, res) => {
       role: role || 'student',
       organization: organization || '',
     });
+
+      if (user.role === 'provider') {
+    await Provider.create({
+      userId: user._id,
+      institutionName: organization || name,
+      institutionType: 'Other',
+      verificationStatus: 'Pending',
+    });
+  }
 
     const token = generateToken(user._id);
     res.status(201).json({

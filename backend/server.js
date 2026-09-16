@@ -20,6 +20,8 @@ if (process.env.NODE_ENV === 'development') {
 
 // Route Files
 const authRoutes = require('./routes/authRoutes');
+const providerRoutes = require('./routes/providerRoutes');
+const scholarshipRoutes = require('./routes/scholarshipRoutes');
 
 // 🔍 DEBUG LOGS
 console.log('--- SERVER DEBUG ---');
@@ -28,6 +30,8 @@ console.log('type of authRoutes:', typeof authRoutes);
 
 // Mount Routes
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/providers', providerRoutes);
+app.use('/api/v1/scholarships', scholarshipRoutes);
 
 // Health Check Endpoint
 app.get('/api/v1/health', (req, res) => {
