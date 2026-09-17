@@ -1,4 +1,5 @@
 const Provider = require('../models/Provider');
+const Scholarship = require('../models/Scholarship');
 
 // Get the logged-in provider's profile
 exports.getProfile = async (req, res) => {
@@ -62,6 +63,72 @@ exports.updateProfile = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Update Provider Profile Error:', error);
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// Get the logged-in provider's dashboard
+exports.getDashboard = async (req, res) => {
+  try {
+    const provider = await Provider.findOne({
+      userId: req.user.id,
+    });
+
+    if (!provider) {
+      return res.status(404).json({
+        success: false,
+        message: 'Provider profile not found',
+      });
+    }
+
+    const [totalScholarships, openScholarships, closedScholarships, archivedScholarships] =
+      await Promise.all([
+        Scholarship.countDocuments({
+          providerId: provider._id,
+          isArchived: false,
+        }),
+
+        Scholarship.countDocuments({
+          providerId: provider._id,
+          status: 'Open',
+          isArchived: false,
+        }),
+
+        Scholarship.countDocuments({
+          providerId: provider._id,
+          status: 'Closed',
+          isArchived: false,
+        }),
+
+        Scholarship.countDocuments({
+          providerId: provider._id,
+          isArchived: true,
+        }),
+      ]);
+
+    res.status(200).json({
+      success: true,
+      dashboard: {
+        provider: {
+          id: provider._id,
+          institutionName: provider.institutionName,
+          institutionType: provider.institutionType,
+          verificationStatus: provider.verificationStatus,
+        },
+        statistics: {
+          totalScholarships,
+          openScholarships,
+          closedScholarships,
+          archivedScholarships,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Get Provider Dashboard Error:', error);
 
     res.status(500).json({
       success: false,
