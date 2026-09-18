@@ -14,14 +14,15 @@ import {
   ShieldCheck,
   Zap,
   ArrowLeft,
-  KeyRound
+  KeyRound,
+  ShieldAlert
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 export default function AuthPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { login, register, resetPassword } = useAuth(); // Assuming resetPassword exists in AuthContext
+  const { login, register, resetPassword } = useAuth();
 
   // Mode management: 'signin' | 'signup' | 'forgot'
   const [authMode, setAuthMode] = useState('signin');
@@ -29,6 +30,7 @@ export default function AuthPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [pendingConsentError, setPendingConsentError] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -55,6 +57,7 @@ export default function AuthPage() {
   // Handle Input Changes
   const handleChange = (e) => {
     if (errorMessage) setErrorMessage('');
+    if (pendingConsentError) setPendingConsentError(false);
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
@@ -62,6 +65,7 @@ export default function AuthPage() {
   const switchMode = (mode) => {
     setAuthMode(mode);
     setErrorMessage('');
+    setPendingConsentError(false);
     setResetSuccess(false);
     setFormData({
       fullName: '',
@@ -75,6 +79,7 @@ export default function AuthPage() {
   const loginWithDemoAccount = async (email, password) => {
     setIsLoading(true);
     setErrorMessage('');
+    setPendingConsentError(false);
     try {
       const authenticatedUser = await login(email, password);
       const targetRole = authenticatedUser?.role || 'student';
@@ -117,64 +122,74 @@ export default function AuthPage() {
 
   // Form Submission for Sign In and Sign Up
   const handleSubmit = async (e) => {
-  e.preventDefault();
+    e.preventDefault();
 
-  if (authMode === 'forgot') {
-    return handleForgotPassword(e);
-  }
-
-  setIsLoading(true);
-  setErrorMessage('');
-
-  const emailTrimmed = formData.email.trim().toLowerCase();
-  const passwordTrimmed = formData.password.trim();
-
-  try {
-    let authenticatedUser;
-
-    if (authMode === 'signup') {
-      const name = signupRole === 'provider' 
-        ? formData.organizationName.trim() 
-        : formData.fullName.trim();
-
-      if (!name) {
-        throw new Error('Please enter your name or organization name.');
-      }
-
-      const payload = {
-        email: emailTrimmed,
-        password: passwordTrimmed,
-        role: signupRole,
-        name,
-      };
-
-      authenticatedUser = await register(payload);
-
-      // Route explicitly after sign-up succeeds
-      if (signupRole === 'student') {
-        navigate('/onboarding', { replace: true });
-      } else {
-        navigate('/dashboard/provider', { replace: true });
-      }
-    } else {
-      authenticatedUser = await login(emailTrimmed, passwordTrimmed);
-
-      // Route based on returned user role or default fallback
-      const targetRole = authenticatedUser?.user?.role || authenticatedUser?.role || 'student';
-      navigate(`/dashboard/${targetRole}`, { replace: true });
+    if (authMode === 'forgot') {
+      return handleForgotPassword(e);
     }
-  } catch (err) {
-    setErrorMessage(err?.message || 'Authentication failed. Please check your credentials.');
-  } finally {
-    setIsLoading(false);
-  }
-};
+
+    setIsLoading(true);
+    setErrorMessage('');
+    setPendingConsentError(false);
+
+    const emailTrimmed = formData.email.trim().toLowerCase();
+    const passwordTrimmed = formData.password.trim();
+
+    try {
+      let authenticatedUser;
+
+      if (authMode === 'signup') {
+        const name = signupRole === 'provider' 
+          ? formData.organizationName.trim() 
+          : formData.fullName.trim();
+
+        if (!name) {
+          throw new Error('Please enter your name or organization name.');
+        }
+
+        const payload = {
+          email: emailTrimmed,
+          password: passwordTrimmed,
+          role: signupRole,
+          name,
+          ...(signupRole === 'provider' && { organization: name }),
+        };
+
+        authenticatedUser = await register(payload);
+
+        if (signupRole === 'student') {
+          navigate('/onboarding', { replace: true });
+        } else {
+          navigate('/dashboard/provider', { replace: true });
+        }
+      } else {
+        authenticatedUser = await login(emailTrimmed, passwordTrimmed);
+
+        const targetRole = authenticatedUser?.user?.role || authenticatedUser?.role || 'student';
+        navigate(`/dashboard/${targetRole}`, { replace: true });
+      }
+    } catch (err) {
+      // Check for parental consent block status (403 status or specific backend flags)
+      const isConsentPending = 
+        err?.response?.status === 403 ||
+        err?.requiresConsent || 
+        err?.message?.toLowerCase().includes('parental consent') ||
+        err?.message?.toLowerCase().includes('pending_consent');
+
+      if (isConsentPending) {
+        setPendingConsentError(true);
+        setErrorMessage(
+          err?.message || 'Your account is pending parental consent. Please ask your parent/guardian to approve the verification email.'
+        );
+      } else {
+        setErrorMessage(err?.message || 'Authentication failed. Please check your credentials.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const isProvider = authMode === 'signup' && signupRole === 'provider';
-  
-  const isDevEnvironment = 
-    (typeof import.meta !== 'undefined' && import.meta.env?.DEV) ||
-    process.env.NODE_ENV !== 'production';
 
   return (
     <div className="min-h-screen bg-app-bg text-app-text flex flex-col justify-between relative overflow-hidden pt-20">
@@ -271,44 +286,6 @@ export default function AuthPage() {
                 )}
               </div>
 
-              {/* Dev Quick Test Accounts */}
-              {authMode === 'signin' && isDevEnvironment && (
-                <div className="p-3.5 bg-app-bg border border-app-text/10 rounded-2xl space-y-2">
-                  <div className="flex items-center gap-1.5 text-[10px] font-extrabold text-text-muted uppercase tracking-wider">
-                    <Zap className="h-3.5 w-3.5 text-accent" />
-                    <span>Quick Test Accounts (Dev Mode)</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => loginWithDemoAccount('student@iskolar.ph', 'user123')}
-                      className="py-1.5 px-2 bg-card-bg border border-app-text/10 rounded-xl text-xs font-bold text-app-text hover:border-primary hover:text-primary transition-all flex items-center justify-center gap-1 shadow-sm"
-                    >
-                      <GraduationCap className="h-3.5 w-3.5 text-primary" />
-                      <span>Student</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => loginWithDemoAccount('provider@iskolar.ph', 'provider123')}
-                      className="py-1.5 px-2 bg-card-bg border border-app-text/10 rounded-xl text-xs font-bold text-app-text hover:border-emerald-900 hover:text-emerald-900 transition-all flex items-center justify-center gap-1 shadow-sm"
-                    >
-                      <Building2 className="h-3.5 w-3.5 text-emerald-900" />
-                      <span>Provider</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => loginWithDemoAccount('admin@iskolar.ph', 'pass123')}
-                      className="py-1.5 px-2 bg-card-bg border border-app-text/10 rounded-xl text-xs font-bold text-app-text hover:border-accent hover:text-accent transition-all flex items-center justify-center gap-1 shadow-sm"
-                    >
-                      <ShieldCheck className="h-3.5 w-3.5 text-accent" />
-                      <span>Admin</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
               {/* Role Toggle for Sign Up */}
               {authMode === 'signup' && (
                 <div className="grid grid-cols-2 gap-2 p-1 bg-app-bg rounded-2xl border border-app-text/10">
@@ -339,12 +316,28 @@ export default function AuthPage() {
                 </div>
               )}
 
-              {/* Error Alert */}
-              {errorMessage && (
-                <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-center gap-2.5 text-xs text-rose-600">
-                  <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
-                  <span>{errorMessage}</span>
+              {/* Pending Consent Warning Banner */}
+              {pendingConsentError ? (
+                <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-xs text-amber-800 space-y-2">
+                  <div className="flex items-center gap-2 font-bold text-amber-900">
+                    <ShieldAlert className="h-5 w-5 text-amber-600 shrink-0" />
+                    <span>Parental Authorization Required</span>
+                  </div>
+                  <p className="leading-relaxed">
+                    {errorMessage}
+                  </p>
+                  <div className="text-[11px] text-amber-700 font-medium border-t border-amber-500/15 pt-2">
+                    Tip: Ask your guardian to check their email inbox (and spam folder) for the authorization link.
+                  </div>
                 </div>
+              ) : (
+                /* Standard Error Alert */
+                errorMessage && (
+                  <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-center gap-2.5 text-xs text-rose-600">
+                    <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+                    <span>{errorMessage}</span>
+                  </div>
+                )
               )}
 
               {/* Password Reset Confirmation Screen */}

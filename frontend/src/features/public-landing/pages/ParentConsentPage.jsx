@@ -14,40 +14,46 @@ export default function ParentConsentPage() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (token) {
-      fetch(`/api/v1/consent/verify?token=${token}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) {
-            setStudentInfo(data.student);
-          } else {
-            setError(data.message || 'Invalid or expired consent link.');
-          }
-        })
-        .catch(() => setError('Failed to verify token.'))
-        .finally(() => setLoading(false));
-    } else {
-      setError('No consent token provided.');
+    if (!token) {
+      setError('Invalid approval link. Consent token is missing.');
       setLoading(false);
+      return;
     }
+
+    // Verify token validity and retrieve student profile preview
+    fetch(`/api/v1/consent/verify?token=${token}`)
+      .then(async (res) => {
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setStudentInfo(data.student);
+        } else {
+          setError(data.message || 'Invalid or expired consent link.');
+        }
+      })
+      .catch(() => setError('Failed to communicate with server.'))
+      .finally(() => setLoading(false));
   }, [token]);
 
   const handleApprove = async () => {
     setLoading(true);
+    setError(null);
+
     try {
       const res = await fetch('/api/v1/consent/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token })
       });
+
       const data = await res.json();
-      if (data.success) {
+
+      if (res.ok && data.success) {
         setApproved(true);
       } else {
-        setError(data.message || 'Approval failed.');
+        setError(data.message || 'Approval failed. Please try again.');
       }
     } catch {
-      setError('Network error approving consent.');
+      setError('Network error processing authorization.');
     } finally {
       setLoading(false);
     }
@@ -64,6 +70,8 @@ export default function ParentConsentPage() {
   return (
     <div className="min-h-screen bg-app-bg flex items-center justify-center p-4">
       <div className="max-w-lg w-full bg-card-bg border border-app-text/10 rounded-2xl p-6 sm:p-8 shadow-xl space-y-6">
+        
+        {/* Header */}
         <div className="flex items-center gap-3 border-b border-app-text/10 pb-4">
           <ShieldCheck className="w-8 h-8 text-emerald-600 shrink-0" />
           <div>
@@ -72,39 +80,44 @@ export default function ParentConsentPage() {
           </div>
         </div>
 
+        {/* Error View */}
         {error ? (
           <div className="p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center gap-2">
             <AlertCircle className="w-5 h-5 shrink-0" />
             <span>{error}</span>
           </div>
         ) : approved ? (
+          /* Success View */
           <div className="text-center space-y-3 py-4">
             <CheckCircle2 className="w-12 h-12 text-emerald-600 mx-auto" />
             <h2 className="text-base font-bold text-app-text">Account Authorized!</h2>
             <p className="text-xs text-text-muted">
-              Thank you for approving <strong>{studentInfo?.name}</strong>'s IskolarMatch profile. They can now sign in and view scholarship matches immediately.
+              Thank you for approving <strong>{studentInfo?.name}</strong>'s IskolarMatch profile. Their account is now active and ready for scholarship applications.
             </p>
             <button
               onClick={() => navigate('/auth?mode=signin')}
-              className="mt-2 py-2.5 px-5 bg-primary text-white text-xs font-bold rounded-xl cursor-pointer"
+              className="mt-2 py-2.5 px-5 bg-primary text-white text-xs font-bold rounded-xl cursor-pointer hover:opacity-90 transition-opacity"
             >
               Go to Portal Login
             </button>
           </div>
         ) : (
+          /* Confirmation Form View */
           <div className="space-y-4">
             <p className="text-xs text-app-text leading-relaxed">
-              Your child, <strong className="text-primary">{studentInfo?.name}</strong> ({studentInfo?.email}), is requesting permission to register an account on IskolarMatch.
+              Your dependent, <strong className="text-primary">{studentInfo?.name}</strong> ({studentInfo?.email}), is requesting permission to activate their student account on IskolarMatch.
             </p>
 
             <div className="p-3 bg-app-bg border border-app-text/10 rounded-xl space-y-1 text-xs">
-              <div className="text-text-muted">Academic Details:</div>
-              <div className="font-semibold text-app-text">{studentInfo?.course} — {studentInfo?.yearLevel}</div>
-              <div className="text-text-muted">Region: {studentInfo?.region}</div>
+              <div className="text-text-muted">Academic Summary:</div>
+              <div className="font-semibold text-app-text">
+                {studentInfo?.course || 'N/A'} — {studentInfo?.yearLevel || 'N/A'}
+              </div>
+              <div className="text-text-muted">Region: {studentInfo?.region || 'N/A'}</div>
             </div>
 
             <div className="p-3 bg-amber-50 text-amber-900 border border-amber-200 rounded-xl text-[11px] leading-normal">
-              By clicking approve, you confirm consent for IskolarMatch to process academic and demographic profile data solely for scholarship matching.
+              By authorizing, you confirm consent for IskolarMatch to process academic and demographic profile data strictly for scholarship matching purposes.
             </div>
 
             <button

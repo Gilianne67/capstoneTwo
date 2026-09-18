@@ -1,11 +1,14 @@
 const express = require("express");
 const cookieParser = require("cookie-parser");
+const morgan = require('morgan');
 
 const { corsOptions, apiLimiter, helmet } = require("./middleware/security");
 const notFound = require("./middleware/notFound");
 const errorHandler = require("./utils/errorResponse");
+import consentRoutes from './routes/consentRoutes.js';
 
 const app = express();
+
 
 // Security headers
 app.use(helmet());
@@ -61,5 +64,12 @@ app.get('/api/v1/notifications/unread-count', protect, (req, res) => {
     count: 0,
   });
 });
+
+// Mount under /api/v1/consent
+app.use('/api/v1/consent', consentRoutes);
+
+app.use(morgan('[0] :method :url :status :response-time ms - :res[content-length]'));
+
+app.use(express.json());
 
 module.exports = app;

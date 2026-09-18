@@ -8,27 +8,24 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const mongoose = require('mongoose');
-const path = require('path');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 
 // Load Environment Variables
 dotenv.config();
 
-// Route & Middleware Imports
-const authRoutes = require(path.join(__dirname, 'routes', 'authRoutes'));
-const errorHandler = require('./middleware/error');
-
-// Ensure the path matches your project structure (e.g., './middleware/auth' or './middleware/verifyAuth')
-const { protect: verifyAuth } = require('./middleware/auth');
-
-// Initialize Express App
+// Initialize Express App FIRST before mounting any routes or middleware
 const app = express();
 
-// Global Security & Utility Middlewares
+// Route & Middleware Imports
+const authRoutes = require('./routes/authRoutes');
+const userRoutes = require('./routes/userRoutes');
+const consentRoutes = require('./routes/consentRoutes');
+const errorHandler = require('./middleware/error');
+
+// Security & Utility Middlewares
 app.use(helmet());
 
-// Consolidated CORS Configuration
 const allowedOrigins = [
   process.env.CLIENT_URL,
   'http://localhost:3000',
@@ -53,7 +50,7 @@ if (process.env.NODE_ENV === 'development') {
 // Rate Limiter
 const limiter = rateLimit({
   windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: 100,
   message: { success: false, error: 'Too many requests from this IP, please try again later.' },
 });
 app.use('/api/v1', limiter);
@@ -63,31 +60,15 @@ app.get('/api/v1/health', (req, res) => {
   res.status(200).json({ status: 'success', message: 'IskolarMatch Auth API Online' });
 });
 
-// Onboarding Route Endpoint
-app.post('/api/v1/user/onboarding', verifyAuth, async (req, res) => {
-  try {
-    const { dob, course, yearLevel, gpa, region, householdIncome, isMinor } = req.body;
-    
-    // Save profile data & return success
-    return res.json({
-      success: true,
-      message: 'Onboarding completed',
-      user: { ...req.user, isOnboarded: true }
-    });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
-});
-
 // Mount Application Routes
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/user', userRoutes);
+app.use('/api/v1/consent', consentRoutes);
 
-// Centralized Error Handling Middleware
+// Centralized Error Handling Middleware (must be after routes)
 app.use(errorHandler);
 
-
-// Environment Variables & Server Startup
-const { protect } = require('./middleware/auth');
+// Database Connection & Server Startup
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/iskolarmatch';
 

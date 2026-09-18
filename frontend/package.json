@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "lint": "eslint .",
-    "preview": "vite preview"
+  "build": "vite build, concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+  "preview": "vite preview",
+    "dev:server": "npm run dev --prefix server",
+    "dev:client": "npm run dev --prefix client",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
