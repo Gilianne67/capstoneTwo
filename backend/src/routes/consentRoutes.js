@@ -1,12 +1,15 @@
+// backend/src/routes/consentRoutes.js (or wherever your consent endpoints are defined)
 const express = require('express');
-const { verifyConsentToken, approveConsent } = require('../controllers/consentController');
-
 const router = express.Router();
+const { 
+  verifyConsent, 
+  approveConsent, 
+  resendConsentEmail 
+} = require('../controllers/userController');
 
 // GET /api/v1/consent/verify?token=...
-router.get('/verify', verifyConsentToken);
-
-// POST /api/v1/consent/approve
+router.get('/verify', verifyConsent);
 router.post('/approve', approveConsent);
+router.post('/resend', resendConsentEmail);
 
 module.exports = router;
