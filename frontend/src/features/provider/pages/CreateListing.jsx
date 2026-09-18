@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   ArrowLeft, 
   Plus, 
@@ -29,7 +29,9 @@ const SYSTEM_DEMOGRAPHIC_TAGS = [
   'Working Student'
 ];
 
-export default function CreateListing({ onBack, onSuccess }) {
+export default function CreateListing({ onBack, onSuccess, initialData = null }) {
+  const isEditMode = Boolean(initialData?._id);
+  
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
 
@@ -96,6 +98,86 @@ export default function CreateListing({ onBack, onSuccess }) {
     'Tax Exemption Certificate or ITR'
   ]);
   const [newReq, setNewReq] = useState('');
+
+  // ---------------------------------------------------------
+// LOAD EXISTING SCHOLARSHIP DATA FOR EDIT MODE
+// ---------------------------------------------------------
+useEffect(() => {
+  if (!initialData) return;
+
+  setTitle(initialData.name || '');
+  setGrantValue(initialData.grantValue || '');
+  setCategory(initialData.scholarshipType || 'Merit-Based');
+  setDescription(initialData.description || '');
+  setDeadline(
+    initialData.deadline
+      ? new Date(initialData.deadline).toISOString().split('T')[0]
+      : ''
+  );
+  setPortalUrl(initialData.applicationURL || '');
+
+  // Academic requirements
+  setMaxGwa(
+    initialData.academicRequirement?.minimumGPA?.toString() || '2.00'
+  );
+
+  // Income requirement
+  setMaxIncome(
+    initialData.incomeRequirement?.maximumIncome?.toString() || '250000'
+  );
+
+  // Hard filters
+  setAcademicLevel(
+    initialData.hardFilters?.academicLevel || 'College'
+  );
+
+  setCitizenship(
+    initialData.hardFilters?.citizenshipStatus || 'Filipino'
+  );
+
+  setAllowedCourses(
+    initialData.hardFilters?.courseProgram || []
+  );
+
+  const geographicLocation = initialData.hardFilters?.geographicLocation;
+
+  if (geographicLocation) {
+    const locations = [
+      ...(geographicLocation.regions || []),
+      ...(geographicLocation.provinces || []),
+      ...(geographicLocation.municipalities || [])
+    ];
+
+    setAllowedLocations(locations);
+  } else {
+    setAllowedLocations([]);
+  }
+
+  // Ranking weights
+  if (initialData.criteriaWeights) {
+    setWeights({
+      gpaWeight: (initialData.criteriaWeights.gwaWeight || 0) * 100,
+      incomeWeight: (initialData.criteriaWeights.incomeWeight || 0) * 100,
+      tagsWeight: (initialData.criteriaWeights.tagsWeight || 0) * 100
+    });
+  }
+
+  // Special eligibility tags
+  const tags = initialData.specialTags || [];
+
+  setRequiredTags(
+  tags
+    .filter(tag => tag.mode === 'Exclusive')
+    .map(tag => tag.tagName)
+);
+
+  setPreferredTags(
+    tags
+      .filter(tag => tag.mode === 'Preferred')
+      .map(tag => tag.tagName)
+  );
+
+}, [initialData]);
 
   // ---------------------------------------------------------
   // HANDLERS: HARD FILTERS (COURSES, LOCATIONS, CUSTOM)
@@ -227,71 +309,105 @@ export default function CreateListing({ onBack, onSuccess }) {
 
   // Final Action Executed inside Confirm Modal
   const handleExecutePublish = async () => {
-    setShowConfirmModal(false);
-    setIsSubmitting(true);
+  setShowConfirmModal(false);
+  setIsSubmitting(true);
+  setErrorMsg(null);
 
-    const newListingPayload = {
-      title,
-      grantValue,
-      category,
-      deadline,
-      portalUrl: portalUrl || '#',
-      description,
-      
-      hardFilters: {
-        academicLevel,
-        citizenship,
-        maxGwa: parseFloat(maxGwa) || 2.00,
-        annualIncomeCap: parseFloat(maxIncome) || 250000,
-        allowedCourses,
-        allowedLocations,
-        customHardFilters: customHardFilters.map(item => ({
-          label: item.label,
-          value: item.value
-        })),
-        requiredEligibilityTags: requiredTags
+  const newListingPayload = {
+    name: title,
+    grantValue: grantValue,
+    scholarshipType: category,
+    description,
+
+    benefits: [],
+
+    academicRequirement: {
+      minimumGPA: parseFloat(maxGwa),
+      gradingScale: '60-100'
+    },
+
+    hardFilters: {
+      academicLevel,
+      courseProgram: allowedCourses,
+      geographicLocation: {
+        regions: allowedLocations,
+        provinces: [],
+        municipalities: []
       },
+      citizenshipStatus: citizenship
+    },
 
-      scoringWeights: {
-        wGpa: Number(weights.gpaWeight) / 100,
-        wIncome: Number(weights.incomeWeight) / 100,
-        wTags: Number(weights.tagsWeight) / 100
-      },
+    incomeRequirement: {
+      maximumIncome: parseFloat(maxIncome)
+    },
 
-      preferredEligibilityTags: preferredTags,
-      requiredDocuments: requirements,
-      status: 'Active',
-      createdAt: new Date().toISOString()
-    };
+    specialTags: [
+      ...requiredTags.map(tag => ({
+        tagName: tag,
+        mode: 'Exclusive'
+      })),
+      ...preferredTags.map(tag => ({
+        tagName: tag,
+        mode: 'Preferred'
+      }))
+    ],
 
-    try {
-      const token = localStorage.getItem('token');
-      const headers = {
-        'Content-Type': 'application/json',
-        ...(token && { Authorization: `Bearer ${token}` })
+    criteriaWeights: {
+      gwaWeight: Number(weights.gpaWeight) / 100,
+      incomeWeight: Number(weights.incomeWeight) / 100,
+      tagsWeight: Number(weights.tagsWeight) / 100
+    },
+
+    rankingMode: 'Weighted',
+
+    deadline,
+
+    applicationURL: portalUrl,
+
+    status: initialData?.status || 'Open',
+
+    isArchived: initialData?.isArchived || false
       };
 
-      const res = await fetch('/api/v1/provider/scholarships', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(newListingPayload)
-      });
+  try {
+    const token = localStorage.getItem('iskolar_token');
 
-      if (res.ok) {
-        setIsSubmitting(false);
-        setShowSuccessModal(true);
-      } else {
-        throw new Error('Backend server returned an error response.');
-      }
-    } catch (err) {
-      console.warn('Backend server unavailable. Executing fallback mock simulation:', err);
-      
-      setTimeout(() => {
-        setIsSubmitting(false);
-        setShowSuccessModal(true);
-      }, 800);
+    if (!token) {
+      throw new Error('Authentication token not found. Please log in again.');
     }
-  };
+
+    const endpoint = isEditMode
+  ? `${import.meta.env.VITE_API_URL}/scholarships/${initialData._id}`
+  : `${import.meta.env.VITE_API_URL}/scholarships`;
+
+    const method = isEditMode ? 'PUT' : 'POST';
+
+    const res = await fetch(endpoint, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(newListingPayload)
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.message || 'Failed to create scholarship.');
+    }
+
+    console.log('Scholarship created:', data);
+
+    setIsSubmitting(false);
+    setShowSuccessModal(true);
+
+  } catch (err) {
+    console.error('Create Scholarship Error:', err);
+
+    setIsSubmitting(false);
+    setErrorMsg(err.message || 'Failed to create scholarship.');
+  }
+};
 
   // Navigate to provider/listings or ScholarshipListings view on close
   const handleSuccessClose = () => {

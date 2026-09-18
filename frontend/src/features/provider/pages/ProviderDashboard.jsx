@@ -28,6 +28,8 @@ import Pagination from '../../../components/common/Pagination';
 // Create / Edit Listing View Component
 import CreateListing from './CreateListing';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+
 // ==========================================
 // FALLBACK MOCK DATA & IN-MEMORY TEST STORE
 // ==========================================
@@ -132,42 +134,82 @@ export default function ProviderDashboard() {
   };
 
   // Fetch Dashboard Data (with Fallback Engine)
+ 
   const fetchDashboardData = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const token = localStorage.getItem('token');
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  setIsLoading(true);
 
-      const [statsRes, listingsRes] = await Promise.all([
-        fetch('/api/v1/provider/stats', { headers }),
-        fetch('/api/v1/provider/scholarships', { headers })
-      ]);
+  try {
+    const token = localStorage.getItem('iskolar_token');
 
-      if (statsRes.ok && listingsRes.ok) {
-        const statsData = await statsRes.json();
-        const listingsData = await listingsRes.json();
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(token && { Authorization: `Bearer ${token}` })
+    };
 
-        setProviderUser(statsData.provider || MOCK_PROVIDER_USER);
-        setStats(statsData.metrics || {});
-        const fetchedListings = Array.isArray(listingsData) ? listingsData : listingsData.scholarships || [];
-        setListings(fetchedListings);
-        setIsUsingFallback(false);
-      } else {
-        throw new Error('API server returned unexpected status code');
-      }
-    } catch {
-      // Graceful Mock Fallback for Local Testing
-      setIsUsingFallback(true);
-      setProviderUser(MOCK_PROVIDER_USER);
-      setListings((prevListings) => {
-        const data = prevListings.length > 0 ? prevListings : INITIAL_MOCK_LISTINGS;
-        recalculateStats(data);
-        return data;
-      });
-    } finally {
-      setIsLoading(false);
+    const [dashboardRes, listingsRes] = await Promise.all([
+      fetch(`${API_BASE_URL}/providers/dashboard`, { headers }),
+      fetch(`${API_BASE_URL}/scholarships/my`, { headers })
+    ]);
+
+    const dashboardData = await dashboardRes.json();
+    const listingsData = await listingsRes.json();
+
+    if (!dashboardRes.ok) {
+      throw new Error(
+        dashboardData.message || 'Failed to load provider dashboard.'
+      );
     }
-  }, [recalculateStats]);
+
+    if (!listingsRes.ok) {
+      throw new Error(
+        listingsData.message || 'Failed to load scholarship listings.'
+      );
+    }
+
+    // Provider information
+    if (dashboardData.dashboard?.provider) {
+      setProviderUser({
+        name: dashboardData.dashboard.provider.institutionName,
+        role: 'Scholarship Provider'
+      });
+    }
+
+    // Dashboard statistics
+    const statistics = dashboardData.dashboard?.statistics || {};
+
+    setStats({
+      activePostings: statistics.openScholarships || 0,
+      impressions: statistics.impressions || 0,
+      clicks: statistics.clicks || 0,
+      clickThroughRate: statistics.clickThroughRate || '0%'
+    });
+
+    // Scholarship listings
+    const fetchedListings = listingsData.scholarships || [];
+
+    setListings(fetchedListings);
+    setIsUsingFallback(false);
+
+  } catch (error) {
+    console.error('Failed to fetch provider dashboard:', error);
+
+    setIsUsingFallback(true);
+
+    // Keep existing mock data as fallback
+    setListings((prevListings) => {
+      const data =
+        prevListings.length > 0
+          ? prevListings
+          : INITIAL_MOCK_LISTINGS;
+
+      recalculateStats(data);
+      return data;
+    });
+
+  } finally {
+    setIsLoading(false);
+  }
+}, [recalculateStats]);
 
   useEffect(() => {
     fetchDashboardData();
@@ -175,32 +217,47 @@ export default function ProviderDashboard() {
 
   // Execute Toggle Status
   const executeToggleStatus = async (listingId, newStatus) => {
-    try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`/api/v1/provider/scholarships/${listingId}/status`, {
+  try {
+    const token = localStorage.getItem('iskolar_token');
+
+    const res = await fetch(
+      `${API_BASE_URL}/scholarships/${listingId}/status`,
+      {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           ...(token && { Authorization: `Bearer ${token}` })
         },
-        body: JSON.stringify({ status: newStatus })
-      });
+        body: JSON.stringify({
+          status: newStatus
+        })
+      }
+    );
 
-      if (!res.ok) throw new Error('Status update failed on server');
-      showToast(`Scholarship status changed to ${newStatus}.`, 'success');
-      fetchDashboardData();
-    } catch {
-      // Local Mock Execution if API Offline
-      setListings((prev) => {
-        const updated = prev.map((item) => 
-          item._id === listingId ? { ...item, status: newStatus } : item
-        );
-        recalculateStats(updated);
-        return updated;
-      });
-      showToast(`Scholarship status updated to ${newStatus} (Local State).`, 'success');
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(
+        data.message || 'Status update failed on server.'
+      );
     }
-  };
+
+    showToast(
+      `Scholarship status changed to ${newStatus}.`,
+      'success'
+    );
+
+    await fetchDashboardData();
+
+  } catch (error) {
+    console.error('Status update failed:', error);
+
+    showToast(
+      error.message || 'Unable to update scholarship status.',
+      'error'
+    );
+  }
+};
 
   // Open Confirmation Popup for Status Toggle
   const handleToggleStatus = (listingId, currentStatus, title) => {
@@ -218,11 +275,17 @@ export default function ProviderDashboard() {
   // Execute Soft-Delete
   const executeDeleteListing = async (listingId, title) => {
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`/api/v1/provider/scholarships/${listingId}`, {
-        method: 'DELETE',
-        headers: token ? { Authorization: `Bearer ${token}` } : {}
-      });
+      const token = localStorage.getItem('iskolar_token');
+      
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/scholarships/${listingId}/archive`,
+        {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
 
       if (!res.ok) throw new Error('Delete operation failed on server');
       showToast(`"${title}" has been deleted.`, 'success');
@@ -242,9 +305,9 @@ export default function ProviderDashboard() {
   const handleDeleteListing = (listingId, title) => {
     setConfirmModal({
       isOpen: true,
-      title: 'Delete Scholarship Listing',
-      message: `Are you sure you want to permanently delete "${title}"? This action cannot be undone.`,
-      confirmText: 'Delete Permanently',
+      title: 'Archive Scholarship Listing',
+      message: `Are you sure you want to permanently archive "${title}"? This action cannot be undone.`,
+      confirmText: 'Archived Scholarship',
       variant: 'danger',
       onConfirm: () => executeDeleteListing(listingId, title)
     });
@@ -306,13 +369,13 @@ export default function ProviderDashboard() {
   const columns = [
     { 
       header: 'Scholarship Title', 
-      accessor: 'title', 
+      accessor: 'name', 
       cell: (row) => (
         <div className="flex flex-col">
-          <span className="font-bold text-slate-900">{row.title}</span>
-          {row.applicationUrl && (
+          <span className="font-bold text-slate-900">{row.name}</span>
+          {row.applicationURL && (
             <a 
-              href={row.applicationUrl} 
+              href={row.applicationURL}
               target="_blank" 
               rel="noopener noreferrer" 
               className="text-[11px] text-emerald-600 hover:underline flex items-center gap-1 mt-0.5"
@@ -323,11 +386,7 @@ export default function ProviderDashboard() {
         </div>
       ) 
     },
-    { 
-      header: 'Grant Value', 
-      accessor: 'amount',
-      cell: (row) => <span className="font-semibold text-slate-700">{row.amount}</span>
-    },
+
     { 
       header: 'Status', 
       accessor: 'status', 
@@ -355,7 +414,7 @@ export default function ProviderDashboard() {
           {/* Toggle Open/Closed State */}
           <button
             type="button"
-            onClick={() => handleToggleStatus(row._id, row.status, row.title)}
+            onClick={() => handleToggleStatus(row._id, row.status, row.name)}
             title={row.status === 'Open' ? 'Close Applications' : 'Open Applications'}
             className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
           >
@@ -375,7 +434,7 @@ export default function ProviderDashboard() {
           {/* Delete Listing */}
           <button
             type="button"
-            onClick={() => handleDeleteListing(row._id, row.title)}
+            onClick={() => handleDeleteListing(row._id, row.name)}
             title="Delete Listing"
             className="p-1.5 rounded-lg hover:bg-rose-50 text-slate-600 hover:text-rose-600 transition-colors cursor-pointer"
           >
@@ -388,8 +447,8 @@ export default function ProviderDashboard() {
 
   // Filter listings based on search input
   const filteredListings = listings.filter((item) =>
-    item.title?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  item.name?.toLowerCase().includes(searchQuery.toLowerCase())
+);
 
   if (isLoading) {
     return (
