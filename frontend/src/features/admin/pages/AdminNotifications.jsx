@@ -1,75 +1,115 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Bell, 
   Send, 
   ShieldAlert, 
-  UserCheck, 
   Search, 
   CheckCircle2, 
   AlertTriangle,
   Info,
-  Radio
+  Radio,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 
-const MOCK_ADMIN_AUDIT_LOGS = [
-  {
-    id: 'log-101',
-    type: 'Security',
-    severity: 'warning',
-    message: 'Multiple failed login attempts detected from IP 112.198.70.12',
-    timestamp: '2026-08-02T10:14:00.000Z',
-    read: false
-  },
-  {
-    id: 'log-102',
-    type: 'Provider Verification',
-    severity: 'info',
-    message: 'New provider account request submitted by Bicol Development Foundation',
-    timestamp: '2026-08-02T08:30:00.000Z',
-    read: false
-  },
-  {
-    id: 'log-103',
-    type: 'System',
-    severity: 'success',
-    message: 'Automated nightly database backup completed (41.2 GB archived)',
-    timestamp: '2026-08-02T02:00:00.000Z',
-    read: true
-  },
-  {
-    id: 'log-104',
-    type: 'Scholarship Flag',
-    severity: 'danger',
-    message: 'Scholarship #882 flagged by 3 users for invalid contact details',
-    timestamp: '2026-08-01T16:45:00.000Z',
-    read: true
-  }
-];
-
 export function AdminNotifications() {
-  const [logs, setLogs] = useState(MOCK_ADMIN_AUDIT_LOGS);
+  const [logs, setLogs] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState('All');
   
-  // Broadcast modal state
+  // Loading & Error States
+  const [isLoading, setIsLoading] = useState(true);
+  const [isBroadcasting, setIsBroadcasting] = useState(false);
+  const [isMarkingRead, setIsMarkingRead] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(null);
+  
+  // Broadcast Form State
   const [broadcast, setBroadcast] = useState({ target: 'All Users', title: '', message: '' });
   const [broadcastSent, setBroadcastSent] = useState(false);
 
-  const handleBroadcastSubmit = (e) => {
-    e.preventDefault();
-    setBroadcastSent(true);
-    setBroadcast({ target: 'All Users', title: '', message: '' });
-    setTimeout(() => setBroadcastSent(false), 4000);
+  // Helper for Authorization Headers
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('token');
+    return {
+      'Content-Type': 'application/json',
+      ...(token && { Authorization: `Bearer ${token}` })
+    };
   };
 
-  const markAllRead = () => {
-    setLogs(logs.map(item => ({ ...item, read: true })));
+  // 1. GET: Fetch Audit Logs from API
+  const fetchAuditLogs = async () => {
+    setIsLoading(true);
+    setErrorMessage(null);
+    try {
+      const res = await fetch('/api/v1/admin/audit-logs', {
+        headers: getAuthHeaders()
+      });
+
+      if (!res.ok) throw new Error('Failed to load system audit logs.');
+
+      const data = await res.json();
+      setLogs(data.logs || data);
+    } catch (err) {
+      console.error('Fetch Logs Error:', err);
+      setErrorMessage(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAuditLogs();
+  }, []);
+
+  // 2. POST: Dispatch Broadcast Announcement
+  const handleBroadcastSubmit = async (e) => {
+    e.preventDefault();
+    setIsBroadcasting(true);
+    setErrorMessage(null);
+
+    try {
+      const res = await fetch('/api/v1/admin/broadcasts', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(broadcast)
+      });
+
+      if (!res.ok) throw new Error('Failed to send broadcast announcement.');
+
+      setBroadcastSent(true);
+      setBroadcast({ target: 'All Users', title: '', message: '' });
+      setTimeout(() => setBroadcastSent(false), 4000);
+    } catch (err) {
+      setErrorMessage(err.message);
+    } finally {
+      setIsBroadcasting(false);
+    }
+  };
+
+  // 3. PATCH: Mark All Logged Events as Read
+  const markAllRead = async () => {
+    setIsMarkingRead(true);
+    try {
+      const res = await fetch('/api/v1/admin/audit-logs/mark-read', {
+        method: 'PATCH',
+        headers: getAuthHeaders()
+      });
+
+      if (!res.ok) throw new Error('Failed to update logs status.');
+
+      // Optimistically update local state on success
+      setLogs(prev => prev.map(item => ({ ...item, read: true })));
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setIsMarkingRead(false);
+    }
   };
 
   const filteredLogs = useMemo(() => {
     return logs.filter(log => {
-      const matchesSearch = log.message.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                            log.type.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesSearch = (log.message || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            (log.type || '').toLowerCase().includes(searchQuery.toLowerCase());
       if (filterType === 'Unread') return matchesSearch && !log.read;
       if (filterType === 'Security') return matchesSearch && log.type === 'Security';
       return matchesSearch;
@@ -77,6 +117,7 @@ export function AdminNotifications() {
   }, [logs, searchQuery, filterType]);
 
   const formatDate = (isoString) => {
+    if (!isoString) return '';
     return new Date(isoString).toLocaleString('en-US', {
       month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit'
     });
@@ -100,11 +141,20 @@ export function AdminNotifications() {
 
         <button
           onClick={markAllRead}
-          className="px-3.5 py-2 bg-app-bg hover:bg-app-text/5 text-app-text border border-app-text/10 text-xs font-bold rounded-xl transition-colors cursor-pointer shrink-0"
+          disabled={isMarkingRead || logs.length === 0}
+          className="px-3.5 py-2 bg-app-bg hover:bg-app-text/5 text-app-text border border-app-text/10 text-xs font-bold rounded-xl transition-colors cursor-pointer shrink-0 disabled:opacity-50 flex items-center gap-2"
         >
-          Mark All Logged Events as Read
+          {isMarkingRead && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+          <span>Mark All Logged Events as Read</span>
         </button>
       </div>
+
+      {errorMessage && (
+        <div className="p-4 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-2xl flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+          <span>{errorMessage}</span>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
@@ -139,50 +189,61 @@ export function AdminNotifications() {
             </div>
           </div>
 
-          <div className="space-y-3">
-            {filteredLogs.map((log) => {
-              let Icon = Info;
-              let iconStyle = 'bg-blue-500/10 text-blue-600';
-              
-              if (log.severity === 'warning') {
-                Icon = AlertTriangle;
-                iconStyle = 'bg-amber-500/10 text-amber-600';
-              } else if (log.severity === 'danger') {
-                Icon = ShieldAlert;
-                iconStyle = 'bg-rose-500/10 text-rose-600';
-              } else if (log.severity === 'success') {
-                Icon = CheckCircle2;
-                iconStyle = 'bg-emerald-500/10 text-emerald-600';
-              }
+          {isLoading ? (
+            <div className="min-h-[250px] flex flex-col items-center justify-center gap-2 bg-card-bg rounded-2xl border border-app-text/10">
+              <Loader2 className="w-6 h-6 text-primary animate-spin" />
+              <p className="text-xs text-text-muted font-semibold">Fetching audit stream...</p>
+            </div>
+          ) : filteredLogs.length === 0 ? (
+            <div className="p-8 text-center bg-card-bg rounded-2xl border border-app-text/10 text-xs text-text-muted font-medium">
+              No audit logs found matching your criteria.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredLogs.map((log) => {
+                let Icon = Info;
+                let iconStyle = 'bg-blue-500/10 text-blue-600';
+                
+                if (log.severity === 'warning') {
+                  Icon = AlertTriangle;
+                  iconStyle = 'bg-amber-500/10 text-amber-600';
+                } else if (log.severity === 'danger') {
+                  Icon = ShieldAlert;
+                  iconStyle = 'bg-rose-500/10 text-rose-600';
+                } else if (log.severity === 'success') {
+                  Icon = CheckCircle2;
+                  iconStyle = 'bg-emerald-500/10 text-emerald-600';
+                }
 
-              return (
-                <div 
-                  key={log.id}
-                  className={`bg-card-bg rounded-2xl border p-4 shadow-xs transition-all flex items-start gap-3.5 ${
-                    !log.read ? 'border-primary/40 bg-primary/5' : 'border-app-text/10'
-                  }`}
-                >
-                  <div className={`p-2.5 rounded-xl shrink-0 ${iconStyle}`}>
-                    <Icon className="w-4 h-4" />
-                  </div>
-
-                  <div className="flex-1 space-y-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-primary">
-                        {log.type}
-                      </span>
-                      <span className="text-[10px] text-text-muted font-bold">
-                        {formatDate(log.timestamp)}
-                      </span>
+                return (
+                  <div 
+                    key={log._id || log.id}
+                    className={`bg-card-bg rounded-2xl border p-4 shadow-xs transition-all flex items-start gap-3.5 ${
+                      !log.read ? 'border-primary/40 bg-primary/5' : 'border-app-text/10'
+                    }`}
+                  >
+                    <div className={`p-2.5 rounded-xl shrink-0 ${iconStyle}`}>
+                      <Icon className="w-4 h-4" />
                     </div>
-                    <p className="text-xs font-bold text-app-text leading-relaxed">
-                      {log.message}
-                    </p>
+
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-primary">
+                          {log.type}
+                        </span>
+                        <span className="text-[10px] text-text-muted font-bold">
+                          {formatDate(log.timestamp || log.createdAt)}
+                        </span>
+                      </div>
+                      <p className="text-xs font-bold text-app-text leading-relaxed">
+                        {log.message}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Right Col: Global System Broadcast Tool */}
@@ -209,9 +270,9 @@ export function AdminNotifications() {
                     onChange={(e) => setBroadcast({ ...broadcast, target: e.target.value })}
                     className="w-full px-3 py-2 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:outline-hidden focus:border-primary cursor-pointer"
                   >
-                    <option>All Users</option>
-                    <option>Students Only</option>
-                    <option>Grant Providers Only</option>
+                    <option value="All Users">All Users</option>
+                    <option value="Students Only">Students Only</option>
+                    <option value="Grant Providers Only">Grant Providers Only</option>
                   </select>
                 </div>
 
@@ -241,9 +302,10 @@ export function AdminNotifications() {
 
                 <button
                   type="submit"
-                  className="w-full py-2.5 bg-primary text-white text-xs font-bold rounded-xl hover:opacity-90 transition-opacity cursor-pointer flex items-center justify-center gap-1.5"
+                  disabled={isBroadcasting}
+                  className="w-full py-2.5 bg-primary text-white text-xs font-bold rounded-xl hover:opacity-90 transition-opacity cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
                 >
-                  <Send className="w-3.5 h-3.5" />
+                  {isBroadcasting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                   <span>Transmit Broadcast</span>
                 </button>
               </form>
