@@ -116,10 +116,11 @@ export default function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/login" element={<AuthPage />} />
+            <Route path="/consent/verify" element={<ParentConsentPage />} />
           </Route>
 
           {/* PUBLIC PARENT CONSENT LANDING (No auth required) */}
-          <Route path="/parent-consent" element={<ParentConsentPage />} />
+          <Route path="/consent/verify" element={<ParentConsentPage />} />
 
           {/* 2. STANDALONE ONBOARDING ROUTE */}
           <Route element={<ProtectedRouteGuard allowedRoles={['student']} />}>

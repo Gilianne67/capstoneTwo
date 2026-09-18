@@ -23,7 +23,7 @@ const protect = async (req, res, next) => {
       .json({ success: false, message: 'Not authorized to access this route' });
   }
 
-  // Safe check for isTokenBlacklisted function execution
+  // Safe check for token revocation (Redis / Blacklist)
   try {
     const isBlacklistedFn =
       typeof tokenService === 'function'

@@ -1,11 +1,24 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldAlert, GraduationCap, ArrowRight, Loader2, MailCheck, Info } from 'lucide-react';
-import { useAuth } from '../../../context/AuthContext'; // Adjust import path if needed
+import { 
+  ShieldAlert, 
+  GraduationCap, 
+  ArrowRight, 
+  Loader2, 
+  MailCheck, 
+  Mail, 
+  Send, 
+  AlertCircle,
+  FileText,
+  Sparkles
+} from 'lucide-react';
+import { useAuth } from '../../../context/AuthContext';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 export function OnboardingForm({ onComplete }) {
   const navigate = useNavigate();
-  const { user, token: contextToken } = useAuth(); // Retrieve token directly from Auth Context
+  const { user, token: contextToken, updateUser } = useAuth();
 
   const [formData, setFormData] = useState({
     dob: '',
@@ -15,13 +28,18 @@ export function OnboardingForm({ onComplete }) {
     region: '',
     householdIncome: 'Below ₱10,000 / month',
     guardianName: '',
-    guardianEmail: ''
+    guardianEmail: '',
+    dpaConsent: false
   });
 
   const [isMinor, setIsMinor] = useState(false);
+  const [calculatedAge, setCalculatedAge] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [consentSent, setConsentSent] = useState(false);
   const [error, setError] = useState(null);
+
+  const [isResending, setIsResending] = useState(false);
+  const [resendStatus, setResendStatus] = useState(null);
 
   const handleDobChange = (e) => {
     const dobValue = e.target.value;
@@ -37,64 +55,195 @@ export function OnboardingForm({ onComplete }) {
         age--;
       }
 
+      setCalculatedAge(age);
       setIsMinor(age < 18);
     }
   };
 
   const handleChange = (e) => {
-    setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    const { name, value, type, checked } = e.target;
+    setFormData(prev => ({ 
+      ...prev, 
+      [name]: type === 'checkbox' ? checked : value 
+    }));
+  };
+
+  const getCleanToken = () => {
+    let rawToken = contextToken || localStorage.getItem('token') || localStorage.getItem('accessToken');
+    if (rawToken) {
+      return rawToken.replace(/^"|"$/g, '').replace('Bearer ', '').trim();
+    }
+    return null;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
-    setIsSubmitting(true);
 
-    // Retrieve token from context or fallback to localStorage keys
-    let token = contextToken || localStorage.getItem('token') || localStorage.getItem('accessToken');
-    
-    if (token) {
-      token = token.replace(/^"|"$/g, '').replace('Bearer ', '').trim();
-    }
-
-    if (!token) {
-      setError('No active session found. Please log in again.');
-      setIsSubmitting(false);
+    if (!formData.dpaConsent) {
+      setError('You must consent to the Data Privacy Act (DPA) policy to proceed.');
       return;
     }
 
+    if (isMinor) {
+      const studentEmail = user?.email?.trim().toLowerCase();
+      const guardianEmail = formData.guardianEmail.trim().toLowerCase();
+
+      if (!guardianEmail) {
+        setError('Guardian email is required for students under 18.');
+        return;
+      }
+
+      if (studentEmail && guardianEmail === studentEmail) {
+        setError('Parent/Guardian email cannot be the same as your student account email.');
+        return;
+      }
+    }
+
+    setIsSubmitting(true);
+    const token = getCleanToken();
+
     try {
-      const response = await fetch('/api/v1/user/onboarding', {
+      const response = await fetch(`${API_BASE_URL}/api/v1/user/onboarding`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          ...(token && { 'Authorization': `Bearer ${token}` })
         },
         credentials: 'include',
-        body: JSON.stringify({ ...formData, isMinor }),
+        body: JSON.stringify({
+          dob: formData.dob,
+          course: formData.course,
+          yearLevel: formData.yearLevel,
+          gpa: parseFloat(formData.gpa),
+          region: formData.region,
+          householdIncome: formData.householdIncome,
+          guardianName: isMinor ? formData.guardianName : undefined,
+          guardianEmail: isMinor ? formData.guardianEmail : undefined,
+          isMinor,
+          age: calculatedAge
+        })
       });
 
-      const data = await response.json();
+      const contentType = response.headers.get('content-type');
+      let data = {};
+      
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        const rawText = await response.text();
+        console.error('Non-JSON Server Response:', rawText);
+        throw new Error(`Server returned non-JSON response (${response.status})`);
+      }
 
       if (!response.ok) {
         throw new Error(data.message || 'Onboarding submission failed.');
       }
 
-      console.log('Onboarding success:', data);
+      // Update local state in AuthContext with fresh DB user
+      if (typeof updateUser === 'function') {
+        updateUser(data.user);
+      }
 
       if (isMinor) {
         setConsentSent(true);
       } else {
-        if (onComplete) onComplete(data.user);
-        navigate('/dashboard/student', { replace: true });
+        if (typeof onComplete === 'function') {
+          onComplete(data.user);
+        } else {
+          navigate('/dashboard');
+        }
       }
     } catch (err) {
-      console.error('Onboarding submission failed:', err.message);
-      setError(err.message);
+      console.error('Onboarding Submission Error:', err);
+      setError(err.message || 'Connection Failed: Could not complete onboarding.');
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  const handleResendConsentEmail = async () => {
+    setIsResending(true);
+    setResendStatus(null);
+    const token = getCleanToken();
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/user/consent/resend`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        },
+        credentials: 'include',
+        body: JSON.stringify({ 
+          userId: user?.id || user?._id, 
+          guardianEmail: formData.guardianEmail || user?.guardianEmail 
+        })
+      });
+      
+      const data = await res.json();
+      if (res.ok && data.success !== false) {
+        setResendStatus({ type: 'success', text: 'Consent email sent successfully! Please check spam folder.' });
+      } else {
+        setResendStatus({ type: 'error', text: data.message || 'Failed to resend email.' });
+      }
+    } catch (err) {
+      console.error('Resend Error:', err);
+      setResendStatus({ type: 'error', text: 'Network error. Please try again.' });
+    } finally {
+      setIsResending(false);
+    }
+  };
+
+  // Screening for Pending Consent Status
+  if (user?.isOnboarded && user?.status === 'pending_consent') {
+    return (
+      <div className="max-w-md mx-auto my-12 p-6 bg-card-bg border border-app-text/10 rounded-2xl text-center space-y-4 shadow-lg">
+        <div className="w-12 h-12 bg-amber-500/10 text-amber-600 rounded-full flex items-center justify-center mx-auto">
+          <Mail className="w-6 h-6" />
+        </div>
+        <h3 className="text-lg font-black text-app-text">Parental Approval Needed</h3>
+        <p className="text-xs text-text-muted leading-relaxed">
+          A verification link was sent to your parent/guardian's email address (<strong>{user?.guardianEmail}</strong>).
+        </p>
+
+        {resendStatus && (
+          <div className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
+            resendStatus.type === 'success' 
+              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+              : 'bg-rose-50 text-rose-700 border border-rose-200'
+          }`}>
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{resendStatus.text}</span>
+          </div>
+        )}
+
+        <div className="pt-2 space-y-2">
+          <button
+            type="button"
+            onClick={handleResendConsentEmail}
+            disabled={isResending}
+            className="w-full py-3 bg-primary text-white font-bold text-xs rounded-xl shadow-md flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer"
+          >
+            {isResending ? <Loader2 className="w-4 h-4 animate-spin" /> : (
+              <>
+                <Send className="w-4 h-4" />
+                <span>Resend Consent Email</span>
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate('/auth?mode=signin')}
+            className="w-full py-2 text-xs font-semibold text-text-muted hover:text-app-text cursor-pointer"
+          >
+            Return to Login
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (consentSent) {
     return (
@@ -102,17 +251,12 @@ export function OnboardingForm({ onComplete }) {
         <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto">
           <MailCheck className="w-6 h-6" />
         </div>
-        <h2 className="text-lg font-bold text-app-text">Parental Consent Email Sent</h2>
+        <h2 className="text-lg font-bold text-app-text">Parental Consent Required</h2>
         <p className="text-xs text-text-muted leading-relaxed">
-          In compliance with RA 10173 (Data Privacy Act of 2012), we sent an authorization link to <strong className="text-app-text">{formData.guardianEmail}</strong>.
+          Because you are under 18, we sent a verification link to <strong className="text-app-text">{formData.guardianEmail}</strong>.
         </p>
-        <div className="p-3.5 bg-amber-50 text-amber-900 rounded-xl text-xs font-semibold border border-amber-200 text-left space-y-1">
-          <div className="font-extrabold flex items-center gap-1.5">
-            <span>🔒 Status: Pending Parental Consent</span>
-          </div>
-          <p className="text-[11px] text-amber-800">
-            Once your parent/guardian clicks <strong>"Approve Consent"</strong> in the email, your account will activate and instantly perform profile match calculations!
-          </p>
+        <div className="p-3 bg-amber-50 text-amber-800 rounded-xl text-xs font-semibold border border-amber-200">
+          🔒 Account Status: <strong>Pending Consent</strong>
         </div>
       </div>
     );
@@ -120,14 +264,18 @@ export function OnboardingForm({ onComplete }) {
 
   return (
     <div className="max-w-2xl mx-auto my-10 p-6 sm:p-8 bg-card-bg border border-app-text/10 rounded-2xl shadow-md">
-      <div className="mb-6 pb-4 border-b border-app-text/10">
+      <div className="mb-6 pb-4 border-b border-app-text/10 space-y-1">
         <h2 className="text-xl font-extrabold text-app-text flex items-center gap-2">
           <GraduationCap className="w-6 h-6 text-primary" />
           Complete Your Student Profile
         </h2>
-        <p className="text-xs text-text-muted mt-1">
-          Providing true information ensures accurate algorithm matching with eligible scholarships.
-        </p>
+        
+        <div className="flex items-start gap-2 p-3 bg-blue-50/60 border border-blue-200 rounded-xl text-blue-900 text-xs">
+          <Sparkles className="w-4 h-4 shrink-0 text-blue-600 mt-0.5" />
+          <span>
+            <strong>Scholarship Accuracy Notice:</strong> Please enter your accurate age, GPA, and location. Providers use these metrics to match you directly with eligible grant programs.
+          </span>
+        </div>
       </div>
 
       {error && (
@@ -138,33 +286,28 @@ export function OnboardingForm({ onComplete }) {
 
       <form onSubmit={handleSubmit} className="space-y-5">
         <div>
-          <label className="block text-xs font-bold text-app-text mb-1">Date of Birth</label>
+          <div className="flex justify-between items-center mb-1">
+            <label className="block text-xs font-bold text-app-text">Date of Birth</label>
+            {calculatedAge !== null && (
+              <span className="text-xs font-bold text-primary">Age: {calculatedAge} years old</span>
+            )}
+          </div>
           <input
             type="date"
             name="dob"
             value={formData.dob}
             onChange={handleDobChange}
             required
-            className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-hidden"
+            className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none"
           />
-          <div className="flex items-start gap-1.5 mt-1.5 text-[11px] text-text-muted">
-            <Info className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
-            <span>
-              Accurate age information ensures you match with scholarships that have strict age brackets.
-            </span>
-          </div>
         </div>
 
         {isMinor && (
           <div className="p-4 bg-amber-50/60 border border-amber-200 rounded-xl space-y-3">
             <div className="flex items-center gap-2 text-amber-800 text-xs font-bold">
               <ShieldAlert className="w-4 h-4 shrink-0 text-amber-600" />
-              <span>Parent / Guardian Consent Required (RA 10173 DPA Compliance)</span>
+              <span>Parent / Guardian Consent Required (Under 18)</span>
             </div>
-            <p className="text-[11px] text-amber-700 leading-normal">
-              Students under 18 require parental approval before storing sensitive educational records.
-            </p>
-
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
               <div>
                 <label className="block text-xs font-bold text-app-text mb-1">Guardian Full Name</label>
@@ -173,9 +316,8 @@ export function OnboardingForm({ onComplete }) {
                   name="guardianName"
                   value={formData.guardianName}
                   onChange={handleChange}
-                  placeholder="e.g. Maria Dela Cruz"
                   required={isMinor}
-                  className="w-full px-3 py-2 bg-white rounded-lg border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-hidden"
+                  className="w-full px-3 py-2 bg-white rounded-lg border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none"
                 />
               </div>
 
@@ -186,9 +328,8 @@ export function OnboardingForm({ onComplete }) {
                   name="guardianEmail"
                   value={formData.guardianEmail}
                   onChange={handleChange}
-                  placeholder="guardian@example.com"
                   required={isMinor}
-                  className="w-full px-3 py-2 bg-white rounded-lg border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-hidden"
+                  className="w-full px-3 py-2 bg-white rounded-lg border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none"
                 />
               </div>
             </div>
@@ -203,9 +344,8 @@ export function OnboardingForm({ onComplete }) {
               name="course"
               value={formData.course}
               onChange={handleChange}
-              placeholder="BS Information Technology"
               required
-              className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-hidden"
+              className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none"
             />
           </div>
 
@@ -215,7 +355,7 @@ export function OnboardingForm({ onComplete }) {
               name="yearLevel"
               value={formData.yearLevel}
               onChange={handleChange}
-              className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-hidden cursor-pointer"
+              className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none cursor-pointer"
             >
               <option>1st Year</option>
               <option>2nd Year</option>
@@ -228,13 +368,15 @@ export function OnboardingForm({ onComplete }) {
           <div>
             <label className="block text-xs font-bold text-app-text mb-1">Current GWA / GPA</label>
             <input
-              type="text"
+              type="number"
+              step="0.01"
+              min="1.0"
+              max="5.0"
               name="gpa"
               value={formData.gpa}
               onChange={handleChange}
-              placeholder="e.g. 1.50"
               required
-              className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-hidden"
+              className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none"
             />
           </div>
 
@@ -245,42 +387,58 @@ export function OnboardingForm({ onComplete }) {
               name="region"
               value={formData.region}
               onChange={handleChange}
-              placeholder="e.g. Region V"
               required
-              className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-hidden"
+              className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none"
             />
           </div>
 
           <div className="sm:col-span-2">
-            <label className="block text-xs font-bold text-app-text mb-1">
-              Monthly Household Income
-            </label>
+            <label className="block text-xs font-bold text-app-text mb-1">Monthly Household Income</label>
             <select
               name="householdIncome"
               value={formData.householdIncome}
               onChange={handleChange}
-              className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-hidden cursor-pointer"
+              className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none cursor-pointer"
             >
               <option>Below ₱10,000 / month</option>
-              <option>₱10,001 – ₱21,190 / month (Low income)</option>
-              <option>₱21,191 – ₱43,828 / month (Lower middle)</option>
-              <option>₱43,829 – ₱76,669 / month (Middle class)</option>
-              <option>₱76,670 – ₱131,484 / month (Upper middle)</option>
+              <option>₱10,001 – ₱21,190 / month</option>
+              <option>₱21,191 – ₱43,828 / month</option>
+              <option>₱43,829 – ₱76,669 / month</option>
+              <option>₱76,670 – ₱131,484 / month</option>
               <option>Above ₱131,484 / month</option>
             </select>
+          </div>
+        </div>
+
+        <div className="p-4 bg-gray-50 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700 rounded-xl space-y-2">
+          <div className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              id="dpaConsent"
+              name="dpaConsent"
+              checked={formData.dpaConsent}
+              onChange={handleChange}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+            />
+            <label htmlFor="dpaConsent" className="text-xs text-app-text leading-relaxed cursor-pointer">
+              <strong className="flex items-center gap-1">
+                <FileText className="w-3.5 h-3.5 inline text-primary" /> Data Privacy Act (DPA) Compliance Notice
+              </strong>
+              I consent to the collection and processing of my personal data for scholarship matching purposes in compliance with Republic Act No. 10173 (Data Privacy Act of 2012).
+            </label>
           </div>
         </div>
 
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full mt-4 py-3 bg-primary text-white hover:bg-primary/90 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+          className="w-full mt-4 py-3 bg-primary text-white hover:bg-primary/90 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-2 shadow-xs cursor-pointer disabled:opacity-50"
         >
           {isSubmitting ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
             <>
-              <span>{isMinor ? 'Send Guardian Consent Link' : 'Activate Profile & View Matches'}</span>
+              <span>{isMinor ? 'Submit & Send Guardian Email' : 'Activate Profile'}</span>
               <ArrowRight className="w-4 h-4" />
             </>
           )}

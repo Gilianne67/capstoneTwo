@@ -30,6 +30,15 @@ const UserSchema = new mongoose.Schema(
       enum: ['student', 'provider', 'admin', 'super_admin'],
       default: 'student',
     },
+    status: {
+      type: String,
+      enum: ['pending_consent', 'active', 'suspended'],
+      default: 'active',
+    },
+    isOnboarded: {
+      type: Boolean,
+      default: false,
+    },
     organization: {
       type: String,
       default: '',
@@ -38,13 +47,26 @@ const UserSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // Onboarding & Parental Consent fields
+    dob: { type: Date },
+    course: { type: String, trim: true },
+    yearLevel: { type: String, trim: true },
+    gpa: { type: Number },
+    region: { type: String, trim: true },
+    householdIncome: { type: String },
+    guardianName: { type: String, trim: true },
+    guardianEmail: { type: String, lowercase: true, trim: true },
+    consentToken: { type: String },
+    consentApprovedAt: { type: Date },
   },
   { timestamps: true }
 );
 
 // Encrypt password using bcrypt before saving
-UserSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) return next();
+// FIXED: Async Mongoose hooks automatically handle completion via Promise.
+// Do NOT accept `next` as a parameter or invoke `next()`.
+UserSchema.pre('save', async function () {
+  if (!this.isModified('password')) return;
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
 });
@@ -57,7 +79,12 @@ UserSchema.methods.matchPassword = async function (enteredPassword) {
 // Sign JWT and return token string
 UserSchema.methods.getSignedJwtToken = function () {
   return jwt.sign(
-    { id: this._id.toString(), role: this.role },
+    { 
+      id: this._id.toString(), 
+      role: this.role,
+      status: this.status,
+      isOnboarded: this.isOnboarded
+    },
     process.env.JWT_SECRET || 'fallback_secret',
     { expiresIn: process.env.JWT_EXPIRE || '30d' }
   );

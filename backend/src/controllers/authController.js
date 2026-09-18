@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const User = require('../models/User');
 const asyncHandler = require('../utils/asyncHandler');
 const ErrorResponse = require('../utils/errorResponse');
@@ -17,7 +18,6 @@ const sendTokenResponse = (user, statusCode, res, message) => {
 
   user.password = undefined;
 
-  // Format response user payload with explicit onboarding state
   const userData = {
     id: user._id,
     name: user.name,
@@ -25,6 +25,7 @@ const sendTokenResponse = (user, statusCode, res, message) => {
     role: user.role,
     organization: user.organization || '',
     isOnboarded: Boolean(user.isOnboarded),
+    status: user.status || 'active',
   };
 
   res
@@ -60,6 +61,7 @@ exports.register = asyncHandler(async (req, res, next) => {
     role: role || 'student',
     organization: role === 'provider' ? organization : '',
     isOnboarded: false,
+    status: 'active',
   });
 
   sendTokenResponse(user, 201, res, 'User registered successfully');
@@ -68,27 +70,74 @@ exports.register = asyncHandler(async (req, res, next) => {
 // @desc    Login user & return JWT token via HttpOnly Cookie
 // @route   POST /api/v1/auth/login
 // @access  Public
-exports.login = asyncHandler(async (req, res, next) => {
-  const { email, password } = req.body;
+// POST /api/v1/auth/login (or /signin)
+exports.login = async (req, res, next) => {
+  try {
+    const { email, password } = req.body;
 
-  if (!email || !password) {
-    return next(new ErrorResponse('Please provide an email and password', 400));
+    // 1. Validate email & password presence
+    if (!email || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Please provide an email and password' 
+      });
+    }
+
+    // 2. Check for user (include password field for comparison)
+    const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
+    if (!user) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid credentials' 
+      });
+    }
+
+    // 3. Check password match
+    const isMatch = await user.matchPassword(password);
+    if (!isMatch) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid credentials' 
+      });
+    }
+
+    // 4. CHECK USER STATUS & BLOCK UNVERIFIED/PENDING ACCOUNTS
+    if (user.status === 'pending_consent') {
+      return res.status(403).json({
+        success: false,
+        requiresConsent: true,
+        message: 'Your account is pending parental consent. Please ask your parent/guardian to approve the request sent to their email.'
+      });
+    }
+
+    if (user.status === 'suspended') {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has been suspended. Please contact support.'
+      });
+    }
+
+    // 5. Generate token and send response if active
+    const token = user.getSignedJwtToken();
+
+    return res.status(200).json({
+      success: true,
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        status: user.status,
+        isOnboarded: user.isOnboarded
+      }
+    });
+
+  } catch (error) {
+    console.error('Login error:', error);
+    return res.status(500).json({ success: false, message: 'Server error during login' });
   }
-
-  const user = await User.findOne({ email }).select('+password');
-
-  if (!user) {
-    return next(new ErrorResponse('Invalid credentials', 401));
-  }
-
-  const isMatch = await user.matchPassword(password);
-
-  if (!isMatch) {
-    return next(new ErrorResponse('Invalid credentials', 401));
-  }
-
-  sendTokenResponse(user, 200, res, 'Login successful');
-});
+};
 
 // @desc    Get currently logged-in user
 // @route   GET /api/v1/auth/me
@@ -107,6 +156,7 @@ exports.getMe = asyncHandler(async (req, res, next) => {
     role: user.role,
     organization: user.organization || '',
     isOnboarded: Boolean(user.isOnboarded),
+    status: user.status || 'active',
   };
 
   res.status(200).json({
@@ -116,11 +166,10 @@ exports.getMe = asyncHandler(async (req, res, next) => {
   });
 });
 
-// @desc    Logout user, clear cookie, and revoke JWT in Redis
+// @desc    Logout user & clear cookie
 // @route   GET /api/v1/auth/logout
 // @access  Private
 exports.logout = asyncHandler(async (req, res, next) => {
-  // 1. Blacklist active JWT token in Redis if service is attached
   if (req.token) {
     try {
       await blacklistToken(req.token);
@@ -129,7 +178,6 @@ exports.logout = asyncHandler(async (req, res, next) => {
     }
   }
 
-  // 2. Clear HttpOnly Cookie
   res.cookie('token', 'none', {
     expires: new Date(Date.now() + 10 * 1000),
     httpOnly: true,
@@ -143,39 +191,31 @@ exports.logout = asyncHandler(async (req, res, next) => {
 });
 
 // @desc    Request Password Reset Link
-// @route   POST /api/v1/auth/forgot-password
+// @route   POST /api/v1/auth/forgotpassword
 // @access  Public
-
-exports.forgotPassword = async (req, res, next) => {
+exports.forgotPassword = asyncHandler(async (req, res, next) => {
   const { email } = req.body;
 
-  try {
-    const user = await User.findOne({ email });
+  const user = await User.findOne({ email });
 
-    if (!user) {
-      return next(new ErrorResponse('There is no user with that email', 404));
-    }
-
-    // Generate reset token
-    const resetToken = crypto.randomBytes(20).toString('hex');
-
-    // Hash token and set to expire (e.g., 10 minutes)
-    user.resetPasswordToken = crypto
-      .createHash('sha256')
-      .update(resetToken)
-      .digest('hex');
-    user.resetPasswordExpire = Date.now() + 10 * 60 * 1000;
-
-    await user.save({ validateBeforeSave: false });
-
-    // Send email logic here (Nodemailer, SendGrid, etc.)
-    console.log(`[PASSWORD RESET LINK]: ${process.env.CLIENT_URL}/reset-password/${resetToken}`);
-
-    res.status(200).json({
-      success: true,
-      data: 'Email sent',
-    });
-  } catch (err) {
-    next(err);
+  if (!user) {
+    return next(new ErrorResponse('There is no user with that email', 404));
   }
-};
+
+  const resetToken = crypto.randomBytes(20).toString('hex');
+
+  user.resetPasswordToken = crypto
+    .createHash('sha256')
+    .update(resetToken)
+    .digest('hex');
+  user.resetPasswordExpire = Date.now() + 10 * 60 * 1000;
+
+  await user.save({ validateBeforeSave: false });
+
+  console.log(`[PASSWORD RESET LINK]: ${process.env.CLIENT_URL}/reset-password/${resetToken}`);
+
+  res.status(200).json({
+    success: true,
+    data: 'Email sent',
+  });
+});
