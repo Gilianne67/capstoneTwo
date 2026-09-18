@@ -1,12 +1,13 @@
 const crypto = require('crypto');
 const User = require('../models/User');
+const Provider = require('../models/Provider');
 const asyncHandler = require('../utils/asyncHandler');
 const ErrorResponse = require('../utils/errorResponse');
 const { blacklistToken } = require('../services/tokenService');
 
 // Helper function to send JWT via HttpOnly Cookie + JSON Payload
 const sendTokenResponse = (user, statusCode, res, message) => {
-  const token = user.getSignedJwtToken();
+  const token = user.getSignedJwtToken ? user.getSignedJwtToken() : user.generateToken?.();
   const cookieExpireDays = parseInt(process.env.JWT_COOKIE_EXPIRE, 10) || 30;
 
   const options = {
@@ -46,17 +47,26 @@ const sendTokenResponse = (user, statusCode, res, message) => {
 exports.register = asyncHandler(async (req, res, next) => {
   const { name, email, password, role, organization } = req.body;
 
+  // 1. Role Security Check
   if (role && ['admin', 'super_admin'].includes(role)) {
     return next(new ErrorResponse('You cannot register directly as an admin role.', 403));
   }
 
+  // 2. Validate Provider Organization requirement
   if (role === 'provider' && !organization) {
     return next(new ErrorResponse('Organization name is required for scholarship providers.', 400));
   }
 
+  // 3. Check for existing user
+  const userExists = await User.findOne({ email: email.toLowerCase() });
+  if (userExists) {
+    return next(new ErrorResponse('Email already registered', 400));
+  }
+
+  // 4. Create User Record
   const user = await User.create({
     name,
-    email,
+    email: email.toLowerCase(),
     password,
     role: role || 'student',
     organization: role === 'provider' ? organization : '',
@@ -64,80 +74,69 @@ exports.register = asyncHandler(async (req, res, next) => {
     status: 'active',
   });
 
+  // 5. Create Provider Document for provider accounts
+  if (user.role === 'provider') {
+    await Provider.create({
+      userId: user._id,
+      institutionName: organization || name,
+      institutionType: 'Other',
+      verificationStatus: 'Pending',
+    });
+  }
+
   sendTokenResponse(user, 201, res, 'User registered successfully');
 });
 
-// @desc    Login user & return JWT token via HttpOnly Cookie
+// @desc    Login user & return JWT token (Supports Student, Provider & Admin)
 // @route   POST /api/v1/auth/login
 // @access  Public
-// POST /api/v1/auth/login (or /signin)
-exports.login = async (req, res, next) => {
-  try {
-    const { email, password } = req.body;
+exports.login = asyncHandler(async (req, res, next) => {
+  const { email, password } = req.body;
 
-    // 1. Validate email & password presence
-    if (!email || !password) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Please provide an email and password' 
-      });
-    }
-
-    // 2. Check for user (include password field for comparison)
-    const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
-    if (!user) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid credentials' 
-      });
-    }
-
-    // 3. Check password match
-    const isMatch = await user.matchPassword(password);
-    if (!isMatch) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid credentials' 
-      });
-    }
-
-    // 4. CHECK USER STATUS & BLOCK UNVERIFIED/PENDING ACCOUNTS
-    if (user.status === 'pending_consent') {
-      return res.status(403).json({
-        success: false,
-        requiresConsent: true,
-        message: 'Your account is pending parental consent. Please ask your parent/guardian to approve the request sent to their email.'
-      });
-    }
-
-    if (user.status === 'suspended') {
-      return res.status(403).json({
-        success: false,
-        message: 'Your account has been suspended. Please contact support.'
-      });
-    }
-
-    // 5. Generate token and send response if active
-    const token = user.getSignedJwtToken();
-
-    return res.status(200).json({
-      success: true,
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        status: user.status,
-        isOnboarded: user.isOnboarded
-      }
-    });
-
-  } catch (error) {
-    console.error('Login error:', error);
-    return res.status(500).json({ success: false, message: 'Server error during login' });
+  // 1. Validate inputs
+  if (!email || !password) {
+    return next(new ErrorResponse('Please provide email and password', 400));
   }
-};
+
+  // 2. Check for user
+  const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
+  if (!user || !(await user.matchPassword(password))) {
+    return next(new ErrorResponse('Invalid credentials', 401));
+  }
+
+  // 3. Provider Specific Approval Checks
+  if (user.role === 'provider') {
+    const providerDoc = await Provider.findOne({ userId: user._id });
+
+    if (providerDoc && providerDoc.verificationStatus === 'Pending') {
+      return res.status(403).json({
+        success: false,
+        requiresApproval: true,
+        message: 'Your provider account is currently pending administrative verification.',
+      });
+    }
+
+    if (providerDoc && providerDoc.verificationStatus === 'Rejected') {
+      return next(new ErrorResponse('Your provider account verification was rejected. Please contact support.', 403));
+    }
+  }
+
+  // 4. Status checks (Parental Consent & Account Suspension)
+  if (user.status === 'pending_consent') {
+    return res.status(403).json({
+      success: false,
+      requiresConsent: true,
+      message: 'Your account is pending parental consent. Please ask your parent/guardian to approve the request sent to their email.',
+    });
+  }
+
+  if (user.status === 'suspended') {
+    return next(new ErrorResponse('Your account has been suspended. Please contact support.', 403));
+  }
+
+  // 5. Send token & cookie
+  sendTokenResponse(user, 200, res, 'Login successful');
+});
 
 // @desc    Get currently logged-in user
 // @route   GET /api/v1/auth/me
@@ -196,8 +195,7 @@ exports.logout = asyncHandler(async (req, res, next) => {
 exports.forgotPassword = asyncHandler(async (req, res, next) => {
   const { email } = req.body;
 
-  const user = await User.findOne({ email });
-
+  const user = await User.findOne({ email: email.toLowerCase() });
   if (!user) {
     return next(new ErrorResponse('There is no user with that email', 404));
   }
