@@ -20,15 +20,18 @@ if (process.env.NODE_ENV === 'development') {
 
 // Route Files
 const authRoutes = require('./routes/authRoutes');
+const studentRoutes = require('./routes/studentRoutes');
 
 // 🔍 DEBUG LOGS
 console.log('--- SERVER DEBUG ---');
 console.log('authRoutes:', authRoutes);
 console.log('type of authRoutes:', typeof authRoutes);
+console.log('studentRoutes:', studentRoutes);
+console.log('type of studentRoutes:', typeof studentRoutes);
 
 // Mount Routes
 app.use('/api/v1/auth', authRoutes);
-
+app.use('/api/v1/students', studentRoutes);
 // Health Check Endpoint
 app.get('/api/v1/health', (req, res) => {
   res.status(200).json({ status: 'success', message: 'IsKolarMatch API Engine Online' });
