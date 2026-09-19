@@ -31,6 +31,7 @@ import PerformanceAnalytics from './features/provider/pages/PerformanceAnalytics
 import OrganizationVerification from './features/provider/pages/OrganizationVerification';
 import ProviderSettings from './features/provider/pages/ProviderSettings';
 import HelpSupport from './features/provider/pages/HelpSupport';
+import ScholarshipDetails from './features/provider/pages/ScholarshipDetails';
 
 // Admin Module Pages
 import AdminDashboard from './features/admin/pages/AdminDashboard';
@@ -194,6 +195,14 @@ export default function App() {
                 </ProtectedRoute>
               } 
             />
+            <Route
+              path="provider/scholarships/:id"
+              element={
+                <ProtectedRoute allowedRoles={['provider']}>
+                  <ScholarshipDetails />
+                </ProtectedRoute>
+              }
+          />
             <Route 
               path="provider/create" 
               element={
