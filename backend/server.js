@@ -1,45 +1,101 @@
+const dns = require('dns');
+// Force Node to use Google Public DNS for SRV record resolution
+dns.setServers(['8.8.8.8', '8.8.4.4']);
+
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
-const connectDB = require('./config/db');
+const mongoose = require('mongoose');
+const cookieParser = require('cookie-parser');
+const rateLimit = require('express-rate-limit');
+const path = require('path');
 
+// Load Environment Variables
 dotenv.config();
-connectDB();
 
+// 1. Initialize Express App FIRST
 const app = express();
 
+// Route & Middleware Imports
+const authRoutes = require('./routes/authRoutes');
+const userRoutes = require('./routes/userRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+const consentRoutes = require('./routes/consentRoutes');
+const providerRoutes = require('./routes/providerRoutes');
+const errorHandler = require('./middleware/error');
+
+// Security Middlewares
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' }, // Allows frontend to view uploaded static files
+  })
+);
+
+// 2. Serve uploaded static files
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+// CORS Setup
+const allowedOrigins = [
+  process.env.CLIENT_URL,
+  process.env.FRONTEND_URL,
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://localhost:5174',
+].filter(Boolean);
+
+app.use(
+  cors({
+    origin: allowedOrigins,
+    credentials: true,
+  })
+);
+
 app.use(express.json());
-app.use(cors());
-app.use(helmet());
+app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
 if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
-// Route Files
-const authRoutes = require('./routes/authRoutes');
-const providerRoutes = require('./src/routes/providerRoutes');
-const scholarshipRoutes = require('./src/routes/scholarshipRoutes');
-
-// 🔍 DEBUG LOGS
-console.log('--- SERVER DEBUG ---');
-console.log('authRoutes:', authRoutes);
-console.log('type of authRoutes:', typeof authRoutes);
-
-// Mount Routes
-app.use('/api/v1/auth', authRoutes);
-app.use('/api/v1/providers', providerRoutes);
-app.use('/api/v1/scholarships', scholarshipRoutes);
+// Rate Limiter
+const limiter = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  max: 100,
+  message: { success: false, error: 'Too many requests from this IP, please try again later.' },
+});
+app.use('/api/v1', limiter);
 
 // Health Check Endpoint
 app.get('/api/v1/health', (req, res) => {
-  res.status(200).json({ status: 'success', message: 'IsKolarMatch API Engine Online' });
+  res.status(200).json({ status: 'success', message: 'IskolarMatch Auth API Online' });
 });
 
+// Mount Application Routes
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/user', userRoutes);
+app.use('/api/v1/consent', consentRoutes);
+app.use('/api/v1/provider', providerRoutes);
+app.use('/api/v1/admin', adminRoutes);
+
+// Centralized Error Handling Middleware 
+app.use(errorHandler);
+
+// Database Connection & Server Startup
 const PORT = process.env.PORT || 5000;
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/iskolarmatch';
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
-});
+mongoose
+  .connect(MONGO_URI)
+  .then(() => {
+    console.log('✅ Connected to MongoDB successfully.');
+    app.listen(PORT, () => {
+      console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('❌ Database connection error:', err);
+    process.exit(1);
+  });

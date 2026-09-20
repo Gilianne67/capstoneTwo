@@ -14,42 +14,19 @@ import {
 import PageHeader from '../../../components/common/PageHeader';
 import StatusBadge from '../../../components/common/StatusBadge';
 
-// Mock States for testing
-const MOCK_STATES = {
-  unverified: {
+export default function OrganizationVerification() {
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  
+  // Verification Data state populated from API
+  const [verData, setVerData] = useState({
     status: 'Unverified',
     organizationName: '',
     taxId: '',
     submittedAt: null,
     documents: []
-  },
-  pending: {
-    status: 'Pending Review',
-    organizationName: 'Department of Science and Technology (DOST-SEI)',
-    taxId: '000-123-456-000',
-    submittedAt: '2026-02-10',
-    documents: [
-      { name: 'SEC_Certificate_Registration.pdf', size: '2.4 MB', status: 'Under Review' },
-      { name: 'Government_Issuance_Mandate.pdf', size: '1.8 MB', status: 'Under Review' }
-    ]
-  },
-  verified: {
-    status: 'Verified',
-    organizationName: 'Department of Science and Technology (DOST-SEI)',
-    taxId: '000-123-456-000',
-    submittedAt: '2026-02-10',
-    documents: [
-      { name: 'SEC_Certificate_Registration.pdf', size: '2.4 MB', status: 'Approved' },
-      { name: 'Government_Issuance_Mandate.pdf', size: '1.8 MB', status: 'Approved' }
-    ]
-  }
-};
-
-export default function OrganizationVerification() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isUsingFallback, setIsUsingFallback] = useState(false);
-  const [verData, setVerData] = useState(MOCK_STATES.verified);
+  });
 
   // Form inputs
   const [orgName, setOrgName] = useState('');
@@ -58,20 +35,12 @@ export default function OrganizationVerification() {
   // Store actual File objects for binary upload
   const [selectedFiles, setSelectedFiles] = useState([]);
 
-  // Helper to switch mock states from testing buttons
-  const applyMockState = (stateKey) => {
-    const targetState = MOCK_STATES[stateKey];
-    setVerData(targetState);
-    setOrgName(targetState.organizationName || '');
-    setTaxId(targetState.taxId || '');
-    setSelectedFiles([]);
-  };
-
   useEffect(() => {
     let isMounted = true;
 
     const fetchVerificationStatus = async () => {
       setIsLoading(true);
+      setErrorMsg('');
       try {
         const token = localStorage.getItem('token');
         const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -84,16 +53,14 @@ export default function OrganizationVerification() {
             setVerData(data);
             setOrgName(data.organizationName || '');
             setTaxId(data.taxId || '');
-            setIsUsingFallback(false);
           }
         } else {
-          throw new Error('Verification API error');
+          throw new Error('Failed to fetch verification details.');
         }
       } catch (err) {
         if (isMounted) {
-          console.warn('Backend server offline. Displaying verification mock state:', err);
-          applyMockState('verified'); // Default fallback state
-          setIsUsingFallback(true);
+          console.error('API Error:', err);
+          setErrorMsg('Unable to retrieve verification status. Please refresh or try again later.');
         }
       } finally { 
         if (isMounted) setIsLoading(false);
@@ -121,6 +88,7 @@ export default function OrganizationVerification() {
   const handleSubmitVerification = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setErrorMsg('');
 
     const formData = new FormData();
     formData.append('organizationName', orgName);
@@ -147,26 +115,12 @@ export default function OrganizationVerification() {
         setVerData(updated);
         setSelectedFiles([]);
       } else {
-        throw new Error('Verification submission failed');
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Verification submission failed');
       }
     } catch (err) {
-      console.warn('Backend server offline. Simulating pending verification state:', err);
-
-      const mockDocs = selectedFiles.map(f => ({
-        name: f.name,
-        size: `${(f.size / (1024 * 1024)).toFixed(1)} MB`,
-        status: 'Under Review'
-      }));
-
-      setVerData({
-        status: 'Pending Review',
-        organizationName: orgName,
-        taxId,
-        submittedAt: new Date().toISOString().split('T')[0],
-        documents: mockDocs.length > 0 ? mockDocs : MOCK_STATES.verified.documents
-      });
-
-      setSelectedFiles([]);
+      console.error('Submission Error:', err);
+      setErrorMsg(err.message || 'Failed to submit verification details.');
     } finally {
       setIsSubmitting(false);
     }
@@ -194,49 +148,11 @@ export default function OrganizationVerification() {
         subtitle="Submit official credentials to earn verified partner status and boost student trust."
       />
 
-      {/* Fallback Banner with Mock Switcher Buttons */}
-      {isUsingFallback && (
-        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-800 p-3.5 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs font-medium">
-          <span className="flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
-            Backend API unreachable. Test local mock states:
-          </span>
-
-          <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0">
-            <button
-              type="button"
-              onClick={() => applyMockState('unverified')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
-                verData.status === 'Unverified'
-                  ? 'bg-amber-600 text-white'
-                  : 'bg-white/80 hover:bg-white text-amber-900 border border-amber-300/60'
-              }`}
-            >
-              Unverified Form
-            </button>
-            <button
-              type="button"
-              onClick={() => applyMockState('pending')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
-                verData.status === 'Pending Review'
-                  ? 'bg-amber-600 text-white'
-                  : 'bg-white/80 hover:bg-white text-amber-900 border border-amber-300/60'
-              }`}
-            >
-              Pending Review
-            </button>
-            <button
-              type="button"
-              onClick={() => applyMockState('verified')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
-                verData.status === 'Verified'
-                  ? 'bg-amber-600 text-white'
-                  : 'bg-white/80 hover:bg-white text-amber-900 border border-amber-300/60'
-              }`}
-            >
-              Verified
-            </button>
-          </div>
+      {/* Error Message */}
+      {errorMsg && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 p-4 rounded-xl flex items-center gap-3 text-xs font-medium">
+          <AlertCircle className="w-5 h-5 shrink-0 text-rose-600" />
+          <span>{errorMsg}</span>
         </div>
       )}
 
@@ -252,7 +168,7 @@ export default function OrganizationVerification() {
               <p className="text-xs text-slate-500 font-medium">TIN / Reg No: {verData.taxId || 'Not specified'}</p>
             </div>
           </div>
-          <StatusBadge status={verData.status} />
+          <StatusBadge status={verData.status || 'Unverified'} />
         </div>
 
         {verData.status === 'Verified' && (
@@ -376,8 +292,8 @@ export default function OrganizationVerification() {
                 <div className="flex items-center gap-2.5">
                   <FileText className="w-4 h-4 text-emerald-600" />
                   <div>
-                    <p className="font-bold text-slate-800">{doc.name}</p>
-                    <p className="text-[11px] text-slate-400 font-medium">{doc.size}</p>
+                    <p className="font-bold text-slate-800">{doc.name || doc.filename}</p>
+                    {doc.size && <p className="text-[11px] text-slate-400 font-medium">{doc.size}</p>}
                   </div>
                 </div>
                 <StatusBadge status={doc.status || 'Under Review'} />

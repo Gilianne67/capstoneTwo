@@ -13,6 +13,8 @@ import AppLayout from './layouts/AppLayout';
 import HomePage from './features/public-landing/pages/HomePage';
 import AuthPage from './features/auth/AuthPage';
 import OnboardingForm from './features/public-landing/pages/OnboardingForm';
+import ProviderOnboarding from './features/public-landing/pages/ProviderOnboarding';
+import PendingApproval from './features/public-landing/pages/PendingApproval';
 import ParentConsentPage from './features/public-landing/pages/ParentConsentPage';
 
 // Student Module Pages
@@ -57,7 +59,7 @@ function ConnectionBanner() {
         }
         const data = await res.json();
         if (data.success) {
-          setStatus(`✅ Connected to Backend API (User: ${data.data.email || data.data.role})`);
+          setStatus(`✅ Connected to Backend API (User: ${data.data?.email || data.data?.role})`);
         } else {
           setStatus(`✅ Connected to Backend API (${data.message})`);
         }
@@ -94,22 +96,44 @@ function ProtectedRouteGuard({ allowedRoles, children }) {
   const isAllowed = allowedRoles?.map((r) => r.toLowerCase()).includes(userRoleNormalized);
 
   if (allowedRoles && !isAllowed) {
-    return <Navigate to={`/dashboard/${user.role}`} replace />;
+    return <Navigate to={`/dashboard/${userRoleNormalized}`} replace />;
+  }
+
+  return children ? children : <Outlet />;
+}
+
+// Enforces onboarding/verification completion before accessing dashboard sub-routes
+function OnboardingGuard({ children }) {
+  const { user, getRedirectPath } = useAuth();
+  const location = useLocation();
+
+  if (!user) return <Navigate to="/auth?mode=signin" replace />;
+
+  const targetPath = getRedirectPath(user);
+
+  // If user belongs on an onboarding route, redirect them away from dashboard routes
+  if (targetPath.includes('/onboarding') || targetPath.includes('/pending-approval')) {
+    if (location.pathname !== targetPath) {
+      return <Navigate to={targetPath} replace />;
+    }
   }
 
   return children ? children : <Outlet />;
 }
 
 function DashboardRedirect() {
-  const { user } = useAuth();
-  return <Navigate to={`/dashboard/${user?.role || 'student'}`} replace />;
+  const { user, getRedirectPath } = useAuth();
+  
+  if (!user) return <Navigate to="/auth?mode=signin" replace />;
+  
+  return <Navigate to={getRedirectPath(user)} replace />;
 }
 
 export default function App() {
   return (
-    <AuthProvider>
-      <ConnectionBanner />
-      <BrowserRouter>
+    <BrowserRouter>
+      <AuthProvider>
+        <ConnectionBanner />
         <Routes>
           {/* 1. PUBLIC ROUTES */}
           <Route element={<PublicLayout />}>
@@ -119,12 +143,16 @@ export default function App() {
             <Route path="/consent/verify" element={<ParentConsentPage />} />
           </Route>
 
-          {/* PUBLIC PARENT CONSENT LANDING (No auth required) */}
-          <Route path="/consent/verify" element={<ParentConsentPage />} />
-
-          {/* 2. STANDALONE ONBOARDING ROUTE */}
+          {/* 2. STANDALONE ONBOARDING ROUTES */}
+          {/* Student Onboarding */}
           <Route element={<ProtectedRouteGuard allowedRoles={['student']} />}>
             <Route path="/onboarding" element={<OnboardingForm />} />
+          </Route>
+
+          {/* Provider Onboarding & Verification Status */}
+          <Route element={<ProtectedRouteGuard allowedRoles={['provider']} />}>
+            <Route path="/provider/onboarding" element={<ProviderOnboarding />} />
+            <Route path="/provider/pending-approval" element={<PendingApproval />} />
           </Route>
 
           {/* 3. PROTECTED DASHBOARD ROUTES */}
@@ -133,27 +161,31 @@ export default function App() {
 
             {/* STUDENT SECTION */}
             <Route element={<ProtectedRouteGuard allowedRoles={['student']} />}>
-              <Route path="student" element={<StudentDashboard />} />
-              <Route path="student/search" element={<ScholarshipSearch />} />
-              <Route path="student/matches" element={<MatchFeed />} />
-              <Route path="student/profile" element={<StudentProfile />} />
-              <Route path="student/saved" element={<SavedScholarships />} />
-              <Route path="student/applications" element={<ApplicationTracker />} />
-              <Route path="student/notifications" element={<DeadlineAlerts />} />
-              <Route path="student/alerts" element={<Settings />} />
-              <Route path="student/settings" element={<Settings />} />
-              <Route path="student/help" element={<HelpCenter />} />
+              <Route element={<OnboardingGuard />}>
+                <Route path="student" element={<StudentDashboard />} />
+                <Route path="student/search" element={<ScholarshipSearch />} />
+                <Route path="student/matches" element={<MatchFeed />} />
+                <Route path="student/profile" element={<StudentProfile />} />
+                <Route path="student/saved" element={<SavedScholarships />} />
+                <Route path="student/applications" element={<ApplicationTracker />} />
+                <Route path="student/notifications" element={<DeadlineAlerts />} />
+                <Route path="student/alerts" element={<Settings />} />
+                <Route path="student/settings" element={<Settings />} />
+                <Route path="student/help" element={<HelpCenter />} />
+              </Route>
             </Route>
 
             {/* PROVIDER SECTION */}
             <Route element={<ProtectedRouteGuard allowedRoles={['provider']} />}>
-              <Route path="provider" element={<ProviderDashboard />} />
-              <Route path="provider/listings" element={<ScholarshipListings />} />
-              <Route path="provider/create" element={<CreateListing />} />
-              <Route path="provider/analytics" element={<PerformanceAnalytics />} />
-              <Route path="provider/verification" element={<OrganizationVerification />} />
-              <Route path="provider/settings" element={<ProviderSettings />} />
-              <Route path="provider/help" element={<HelpSupport />} />
+              <Route element={<OnboardingGuard />}>
+                <Route path="provider" element={<ProviderDashboard />} />
+                <Route path="provider/listings" element={<ScholarshipListings />} />
+                <Route path="provider/create" element={<CreateListing />} />
+                <Route path="provider/analytics" element={<PerformanceAnalytics />} />
+                <Route path="provider/verification" element={<OrganizationVerification />} />
+                <Route path="provider/settings" element={<ProviderSettings />} />
+                <Route path="provider/help" element={<HelpSupport />} />
+              </Route>
             </Route>
 
             {/* ADMIN SECTION */}
@@ -172,7 +204,7 @@ export default function App() {
           {/* Catch-all fallback */}
           <Route path="*" element={<Navigate to="/auth?mode=signin" replace />} />
         </Routes>
-      </BrowserRouter>
-    </AuthProvider>
+      </AuthProvider>
+    </BrowserRouter>
   );
 }

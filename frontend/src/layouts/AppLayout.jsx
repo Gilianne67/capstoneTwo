@@ -1,16 +1,18 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { Bell, LogOut, Loader2, User as UserIcon, WifiOff } from 'lucide-react';
 import Sidebar from '../components/navigation/Sidebar';
+import { useAuth } from '../context/AuthContext'; // 1. Import AuthContext
 
 const API_BASE_URL =
   import.meta.env.VITE_API_URL || 'https://api.iskolarmatch.ph/v1';
 
 export default function AppLayout() {
   const navigate = useNavigate();
+  // 2. Consume shared state from AuthContext
+  const { user, token, loading, logout } = useAuth();
+
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [session, setSession] = useState(null);
-  const [isLoadingSession, setIsLoadingSession] = useState(true);
   const [isUsingMockData, setIsUsingMockData] = useState(false);
 
   // Notifications State
@@ -19,79 +21,13 @@ export default function AppLayout() {
   // User Menu State
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
-  // 1. Session & Auth Verification with Fallback
+  // 3. Notifications Check
   useEffect(() => {
-  let isMounted = true;
-
-  const verifySession = async () => {
-    const token = localStorage.getItem('iskolar_token');
-
-    if (!token) {
-      if (isMounted) {
-        setSession(null);
-        setIsUsingMockData(false);
-        setIsLoadingSession(false);
-      }
-      return;
-    }
-
-    try {
-      const res = await fetch(`${API_BASE_URL}/auth/me`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.message || 'Session verification failed');
-      }
-
-      if (isMounted) {
-        setSession(data.user);
-        setIsUsingMockData(false);
-        localStorage.setItem(
-          'iskolar_session',
-          JSON.stringify(data.user)
-        );
-      }
-    } catch (err) {
-      console.error('Session verification failed:', err);
-
-      localStorage.removeItem('iskolar_token');
-      localStorage.removeItem('iskolar_session');
-
-      if (isMounted) {
-        setSession(null);
-        setIsUsingMockData(false);
-      }
-
-      navigate('/auth?mode=signin', { replace: true });
-    } finally {
-      if (isMounted) {
-        setIsLoadingSession(false);
-      }
-    }
-  };
-
-  verifySession();
-
-  return () => {
-    isMounted = false;
-  };
-}, [navigate]);
-
-  // 2. Notifications Check with Mock Fallback
-  useEffect(() => {
-    if (!session) return;
+    if (!user || !token) return;
 
     let isMounted = true;
     const fetchNotificationBadge = async () => {
       try {
-        const token = localStorage.getItem('token');
-        if (!token) return;
-
         const res = await fetch(`${API_BASE_URL}/notifications/unread-count`, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -101,7 +37,7 @@ export default function AppLayout() {
           if (isMounted) setUnreadNotificationsCount(data.count ?? 0);
         }
       } catch (_err) {
-        // Retain default mock notification count on API error
+        // Retain default notification count on API error
       }
     };
 
@@ -110,14 +46,13 @@ export default function AppLayout() {
     return () => {
       isMounted = false;
     };
-  }, [session]);
+  }, [user, token]);
 
-  // 3. Logout Handler
-  const handleLogout = useCallback(async () => {
+  // 4. Unified Logout Handler
+  const handleLogout = async () => {
     try {
-      const token = localStorage.getItem('iskolar_token');
       if (token) {
-        await fetch(`${API_BASE_URL}/auth/logout`, {
+        await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -125,15 +60,15 @@ export default function AppLayout() {
     } catch (_err) {
       console.warn('Logout API unreachable.');
     } finally {
-      localStorage.removeItem('token');
-      localStorage.removeItem('iskolar_session');
+      logout(); // Clears AuthContext state and localStorage token
       navigate('/auth?mode=signin', { replace: true });
     }
-  }, [navigate]);
+  };
 
-  const role = session?.role || 'student';
+  // Extract role dynamically from AuthContext user object
+  const role = user?.role?.toLowerCase() || 'student';
 
-  if (isLoadingSession) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center gap-3">
         <Loader2 className="h-8 w-8 text-emerald-600 animate-spin" />
@@ -149,13 +84,14 @@ export default function AppLayout() {
         isCollapsed={isCollapsed}
         setIsCollapsed={setIsCollapsed}
         role={role}
-        session={session}      />
+        session={user}
+      />
 
       {/* Main Workspace Area */}
       <div className="flex-1 flex flex-col h-screen overflow-y-auto">
         {/* Workspace Top Bar */}
         <header className="sticky top-0 z-20 bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-xs">
-          {/* Left Header Area - Mock Preview Badge */}
+          {/* Left Header Area */}
           <div className="flex items-center gap-3">
             {isUsingMockData && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200/60">
@@ -187,11 +123,11 @@ export default function AppLayout() {
                 className="flex items-center gap-2.5 focus:outline-hidden cursor-pointer"
               >
                 <div className="h-8 w-8 rounded-full bg-slate-800 flex items-center justify-center font-bold text-xs text-white shadow-xs">
-                  {session?.name ? session.name.charAt(0).toUpperCase() : 'U'}
+                  {user?.name ? user.name.charAt(0).toUpperCase() : 'U'}
                 </div>
                 <div className="hidden sm:block text-left">
                   <p className="text-xs font-bold text-slate-800 leading-none">
-                    {session?.name || 'User'}
+                    {user?.name || user?.firstName || 'User'}
                   </p>
                   <p className="text-[10px] text-slate-400 capitalize mt-0.5">{role} Account</p>
                 </div>
@@ -226,7 +162,7 @@ export default function AppLayout() {
 
         {/* Dashboard Content Area */}
         <main className="flex-1 p-6 max-w-7xl w-full mx-auto">
-          <Outlet context={{ session, role, isUsingMockData }} />
+          <Outlet context={{ session: user, role, isUsingMockData }} />
         </main>
       </div>
     </div>

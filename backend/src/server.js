@@ -10,24 +10,37 @@ const morgan = require('morgan');
 const mongoose = require('mongoose');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
+const path = require('path');
 
 // Load Environment Variables
 dotenv.config();
 
-// Initialize Express App FIRST before mounting any routes or middleware
+// 1. Initialize Express App FIRST
 const app = express();
 
 // Route & Middleware Imports
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 const consentRoutes = require('./routes/consentRoutes');
+const providerRoutes = require('./routes/providerRoutes');
 const errorHandler = require('./middleware/error');
+const documentRoutes = require('./routes/documentRoutes');
 
-// Security & Utility Middlewares
-app.use(helmet());
+// Security Middlewares
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' }, // Allows frontend to view uploaded static files
+  })
+);
 
+// 2. Serve uploaded static files
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+// CORS Setup
 const allowedOrigins = [
   process.env.CLIENT_URL,
+  process.env.FRONTEND_URL,
   'http://localhost:3000',
   'http://localhost:5173',
   'http://localhost:5174',
@@ -41,6 +54,7 @@ app.use(
 );
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 if (process.env.NODE_ENV === 'development') {
@@ -60,10 +74,23 @@ app.get('/api/v1/health', (req, res) => {
   res.status(200).json({ status: 'success', message: 'IskolarMatch Auth API Online' });
 });
 
+// Import your upload routes
+const uploadRoutes = require('./routes/documentRoutes');
+
+// Connect to MongoDB
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log('MongoDB connected'))
+  .catch((err) => console.error('MongoDB connection error:', err));
+
+// Register the route middleware
+app.use('/api/v1/documents', documentRoutes);
+
 // Mount Application Routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/user', userRoutes);
 app.use('/api/v1/consent', consentRoutes);
+app.use('/api/v1/provider', providerRoutes);
+app.use('/api/v1/admin', adminRoutes);
 
 // Centralized Error Handling Middleware (must be after routes)
 app.use(errorHandler);

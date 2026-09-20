@@ -27,7 +27,8 @@ const UserSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['student', 'provider', 'admin', 'super_admin'],
+      // ALIGNED: Added 'superadmin' to match authorization middleware
+      enum: ['student', 'provider', 'admin', 'superadmin'],
       default: 'student',
     },
     status: {
@@ -63,8 +64,6 @@ const UserSchema = new mongoose.Schema(
 );
 
 // Encrypt password using bcrypt before saving
-// FIXED: Async Mongoose hooks automatically handle completion via Promise.
-// Do NOT accept `next` as a parameter or invoke `next()`.
 UserSchema.pre('save', async function () {
   if (!this.isModified('password')) return;
   const salt = await bcrypt.genSalt(10);

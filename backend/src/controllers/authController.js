@@ -6,7 +6,7 @@ const ErrorResponse = require('../utils/errorResponse');
 const { blacklistToken } = require('../services/tokenService');
 
 // Helper function to send JWT via HttpOnly Cookie + JSON Payload
-const sendTokenResponse = (user, statusCode, res, message) => {
+const sendTokenResponse = async (user, statusCode, res, message) => {
   const token = user.getSignedJwtToken ? user.getSignedJwtToken() : user.generateToken?.();
   const cookieExpireDays = parseInt(process.env.JWT_COOKIE_EXPIRE, 10) || 30;
 
@@ -19,6 +19,15 @@ const sendTokenResponse = (user, statusCode, res, message) => {
 
   user.password = undefined;
 
+  // Fetch provider verification status if user is a provider
+  let verificationStatus = 'Approved';
+  if (user.role === 'provider') {
+    const providerDoc = await Provider.findOne({ userId: user._id });
+    if (providerDoc) {
+      verificationStatus = providerDoc.verificationStatus;
+    }
+  }
+
   const userData = {
     id: user._id,
     name: user.name,
@@ -27,6 +36,7 @@ const sendTokenResponse = (user, statusCode, res, message) => {
     organization: user.organization || '',
     isOnboarded: Boolean(user.isOnboarded),
     status: user.status || 'active',
+    verificationStatus,
   };
 
   res
@@ -47,8 +57,8 @@ const sendTokenResponse = (user, statusCode, res, message) => {
 exports.register = asyncHandler(async (req, res, next) => {
   const { name, email, password, role, organization } = req.body;
 
-  // 1. Role Security Check
-  if (role && ['admin', 'super_admin'].includes(role)) {
+  // 1. Role Security Check (Prevent self-registration as admin or superadmin)
+  if (role && ['admin', 'superadmin', 'super_admin'].includes(role)) {
     return next(new ErrorResponse('You cannot register directly as an admin role.', 403));
   }
 
@@ -84,7 +94,7 @@ exports.register = asyncHandler(async (req, res, next) => {
     });
   }
 
-  sendTokenResponse(user, 201, res, 'User registered successfully');
+  await sendTokenResponse(user, 201, res, 'User registered successfully');
 });
 
 // @desc    Login user & return JWT token (Supports Student, Provider & Admin)
@@ -104,24 +114,7 @@ exports.login = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse('Invalid credentials', 401));
   }
 
-  // 3. Provider Specific Approval Checks
-  if (user.role === 'provider') {
-    const providerDoc = await Provider.findOne({ userId: user._id });
-
-    if (providerDoc && providerDoc.verificationStatus === 'Pending') {
-      return res.status(403).json({
-        success: false,
-        requiresApproval: true,
-        message: 'Your provider account is currently pending administrative verification.',
-      });
-    }
-
-    if (providerDoc && providerDoc.verificationStatus === 'Rejected') {
-      return next(new ErrorResponse('Your provider account verification was rejected. Please contact support.', 403));
-    }
-  }
-
-  // 4. Status checks (Parental Consent & Account Suspension)
+  // 3. Status checks (Parental Consent & Account Suspension)
   if (user.status === 'pending_consent') {
     return res.status(403).json({
       success: false,
@@ -134,8 +127,21 @@ exports.login = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse('Your account has been suspended. Please contact support.', 403));
   }
 
+  // 4. Provider Rejection check
+  if (user.role === 'provider') {
+    const providerDoc = await Provider.findOne({ userId: user._id });
+    if (providerDoc && providerDoc.verificationStatus === 'Rejected') {
+      return next(
+        new ErrorResponse(
+          `Your provider application was rejected. Reason: ${providerDoc.rejectionReason || 'Contact support for details.'}`,
+          403
+        )
+      );
+    }
+  }
+
   // 5. Send token & cookie
-  sendTokenResponse(user, 200, res, 'Login successful');
+  await sendTokenResponse(user, 200, res, 'Login successful');
 });
 
 // @desc    Get currently logged-in user
@@ -148,6 +154,14 @@ exports.getMe = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse('User not found', 404));
   }
 
+  let verificationStatus = 'Approved';
+  if (user.role === 'provider') {
+    const providerDoc = await Provider.findOne({ userId: user._id });
+    if (providerDoc) {
+      verificationStatus = providerDoc.verificationStatus;
+    }
+  }
+
   const userData = {
     id: user._id,
     name: user.name,
@@ -156,6 +170,7 @@ exports.getMe = asyncHandler(async (req, res, next) => {
     organization: user.organization || '',
     isOnboarded: Boolean(user.isOnboarded),
     status: user.status || 'active',
+    verificationStatus,
   };
 
   res.status(200).json({
