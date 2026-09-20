@@ -11,6 +11,7 @@ const mongoose = require('mongoose');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
+;
 
 // Load Environment Variables
 dotenv.config();
@@ -26,6 +27,9 @@ const consentRoutes = require('./routes/consentRoutes');
 const providerRoutes = require('./routes/providerRoutes');
 const errorHandler = require('./middleware/error');
 const documentRoutes = require('./routes/documentRoutes');
+const providerRoutes = require('./routes/providerRoutes');
+const scholarshipRoutes = require('./routes/scholarshipRoutes')
+
 
 // Security Middlewares
 app.use(
@@ -67,7 +71,9 @@ const limiter = rateLimit({
   max: 100,
   message: { success: false, error: 'Too many requests from this IP, please try again later.' },
 });
-app.use('/api/v1', limiter);
+if (process.env.NODE_ENV === 'production') {
+  app.use('/api/v1', limiter);
+}
 
 // Health Check Endpoint
 app.get('/api/v1/health', (req, res) => {
@@ -91,6 +97,8 @@ app.use('/api/v1/user', userRoutes);
 app.use('/api/v1/consent', consentRoutes);
 app.use('/api/v1/provider', providerRoutes);
 app.use('/api/v1/admin', adminRoutes);
+app.use('/api/v1/providers', providerRoutes);
+app.use('/api/v1/scholarships', scholarshipRoutes);
 
 // Centralized Error Handling Middleware (must be after routes)
 app.use(errorHandler);

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, 
   Plus, 
@@ -29,7 +30,11 @@ const SYSTEM_DEMOGRAPHIC_TAGS = [
   'Working Student'
 ];
 
-export default function CreateListing({ onBack, onSuccess }) {
+
+export default function CreateListing({ onBack, onSuccess, initialData = null }) {
+  const navigate = useNavigate();
+  const isEditMode = Boolean(initialData?._id);
+  
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
 
@@ -50,28 +55,26 @@ export default function CreateListing({ onBack, onSuccess }) {
   // ---------------------------------------------------------
   // 2. HARD FILTERS (BOOLEAN GATEKEEPERS)
   // ---------------------------------------------------------
-  const [academicLevel, setAcademicLevel] = useState('College');
-  const [citizenship, setCitizenship] = useState('Filipino');
-  const [maxGwa, setMaxGwa] = useState('2.00');
-  const [maxIncome, setMaxIncome] = useState('250000');
-  
-  // Custom Dynamic Add/Remove: Courses & Locations
-  const [allowedCourses, setAllowedCourses] = useState(['BS Computer Science', 'BS Information Technology']);
-  const [newCourse, setNewCourse] = useState('');
+ const [academicLevel, setAcademicLevel] = useState('');
+const [citizenship, setCitizenship] = useState('');
+const [maxGwa, setMaxGwa] = useState('');
+const [maxIncome, setMaxIncome] = useState('');
 
-  const [allowedLocations, setAllowedLocations] = useState(['NCR', 'Region IV-A']);
-  const [newLocation, setNewLocation] = useState('');
+const [allowedCourses, setAllowedCourses] = useState([]);
+const [newCourse, setNewCourse] = useState('');
 
-  // Custom Dynamic Add/Remove: Hard Requirements (Generic)
-  const [customHardFilters, setCustomHardFilters] = useState([
-    { id: 'hf-1', label: 'Minimum Age Requirement', value: 'Must be at least 18 years old' }
-  ]);
-  const [newHardFilterLabel, setNewHardFilterLabel] = useState('');
-  const [newHardFilterVal, setNewHardFilterVal] = useState('');
+const [allowedLocations, setAllowedLocations] = useState([]);
+const [newLocation, setNewLocation] = useState('');
 
-  // Hard Filter Tags (Dynamic Gatekeeping - Exclusive / Required "Only")
-  const [requiredTags, setRequiredTags] = useState(['4Ps Beneficiary']);
-  const [newCustomReqTag, setNewCustomReqTag] = useState('');
+const [customHardFilters, setCustomHardFilters] = useState([]);
+const [newHardFilterLabel, setNewHardFilterLabel] = useState('');
+const [newHardFilterVal, setNewHardFilterVal] = useState('');
+
+const [requiredTags, setRequiredTags] = useState([]);
+const [newCustomReqTag, setNewCustomReqTag] = useState('');
+
+const [preferredTags, setPreferredTags] = useState([]);
+const [newCustomPrefTag, setNewCustomPrefTag] = useState('');
 
   // ---------------------------------------------------------
   // 3. RANKING & SCORING WEIGHTS (PROVIDER-DEFINED)
@@ -83,19 +86,94 @@ export default function CreateListing({ onBack, onSuccess }) {
     tagsWeight: 20
   });
 
-  // Preferred Tags (Affinity Multiplier)
-  const [preferredTags, setPreferredTags] = useState(['Working Student', 'Disaster-Affected Family']);
-  const [newCustomPrefTag, setNewCustomPrefTag] = useState('');
 
   // ---------------------------------------------------------
   // 4. REQUIRED DOCUMENTS CHECKLIST
   // ---------------------------------------------------------
-  const [requirements, setRequirements] = useState([
-    'Certificate of Good Moral Character',
-    'Certified True Copy of Grades (Form 137 / TOR)',
-    'Tax Exemption Certificate or ITR'
-  ]);
-  const [newReq, setNewReq] = useState('');
+//  const [requirements, setRequirements] = useState([
+  //  'Certificate of Good Moral Character',
+//    'Certified True Copy of Grades (Form 137 / TOR)',
+ //   'Tax Exemption Certificate or ITR'
+ // ]);
+ // const [newReq, setNewReq] = useState('');
+
+  // ---------------------------------------------------------
+// LOAD EXISTING SCHOLARSHIP DATA FOR EDIT MODE
+// ---------------------------------------------------------
+useEffect(() => {
+  if (!initialData) return;
+
+  setTitle(initialData.name || '');
+  setGrantValue(initialData.grantValue || '');
+  setCategory(initialData.scholarshipType || 'Merit-Based');
+  setDescription(initialData.description || '');
+  setDeadline(
+    initialData.deadline
+      ? new Date(initialData.deadline).toISOString().split('T')[0]
+      : ''
+  );
+  setPortalUrl(initialData.applicationURL || '');
+
+  // Academic requirements
+  setAcademicLevel(
+  initialData.hardFilters?.academicLevel || ''
+  );
+
+  setCitizenship(
+    initialData.hardFilters?.citizenshipStatus || ''
+  );
+
+  setMaxGwa(
+    initialData.academicRequirement?.minimumGPA?.toString() || ''
+  );
+
+  setMaxIncome(
+    initialData.incomeRequirement?.maximumIncome?.toString() || ''
+  );
+
+    setAllowedCourses(
+      initialData.hardFilters?.courseProgram || []
+    );
+
+  const geographicLocation = initialData.hardFilters?.geographicLocation;
+
+  if (geographicLocation) {
+    const locations = [
+      ...(geographicLocation.regions || []),
+      ...(geographicLocation.provinces || []),
+      ...(geographicLocation.municipalities || [])
+    ];
+
+    setAllowedLocations(locations);
+  } else {
+    setAllowedLocations([]);
+  }
+
+  // Ranking weights
+  if (initialData.criteriaWeights) {
+    setWeights({
+      gpaWeight: (initialData.criteriaWeights.gwaWeight || 0) * 100,
+      incomeWeight: (initialData.criteriaWeights.incomeWeight || 0) * 100,
+      tagsWeight: (initialData.criteriaWeights.tagsWeight || 0) * 100
+    });
+  }
+
+  // Special eligibility tags
+  const tags = initialData.specialTags || [];
+
+  setRequiredTags(
+  tags
+    .filter(tag => tag.mode === 'Exclusive')
+    .map(tag => tag.tagName)
+);
+
+  setPreferredTags(
+    tags
+      .filter(tag => tag.mode === 'Preferred')
+      .map(tag => tag.tagName)
+  );
+
+}, [initialData]);
 
   // ---------------------------------------------------------
   // HANDLERS: HARD FILTERS (COURSES, LOCATIONS, CUSTOM)
@@ -184,15 +262,15 @@ export default function CreateListing({ onBack, onSuccess }) {
   // ---------------------------------------------------------
   // HANDLERS: DOCUMENTS CHECKLIST
   // ---------------------------------------------------------
-  const handleAddRequirement = () => {
-    if (!newReq.trim()) return;
-    setRequirements(prev => [...prev, newReq.trim()]);
-    setNewReq('');
-  };
+ // const handleAddRequirement = () => {
+ //   if (!newReq.trim()) return;
+ //   setRequirements(prev => [...prev, newReq.trim()]);
+ //   setNewReq('');
+ // };
 
-  const handleRemoveRequirement = (index) => {
-    setRequirements(prev => prev.filter((_, idx) => idx !== index));
-  };
+//  const handleRemoveRequirement = (index) => {
+//    setRequirements(prev => prev.filter((_, idx) => idx !== index));
+//  };
 
   // ---------------------------------------------------------
   // WEIGHT VALIDATION CALCULATIONS
@@ -211,92 +289,183 @@ export default function CreateListing({ onBack, onSuccess }) {
     return null;
   };
 
+  
+
   // Open Confirmation Modal on Form Submit
-  const handleOpenConfirmModal = (e) => {
-    e.preventDefault();
-    setErrorMsg(null);
+  // Open Confirmation Modal on Form Submit
+const handleOpenConfirmModal = (e) => {
+  e.preventDefault();
+  setErrorMsg(null);
 
-    const weightValidationError = validateWeights();
-    if (weightValidationError) {
-      setErrorMsg(weightValidationError);
-      return;
-    }
+  const weightValidationError = validateWeights();
 
-    setShowConfirmModal(true);
+  if (weightValidationError) {
+    setErrorMsg(weightValidationError);
+    return;
+  }
+
+  setShowConfirmModal(true);
+};
+
+
+// Format backend validation errors into user-friendly messages
+const formatPublishError = (message) => {
+  if (!message) {
+    return 'Unable to publish scholarship. Please check your information and try again.';
+  }
+
+  const fieldMap = {
+    'hardFilters.citizenshipStatus': 'Citizenship Requirement',
+    'hardFilters.academicLevel': 'Academic Level',
+    'academicRequirement.minimumGPA': 'Minimum GWA / GPA',
+    'description': 'Program Description',
+    'applicationURL': 'Application URL',
+    'name': 'Scholarship Name',
+    'scholarshipType': 'Scholarship Type',
+    'deadline': 'Application Deadline',
+    'incomeRequirement.maximumIncome': 'Annual Income Ceiling'
   };
 
-  // Final Action Executed inside Confirm Modal
-  const handleExecutePublish = async () => {
+  const missingFields = [];
+
+  Object.entries(fieldMap).forEach(([field, label]) => {
+    if (
+      message.includes(field) &&
+      message.includes('is required')
+    ) {
+      missingFields.push(label);
+    }
+  });
+
+  if (missingFields.length > 0) {
+    return `Please complete the following required fields: ${missingFields.join(', ')}.`;
+  }
+
+  return message;
+};
+
+
+// Final Action Executed inside Confirm Modal
+const handleExecutePublish = async () => {
   setShowConfirmModal(false);
   setIsSubmitting(true);
+  setErrorMsg(null);
 
-  // Build full payload for MongoDB
   const newListingPayload = {
-    title,
-    grantValue,
-    category,
-    deadline,
-    portalUrl: portalUrl || '#',
+    name: title,
+    grantValue: grantValue,
+    scholarshipType: category,
     description,
+
+    benefits: [],
+
+    academicRequirement: {
+      minimumGPA: parseFloat(maxGwa),
+      gradingScale: '60-100'
+    },
+
     hardFilters: {
       academicLevel,
-      citizenship,
-      maxGwa: parseFloat(maxGwa) || 2.00,
-      annualIncomeCap: parseFloat(maxIncome) || 250000,
-      allowedCourses,
-      allowedLocations,
-      customHardFilters: customHardFilters.map(item => ({
-        label: item.label,
-        value: item.value
+      courseProgram: allowedCourses,
+      geographicLocation: {
+        regions: allowedLocations,
+        provinces: [],
+        municipalities: []
+      },
+      citizenshipStatus: citizenship
+    },
+
+    incomeRequirement: {
+      maximumIncome: parseFloat(maxIncome)
+    },
+
+    specialTags: [
+      ...requiredTags.map(tag => ({
+        tagName: tag,
+        mode: 'Exclusive'
       })),
-      requiredEligibilityTags: requiredTags
+      ...preferredTags.map(tag => ({
+        tagName: tag,
+        mode: 'Preferred'
+      }))
+    ],
+
+    criteriaWeights: {
+      gwaWeight: Number(weights.gpaWeight) / 100,
+      incomeWeight: Number(weights.incomeWeight) / 100,
+      tagsWeight: Number(weights.tagsWeight) / 100
     },
-    scoringWeights: {
-      wGpa: Number(weights.gpaWeight) / 100,
-      wIncome: Number(weights.incomeWeight) / 100,
-      wTags: Number(weights.tagsWeight) / 100
-    },
-    preferredEligibilityTags: preferredTags,
-    requiredDocuments: requirements,
-    status: 'Active'
+
+    rankingMode: 'Weighted',
+    deadline,
+    applicationURL: portalUrl,
+
+    status: initialData?.status || 'Open',
+    isArchived: initialData?.isArchived || false
   };
 
   try {
     const token = localStorage.getItem('token');
-    const response = await fetch('/api/v1/provider/scholarships', {
-      method: 'POST',
+
+    if (!token) {
+      throw new Error(
+        'Authentication token not found. Please log in again.'
+      );
+    }
+
+    const endpoint = isEditMode
+      ? `${import.meta.env.VITE_API_URL}/scholarships/${initialData._id}`
+      : `${import.meta.env.VITE_API_URL}/scholarships`;
+
+    const method = isEditMode ? 'PUT' : 'POST';
+
+    const res = await fetch(endpoint, {
+      method,
       headers: {
         'Content-Type': 'application/json',
-        ...(token && { Authorization: `Bearer ${token}` })
+        Authorization: `Bearer ${token}`
       },
       body: JSON.stringify(newListingPayload)
     });
 
-    const data = await response.json();
+    const data = await res.json();
 
-    if (!response.ok) {
-      throw new Error(data.message || 'Failed to publish listing');
+    if (!res.ok) {
+      throw new Error(
+        data.message ||
+        data.error ||
+        'Unable to publish scholarship listing.'
+      );
     }
 
-    setShowSuccessModal(true);
-  } catch (err) {
-    console.error('Submission failed:', err);
-    alert(err.message || 'Server error. Please try again.');
-  } finally {
+    console.log(
+      isEditMode
+        ? 'Scholarship updated successfully:'
+        : 'Scholarship created successfully:',
+      data
+    );
+
     setIsSubmitting(false);
+    setShowSuccessModal(true);
+
+  } catch (err) {
+    console.error('Scholarship Publish Error:', err);
+
+    setIsSubmitting(false);
+
+    setErrorMsg(
+      formatPublishError(err.message)
+    );
   }
 };
 
-  // Navigate to provider/listings or ScholarshipListings view on close
-  const handleSuccessClose = () => {
-    setShowSuccessModal(false);
-    if (onSuccess) {
-      // Pass target route or view key to parent callback
-      onSuccess('provider/listings'); 
-    } else if (onBack) {
-      onBack();
-    }
-  };
+
+// Navigate to the actual Scholarship Listings page
+const handleSuccessClose = () => {
+  setShowSuccessModal(false);
+
+  navigate('/dashboard/provider/listings');
+};
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto pb-12 relative">
@@ -317,12 +486,7 @@ export default function CreateListing({ onBack, onSuccess }) {
       </div>
 
       {/* Validation / Error Banner */}
-      {errorMsg && (
-        <div className="bg-rose-50 border border-rose-200 text-rose-800 p-4 rounded-2xl flex items-center gap-3 text-xs font-semibold shadow-2xs">
-          <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
-          <span>{errorMsg}</span>
-        </div>
-      )}
+      
 
       <form onSubmit={handleOpenConfirmModal} className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-xs space-y-8">
         
@@ -431,9 +595,21 @@ export default function CreateListing({ onBack, onSuccess }) {
                   onChange={e => setAcademicLevel(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500 cursor-pointer"
                 >
-                  <option value="Senior High School">Senior High School</option>
-                  <option value="College">College / Undergraduate</option>
-                  <option value="Graduate Studies">Graduate Studies (Master's / PhD)</option>
+                  <option value="" disabled>
+                    Select academic level
+                  </option>
+
+                  <option value="Senior High School">
+                    Senior High School
+                  </option>
+
+                  <option value="College">
+                    College / Undergraduate
+                  </option>
+
+                  <option value="Graduate Studies">
+                    Graduate Studies (Master's / PhD)
+                  </option>
                 </select>
               </div>
 
@@ -446,8 +622,17 @@ export default function CreateListing({ onBack, onSuccess }) {
                   onChange={e => setCitizenship(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500 cursor-pointer"
                 >
-                  <option value="Filipino">Filipino Citizen Only</option>
-                  <option value="Any">Open to Any Citizenship</option>
+                  <option value="" disabled>
+                    Select citizenship requirement
+                  </option>
+
+                  <option value="Filipino">
+                    Filipino Citizen Only
+                  </option>
+
+                  <option value="Any">
+                    Open to Any Citizenship
+                  </option>
                 </select>
               </div>
 
@@ -596,101 +781,209 @@ export default function CreateListing({ onBack, onSuccess }) {
         </div>
 
         {/* SECTION 3: SPECIAL ELIGIBILITY TAGS */}
-        <div className="space-y-4">
-          <div className="border-b border-slate-100 pb-2">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs">3</span>
-              Special Eligibility Tags Configuration (Dynamic Gatekeeping)
-            </h3>
-            <p className="text-xs text-slate-500 mt-1">
-              Classify demographic attributes as <strong>Required (Hard Gatekeeper)</strong> or <strong>Preferred (Ranking Affinity Weight)</strong>.
-            </p>
-          </div>
+        {/* SECTION 3: SPECIAL ELIGIBILITY TAGS */}
+<div className="space-y-4">
+  <div className="border-b border-slate-100 pb-2">
+    <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+      <span className="w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs">
+        3
+      </span>
+      Special Eligibility Tags Configuration (Dynamic Gatekeeping)
+    </h3>
 
-          <div className="space-y-2">
-            <label className="block text-xs font-bold text-slate-700">System Standard Demographic Tags</label>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-              {SYSTEM_DEMOGRAPHIC_TAGS.map((tag) => {
-                const isReq = requiredTags.includes(tag);
-                const isPref = preferredTags.includes(tag);
+    <p className="text-xs text-slate-500 mt-1">
+      Classify demographic attributes as{" "}
+      <strong>Required (Hard Gatekeeper)</strong> or{" "}
+      <strong>Preferred (Ranking Affinity Weight)</strong>.
+    </p>
+  </div>
 
-                return (
-                  <div key={tag} className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
-                    <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-                      <Tag className="w-3.5 h-3.5 text-indigo-600" />
-                      {tag}
-                    </span>
+  {/* SYSTEM STANDARD TAGS */}
+  <div className="space-y-2">
+    <label className="block text-xs font-bold text-slate-700">
+      System Standard Demographic Tags
+    </label>
 
-                    <div className="flex gap-1">
-                      <button
-                        type="button"
-                        onClick={() => toggleRequiredTag(tag)}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
-                          isReq ? 'bg-rose-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
-                        }`}
-                      >
-                        {isReq ? 'Required ("Only")' : 'Require'}
-                      </button>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+      {SYSTEM_DEMOGRAPHIC_TAGS.map((tag) => {
+        const isReq = requiredTags.includes(tag);
+        const isPref = preferredTags.includes(tag);
 
-                      <button
-                        type="button"
-                        onClick={() => togglePreferredTag(tag)}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
-                          isPref ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
-                        }`}
-                      >
-                        {isPref ? 'Preferred' : 'Prefer'}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+        return (
+          <div
+            key={tag}
+            className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between"
+          >
+            <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+              <Tag className="w-3.5 h-3.5 text-indigo-600" />
+              {tag}
+            </span>
+
+            <div className="flex gap-1">
+              {/* REQUIRED BUTTON */}
+              <button
+                type="button"
+                onClick={() => toggleRequiredTag(tag)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                  isReq
+                    ? "bg-rose-600 text-white"
+                    : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                {isReq ? 'Required ("Only")' : "Require"}
+              </button>
+
+              {/* PREFERRED BUTTON */}
+              <button
+                type="button"
+                onClick={() => togglePreferredTag(tag)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                  isPref
+                    ? "bg-indigo-600 text-white"
+                    : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                {isPref ? "Preferred" : "Prefer"}
+              </button>
             </div>
           </div>
+        );
+      })}
+    </div>
+  </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-semibold pt-2">
-            <div className="space-y-2 p-3 bg-rose-50/50 rounded-xl border border-rose-100">
-              <label className="block text-rose-900 font-bold">Add Custom Required Tag (Hard Filter)</label>
-              <div className="flex gap-2">
-                <input 
-                  type="text"
-                  placeholder="e.g. Solo Parent First Gen"
-                  value={newCustomReqTag}
-                  onChange={e => setNewCustomReqTag(e.target.value)}
-                  className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-hidden"
-                />
+  {/* CUSTOM TAGS */}
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-semibold pt-2">
+
+    {/* ========================================= */}
+    {/* CUSTOM REQUIRED TAGS */}
+    {/* ========================================= */}
+    <div className="space-y-3 p-3 bg-rose-50/50 rounded-xl border border-rose-100">
+
+      <label className="block text-rose-900 font-bold">
+        Add Custom Required Tag (Hard Filter)
+      </label>
+
+      {/* INPUT + BUTTON */}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          placeholder="e.g. Solo Parent First Gen"
+          value={newCustomReqTag}
+          onChange={(e) => setNewCustomReqTag(e.target.value)}
+          className="flex-1 min-w-0 px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-hidden"
+        />
+
+        <button
+          type="button"
+          onClick={handleAddCustomReqTag}
+          className="shrink-0 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold transition-colors cursor-pointer"
+        >
+          Add Required
+        </button>
+      </div>
+
+      {/* CUSTOM REQUIRED TAG LIST */}
+      {requiredTags.filter(
+        (tag) => !SYSTEM_DEMOGRAPHIC_TAGS.includes(tag)
+      ).length > 0 && (
+        <div className="flex flex-wrap gap-2 pt-1">
+          {requiredTags
+            .filter(
+              (tag) => !SYSTEM_DEMOGRAPHIC_TAGS.includes(tag)
+            )
+            .map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-rose-900 border border-rose-200 rounded-xl text-xs font-semibold"
+              >
+                <span className="truncate max-w-[180px]">
+                  {tag}
+                </span>
+
                 <button
                   type="button"
-                  onClick={handleAddCustomReqTag}
-                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold transition-colors cursor-pointer"
+                  onClick={() =>
+                    setRequiredTags((prev) =>
+                      prev.filter((t) => t !== tag)
+                    )
+                  }
+                  className="shrink-0 text-rose-400 hover:text-rose-600 transition-colors cursor-pointer"
                 >
-                  Add Required
+                  <X className="w-3.5 h-3.5" />
                 </button>
-              </div>
-            </div>
-
-            <div className="space-y-2 p-3 bg-indigo-50/50 rounded-xl border border-indigo-100">
-              <label className="block text-indigo-900 font-bold">Add Custom Preferred Tag (Ranking Weight)</label>
-              <div className="flex gap-2">
-                <input 
-                  type="text"
-                  placeholder="e.g. Tech Club Leader"
-                  value={newCustomPrefTag}
-                  onChange={e => setNewCustomPrefTag(e.target.value)}
-                  className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-hidden"
-                />
-                <button
-                  type="button"
-                  onClick={handleAddCustomPrefTag}
-                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold transition-colors cursor-pointer"
-                >
-                  Add Preferred
-                </button>
-              </div>
-            </div>
-          </div>
+              </span>
+            ))}
         </div>
+      )}
+    </div>
 
+    {/* ========================================= */}
+    {/* CUSTOM PREFERRED TAGS */}
+    {/* ========================================= */}
+    <div className="space-y-3 p-3 bg-indigo-50/50 rounded-xl border border-indigo-100">
+
+      <label className="block text-indigo-900 font-bold">
+        Add Custom Preferred Tag (Ranking Weight)
+      </label>
+
+      {/* INPUT + BUTTON */}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          placeholder="e.g. Tech Club Leader"
+          value={newCustomPrefTag}
+          onChange={(e) => setNewCustomPrefTag(e.target.value)}
+          className="flex-1 min-w-0 px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-hidden"
+        />
+
+        <button
+          type="button"
+          onClick={handleAddCustomPrefTag}
+          className="shrink-0 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold transition-colors cursor-pointer"
+        >
+          Add Preferred
+        </button>
+      </div>
+
+      {/* CUSTOM PREFERRED TAG LIST */}
+      {preferredTags.filter(
+        (tag) => !SYSTEM_DEMOGRAPHIC_TAGS.includes(tag)
+      ).length > 0 && (
+        <div className="flex flex-wrap gap-2 pt-1">
+          {preferredTags
+            .filter(
+              (tag) => !SYSTEM_DEMOGRAPHIC_TAGS.includes(tag)
+            )
+            .map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-indigo-900 border border-indigo-200 rounded-xl text-xs font-semibold"
+              >
+                <span className="truncate max-w-[180px]">
+                  {tag}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPreferredTags((prev) =>
+                      prev.filter((t) => t !== tag)
+                    )
+                  }
+                  className="shrink-0 text-indigo-400 hover:text-indigo-600 transition-colors cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </span>
+            ))}
+        </div>
+      )}
+    </div>
+
+  </div>
+</div>
+        
         {/* SECTION 4: RANKING WEIGHTS */}
         <div className="space-y-4">
           <div className="border-b border-slate-100 pb-2 flex items-center justify-between">
@@ -765,7 +1058,7 @@ export default function CreateListing({ onBack, onSuccess }) {
           </div>
         </div>
 
-        {/* SECTION 5: REQUIRED DOCUMENTS */}
+    {/*}
         <div className="space-y-3">
           <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-2 flex items-center gap-2">
             <span className="w-6 h-6 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs">5</span>
@@ -800,41 +1093,78 @@ export default function CreateListing({ onBack, onSuccess }) {
             ))}
           </div>
         </div>
+        */}
 
         {/* SUBMIT ACTIONS & VALIDATION SUMMARY */}
-        <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
-          <div className="text-xs text-slate-500 flex items-center gap-1.5">
-            <HelpCircle className="w-4 h-4 text-slate-400 shrink-0" />
-            <span>Backend enforces W<sub>GPA</sub> + W<sub>Income</sub> + W<sub>Tags</sub> = 100% validation prior to publishing.</span>
-          </div>
+        {/* SUBMIT ACTIONS & VALIDATION SUMMARY */}
+<div className="pt-4 border-t border-slate-100 space-y-3">
 
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={onBack}
-              className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting || totalWeight !== 100}
-              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Publishing Listing...</span>
-                </>
-              ) : (
-                <>
-                  <Send className="w-4 h-4" />
-                  <span>Publish Scholarship Listing</span>
-                </>
-              )}
-            </button>
-          </div>
-        </div>
+  {/* ERROR MESSAGE */}
+  {/* Validation / Error Banner */}
+{errorMsg && (
+  <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 flex items-start gap-3 text-xs shadow-sm">
+    <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+
+    <div>
+      <p className="font-bold text-rose-900">
+        Unable to publish scholarship
+      </p>
+
+      <p className="text-rose-700 mt-1">
+        {errorMsg}
+      </p>
+    </div>
+  </div>
+)}
+
+  {/* ACTIONS */}
+  <div className="flex items-center justify-between">
+
+    <div className="text-xs text-slate-500 flex items-center gap-1.5">
+      <HelpCircle className="w-4 h-4 text-slate-400 shrink-0" />
+
+      <span>
+        Backend enforces W<sub>GPA</sub> + W<sub>Income</sub> + W<sub>Tags</sub> = 100% validation prior to publishing.
+      </span>
+    </div>
+
+    <div className="flex items-center gap-3">
+
+      {/* CANCEL */}
+      <button
+        type="button"
+        onClick={onBack}
+        className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+      >
+        Cancel
+      </button>
+
+      {/* PUBLISH */}
+      <button
+        type="submit"
+        disabled={isSubmitting || totalWeight !== 100}
+        className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {isSubmitting ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span>Publishing Listing...</span>
+          </>
+        ) : (
+          <>
+            <Send className="w-4 h-4" />
+            <span>
+              {isEditMode
+                ? 'Update Scholarship Listing'
+                : 'Publish Scholarship Listing'}
+            </span>
+          </>
+        )}
+      </button>
+
+    </div>
+  </div>
+</div>
 
       </form>
 
@@ -962,5 +1292,5 @@ export default function CreateListing({ onBack, onSuccess }) {
       )}
 
     </div>
-  );
+  )
 }

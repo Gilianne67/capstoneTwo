@@ -34,6 +34,12 @@ const scholarshipSchema = new mongoose.Schema(
       default: []
     },
 
+    grantValue: {
+      type: String,
+      required: true,
+      trim: true
+    },
+
     academicRequirement: {
       minimumGPA: {
         type: Number,
