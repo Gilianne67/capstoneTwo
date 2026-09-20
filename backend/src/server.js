@@ -57,7 +57,9 @@ const limiter = rateLimit({
   max: 100,
   message: { success: false, error: 'Too many requests from this IP, please try again later.' },
 });
-app.use('/api/v1', limiter);
+if (process.env.NODE_ENV === 'production') {
+  app.use('/api/v1', limiter);
+}
 
 // Health Check Endpoint
 app.get('/api/v1/health', (req, res) => {
