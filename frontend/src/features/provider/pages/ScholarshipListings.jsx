@@ -64,7 +64,7 @@ export default function ScholarshipListings({ onNavigateToCreate, onNavigateToEd
   setIsLoading(true);
 
   try {
-    const token = localStorage.getItem('iskolar_token');
+    const token = localStorage.getItem('token');
 
     if (!token) {
       throw new Error('Authentication token not found. Please log in again.');
@@ -171,7 +171,7 @@ export default function ScholarshipListings({ onNavigateToCreate, onNavigateToEd
   );
 
   try {
-    const token = localStorage.getItem('iskolar_token');
+    const token = localStorage.getItem('token');
 
     if (!token) {
       throw new Error('Authentication token not found.');
@@ -212,7 +212,7 @@ export default function ScholarshipListings({ onNavigateToCreate, onNavigateToEd
   const newStatus = targetItem.status === 'Open' ? 'Closed' : 'Open';
 
   try {
-    const token = localStorage.getItem('iskolar_token');
+    const token = localStorage.getItem('token');
 
     if (!token) {
       throw new Error('Authentication token not found.');

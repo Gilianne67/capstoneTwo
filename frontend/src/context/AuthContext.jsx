@@ -3,8 +3,12 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 const AuthContext = createContext(null);
 
 // Base backend URL resolution (e.g., http://localhost:5000)
-const RAW_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-const API_BASE_URL = RAW_BASE.endsWith('/') ? RAW_BASE.slice(0, -1) : RAW_BASE;
+const RAW_BASE =
+  import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+
+const API_BASE_URL = RAW_BASE.endsWith('/')
+  ? RAW_BASE.slice(0, -1)
+  : RAW_BASE;
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -32,7 +36,7 @@ export function AuthProvider({ children }) {
       }
 
       try {
-        const res = await fetch(`${API_BASE_URL}/api/v1/auth/me`, {
+        const res = await fetch(`${API_BASE_URL}/auth/me`, {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${activeToken}`,
@@ -78,7 +82,7 @@ export function AuthProvider({ children }) {
   const login = async (email, password) => {
     const emailLower = email.trim().toLowerCase();
 
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+    const response = await fetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -100,7 +104,7 @@ export function AuthProvider({ children }) {
 
   // Register Handler
   const register = async (payload) => {
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/register`, {
+    const response = await fetch(`${API_BASE_URL}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -122,7 +126,7 @@ export function AuthProvider({ children }) {
 
   // Password Reset Request
   const resetPassword = async (email) => {
-    const res = await fetch(`${API_BASE_URL}/api/v1/auth/forgotpassword`, {
+    const res = await fetch(`${API_BASE_URL}/auth/forgotpassword`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
