@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
-import { Bell, LogOut, Loader2, User as UserIcon, WifiOff } from 'lucide-react';
+import { LogOut, Loader2, User as UserIcon, WifiOff } from 'lucide-react';
 import Sidebar from '../components/navigation/Sidebar';
 
 const API_BASE_URL =
@@ -14,7 +14,7 @@ export default function AppLayout() {
   const [isUsingMockData, setIsUsingMockData] = useState(false);
 
   // Notifications State
-  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(2);
+ // const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(2);
 
   // User Menu State
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -83,6 +83,7 @@ export default function AppLayout() {
 }, [navigate]);
 
   // 2. Notifications Check with Mock Fallback
+  {/*
   useEffect(() => {
     if (!session) return;
 
@@ -111,6 +112,7 @@ export default function AppLayout() {
       isMounted = false;
     };
   }, [session]);
+  */}
 
   // 3. Logout Handler
   const handleLogout = useCallback(async () => {
@@ -166,7 +168,7 @@ export default function AppLayout() {
 
           {/* Right Header Area - Notifications & User Profile */}
           <div className="flex items-center gap-4">
-            {/* Notification Bell */}
+            {/* Notification Bell
             <button
               type="button"
               onClick={() => navigate('/dashboard/notifications')}
@@ -177,7 +179,7 @@ export default function AppLayout() {
               {unreadNotificationsCount > 0 && (
                 <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
               )}
-            </button>
+            </button>  */}
 
             {/* Profile Dropdown Menu */}
             <div className="relative border-l border-slate-200 pl-3">
