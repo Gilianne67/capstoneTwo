@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
-import { Bell, LogOut, Loader2, User as UserIcon, WifiOff } from 'lucide-react';
+import { LogOut, Loader2, WifiOff } from 'lucide-react';
 import Sidebar from '../components/navigation/Sidebar';
 
 const API_BASE_URL =
@@ -14,7 +14,7 @@ export default function AppLayout() {
   const [isUsingMockData, setIsUsingMockData] = useState(false);
 
   // Notifications State
-  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(2);
+ // const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(2);
 
   // User Menu State
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -83,6 +83,7 @@ export default function AppLayout() {
 }, [navigate]);
 
   // 2. Notifications Check with Mock Fallback
+  {/*
   useEffect(() => {
     if (!session) return;
 
@@ -111,6 +112,7 @@ export default function AppLayout() {
       isMounted = false;
     };
   }, [session]);
+  */}
 
   // 3. Logout Handler
   const handleLogout = useCallback(async () => {
@@ -166,7 +168,7 @@ export default function AppLayout() {
 
           {/* Right Header Area - Notifications & User Profile */}
           <div className="flex items-center gap-4">
-            {/* Notification Bell */}
+            {/* Notification Bell
             <button
               type="button"
               onClick={() => navigate('/dashboard/notifications')}
@@ -177,7 +179,7 @@ export default function AppLayout() {
               {unreadNotificationsCount > 0 && (
                 <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
               )}
-            </button>
+            </button>  */}
 
             {/* Profile Dropdown Menu */}
             <div className="relative border-l border-slate-200 pl-3">
@@ -198,28 +200,18 @@ export default function AppLayout() {
               </button>
 
               {/* User Dropdown Popup */}
-              {isUserMenuOpen && (
-                <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-lg py-1 z-30">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsUserMenuOpen(false);
-                      navigate('/dashboard/settings');
-                    }}
-                    className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
-                  >
-                    <UserIcon className="w-3.5 h-3.5 text-slate-400" /> Account Settings
-                  </button>
-                  <div className="my-1 border-t border-slate-100" />
-                  <button
-                    type="button"
-                    onClick={handleLogout}
-                    className="w-full text-left px-4 py-2 text-xs text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-semibold cursor-pointer"
-                  >
-                    <LogOut className="w-3.5 h-3.5 text-rose-500" /> Sign Out
-                  </button>
-                </div>
-              )}
+                  {isUserMenuOpen && (
+                    <div className="absolute right-0 mt-2 w-40 bg-white border border-slate-200 rounded-xl shadow-lg py-1 z-30">
+                      <button
+                        type="button"
+                        onClick={handleLogout}
+                        className="w-full text-left px-4 py-2 text-xs text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-semibold cursor-pointer"
+                      >
+                        <LogOut className="w-3.5 h-3.5 text-rose-500" />
+                        Sign Out
+                      </button>
+                    </div>
+)}
             </div>
           </div>
         </header>

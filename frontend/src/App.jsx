@@ -34,6 +34,7 @@ import PerformanceAnalytics from './features/provider/pages/PerformanceAnalytics
 import OrganizationVerification from './features/provider/pages/OrganizationVerification';
 import ProviderSettings from './features/provider/pages/ProviderSettings';
 import HelpSupport from './features/provider/pages/HelpSupport';
+import ScholarshipDetails from './features/provider/pages/ScholarshipDetails';
 
 // Admin Module Pages
 import AdminDashboard from './features/admin/pages/AdminDashboard';
@@ -127,34 +128,54 @@ export default function App() {
             <Route path="/onboarding" element={<OnboardingForm />} />
           </Route>
 
-          {/* 3. PROTECTED DASHBOARD ROUTES */}
-          <Route path="/dashboard" element={<AppLayout />}>
-            <Route index element={<DashboardRedirect />} />
+                    {/* 3. PROTECTED DASHBOARD ROUTES */}
+                    <Route path="/dashboard" element={<AppLayout />}>
+                      <Route index element={<DashboardRedirect />} />
 
-            {/* STUDENT SECTION */}
-            <Route element={<ProtectedRouteGuard allowedRoles={['student']} />}>
-              <Route path="student" element={<StudentDashboard />} />
-              <Route path="student/search" element={<ScholarshipSearch />} />
-              <Route path="student/matches" element={<MatchFeed />} />
-              <Route path="student/profile" element={<StudentProfile />} />
-              <Route path="student/saved" element={<SavedScholarships />} />
-              <Route path="student/applications" element={<ApplicationTracker />} />
-              <Route path="student/notifications" element={<DeadlineAlerts />} />
-              <Route path="student/alerts" element={<Settings />} />
-              <Route path="student/settings" element={<Settings />} />
-              <Route path="student/help" element={<HelpCenter />} />
-            </Route>
+                      {/* STUDENT SECTION */}
+                      <Route element={<ProtectedRouteGuard allowedRoles={['student']} />}>
+                        <Route path="student" element={<StudentDashboard />} />
+                        <Route path="student/search" element={<ScholarshipSearch />} />
+                        <Route path="student/matches" element={<MatchFeed />} />
+                        <Route path="student/profile" element={<StudentProfile />} />
+                        <Route path="student/saved" element={<SavedScholarships />} />
+                        <Route path="student/applications" element={<ApplicationTracker />} />
+                        <Route path="student/notifications" element={<DeadlineAlerts />} />
+                        <Route path="student/alerts" element={<Settings />} />
+                        <Route path="student/settings" element={<Settings />} />
+                        <Route path="student/help" element={<HelpCenter />} />
+                      </Route>
 
-            {/* PROVIDER SECTION */}
-            <Route element={<ProtectedRouteGuard allowedRoles={['provider']} />}>
-              <Route path="provider" element={<ProviderDashboard />} />
-              <Route path="provider/listings" element={<ScholarshipListings />} />
-              <Route path="provider/create" element={<CreateListing />} />
-              <Route path="provider/analytics" element={<PerformanceAnalytics />} />
-              <Route path="provider/verification" element={<OrganizationVerification />} />
-              <Route path="provider/settings" element={<ProviderSettings />} />
-              <Route path="provider/help" element={<HelpSupport />} />
-            </Route>
+                      {/* PROVIDER SECTION */}
+          <Route element={<ProtectedRouteGuard allowedRoles={['provider']} />}>
+            <Route path="provider" element={<ProviderDashboard />} />
+
+            <Route path="provider/listings" element={<ScholarshipListings />} />
+
+            <Route
+              path="provider/scholarships/:id"
+              element={<ScholarshipDetails />}
+            />
+
+            <Route path="provider/create" element={<CreateListing />} />
+
+            <Route path="provider/analytics" element={<PerformanceAnalytics />} />
+
+            <Route
+              path="provider/verification"
+              element={<OrganizationVerification />}
+            />
+
+            <Route
+              path="provider/settings"
+              element={<ProviderSettings />}
+            />
+
+            <Route
+              path="provider/help"
+              element={<HelpSupport />}
+            />
+          </Route>
 
             {/* ADMIN SECTION */}
             <Route element={<ProtectedRouteGuard allowedRoles={['admin']} />}>
