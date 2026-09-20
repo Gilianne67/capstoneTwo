@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 const AuthContext = createContext(null);
 
@@ -15,10 +15,56 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   // Utility to retrieve a clean Bearer token
-  const getCleanToken = () => {
+  const getCleanToken = useCallback(() => {
     const rawToken = localStorage.getItem('token') || token;
     return rawToken ? rawToken.replace(/^"|"$/g, '').replace('Bearer ', '').trim() : null;
-  };
+  }, [token]);
+
+  /**
+   * Helper function to determine post-login or session redirect target
+   * Handles camelCase & snake_case properties seamlessly.
+   * @param {Object} userData - User object returned from auth endpoints
+   * @returns {string} Route path to navigate to
+   */
+  const getRedirectPath = useCallback((userData) => {
+    if (!userData) return '/auth?mode=signin';
+
+    const role = userData?.role?.toLowerCase();
+    const isOnboarded = userData?.isOnboarded ?? userData?.is_onboarded ?? false;
+    const verificationStatus = (userData?.verificationStatus || userData?.verification_status || '').toLowerCase();
+
+    if (role === 'provider') {
+      // 1. Not onboarded -> Provider Onboarding Form
+      if (!isOnboarded) {
+        return '/provider/onboarding';
+      }
+      // 2. Onboarded but pending verification -> Pending Approval Screen
+      if (verificationStatus === 'pending') {
+        return '/provider/pending-approval';
+      }
+      // 3. Rejected -> Rejection info screen
+      if (verificationStatus === 'rejected') {
+        return '/provider/rejected';
+      }
+      // 4. Approved -> Main Provider Dashboard
+      return '/dashboard/provider';
+    }
+
+    if (role === 'student') {
+      // 1. Not onboarded -> Student Onboarding Form
+      if (!isOnboarded) {
+        return '/onboarding';
+      }
+      // 2. Onboarded -> Student Dashboard
+      return '/dashboard/student';
+    }
+
+    if (role === 'admin' || role === 'superadmin' || role === 'super_admin') {
+      return '/dashboard/admin';
+    }
+
+    return '/auth?mode=signin';
+  }, []);
 
   // Single initialization effect to verify MongoDB JWT session
   useEffect(() => {
@@ -61,7 +107,7 @@ export function AuthProvider({ children }) {
     };
 
     initializeAuth();
-  }, []);
+  }, [getCleanToken]);
 
   // Update User state locally (critical after Onboarding/Profile updates)
   const updateUser = (updatedUserData) => {
@@ -94,8 +140,9 @@ export function AuthProvider({ children }) {
       setToken(jwtToken);
     }
     
-    setUser(data.user || data.data);
-    return data.user || data.data;
+    const loggedInUser = data.user || data.data;
+    setUser(loggedInUser);
+    return loggedInUser;
   };
 
   // Register Handler
@@ -116,8 +163,9 @@ export function AuthProvider({ children }) {
       setToken(jwtToken);
     }
 
-    setUser(data.user || data.data);
-    return data.user || data.data;
+    const registeredUser = data.user || data.data;
+    setUser(registeredUser);
+    return registeredUser;
   };
 
   // Password Reset Request
@@ -141,8 +189,8 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout, updateUser }}>
-      {!loading && children}
+    <AuthContext.Provider value={{ user, token, loading, login, register, logout, resetPassword, updateUser, getRedirectPath }}>
+      {children}
     </AuthContext.Provider>
   );
 }

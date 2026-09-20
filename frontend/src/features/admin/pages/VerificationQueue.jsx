@@ -8,58 +8,19 @@ import {
   ExternalLink, 
   AlertCircle, 
   Loader2,
-  Search,
-  Clock
+  Search
 } from 'lucide-react';
 
 import PageHeader from '../../../components/common/PageHeader';
 import StatusBadge from '../../../components/common/StatusBadge';
 import ConfirmModal from '../../../components/common/ConfirmModal';
-
-// Fallback Mock Data
-const MOCK_VERIFICATIONS = [
-  {
-    _id: 'ver-01',
-    organizationName: 'Innovate Tech Foundation',
-    taxId: 'SEC-2024-109',
-    contactEmail: 'contact@innovatetech.org',
-    status: 'Pending Review',
-    submittedAt: '2026-07-28',
-    documents: [
-      { name: 'SEC_Registration_2024.pdf', size: '2.4 MB', url: '#' },
-      { name: 'Board_Resolution_Mandate.pdf', size: '1.1 MB', url: '#' }
-    ]
-  },
-  {
-    _id: 'ver-02',
-    organizationName: 'Apex Student Educational Trust',
-    taxId: 'LGU-2024-882',
-    contactEmail: 'admin@apextrust.edu',
-    status: 'Pending Review',
-    submittedAt: '2026-07-27',
-    documents: [
-      { name: 'CHED_Endorsement_Letter.pdf', size: '3.1 MB', url: '#' },
-      { name: 'TIN_Tax_Exemption_Cert.pdf', size: '1.5 MB', url: '#' }
-    ]
-  },
-  {
-    _id: 'ver-03',
-    organizationName: 'Bicol Region Student Assistance Fund',
-    taxId: 'SEC-2023-401',
-    contactEmail: 'grants@bicolassist.org',
-    status: 'Verified',
-    submittedAt: '2026-07-20',
-    documents: [
-      { name: 'SEC_Certificate_Reg.pdf', size: '2.0 MB', url: '#' }
-    ]
-  }
-];
+import ProtectedDocumentViewer from '../../../components/common/ProtectedDocumentViewer';
 
 export default function VerificationQueue() {
   const [verifications, setVerifications] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isUsingFallback, setIsUsingFallback] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
   const [statusFilter, setStatusFilter] = useState('Pending Review');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAction, setSelectedAction] = useState(null); // { id, type: 'approve'|'reject' }
@@ -71,6 +32,7 @@ export default function VerificationQueue() {
 
     const fetchVerifications = async () => {
       setIsLoading(true);
+      setErrorMsg('');
       try {
         const token = localStorage.getItem('token');
         const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -80,17 +42,15 @@ export default function VerificationQueue() {
         if (res.ok) {
           const data = await res.json();
           if (isMounted) {
-            setVerifications(Array.isArray(data) ? data : MOCK_VERIFICATIONS);
-            setIsUsingFallback(false);
+            setVerifications(Array.isArray(data) ? data : []);
           }
         } else {
-          throw new Error('Failed to load verification queue');
+          throw new Error('Failed to load verification queue from server.');
         }
       } catch (err) {
         if (isMounted) {
-          console.warn('Backend server unreachable. Using fallback verification queue data:', err);
-          setVerifications(MOCK_VERIFICATIONS);
-          setIsUsingFallback(true);
+          console.error('API Fetch Error:', err);
+          setErrorMsg('Unable to fetch verification requests. Please check your network or try again.');
         }
       } finally {
         if (isMounted) setIsLoading(false);
@@ -131,26 +91,22 @@ export default function VerificationQueue() {
         throw new Error(errData.message || 'Verification update failed on server');
       }
 
-      // Update state ONLY on successful server response
       setVerifications(prev => prev.map(v => v._id === id ? { ...v, status: newStatus } : v));
       setSelectedAction(null);
     } catch (err) {
       console.error('API Error:', err);
       setActionError(err.message);
-
-      // Fallback behavior for local presentation testing
-      if (isUsingFallback) {
-        setVerifications(prev => prev.map(v => v._id === id ? { ...v, status: newStatus } : v));
-        setSelectedAction(null);
-      }
     } finally {
       setIsProcessing(false);
     }
   };
 
   const filteredVerifications = verifications.filter((v) => {
-    const matchesSearch = v.organizationName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          v.taxId.toLowerCase().includes(searchQuery.toLowerCase());
+    const org = v.organizationName ? v.organizationName.toLowerCase() : '';
+    const tax = v.taxId ? v.taxId.toLowerCase() : '';
+    const query = searchQuery.toLowerCase();
+
+    const matchesSearch = org.includes(query) || tax.includes(query);
     const matchesStatus = statusFilter === 'All' || v.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -177,12 +133,10 @@ export default function VerificationQueue() {
         subtitle="Review official documentation, SEC certificates, and approve provider partner statuses."
       />
 
-      {isUsingFallback && (
-        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-800 p-3.5 rounded-xl flex items-center justify-between text-xs font-medium">
-          <span className="flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
-            Backend API unreachable. Displaying local fallback verification requests.
-          </span>
+      {errorMsg && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 p-4 rounded-xl flex items-center gap-3 text-xs font-medium">
+          <AlertCircle className="w-5 h-5 shrink-0 text-rose-600" />
+          <span>{errorMsg}</span>
         </div>
       )}
 
@@ -221,38 +175,44 @@ export default function VerificationQueue() {
         {/* Verification Items List */}
         <div className="space-y-3 pt-2">
           {filteredVerifications.length === 0 ? (
-            <p className="text-xs text-slate-500 py-8 text-center">No verification requests found matching criteria.</p>
+            <p className="text-xs text-slate-500 py-8 text-center">No verification requests found.</p>
           ) : (
             filteredVerifications.map((item) => (
               <div key={item._id} className="border border-slate-200/80 rounded-xl p-4 space-y-3 bg-slate-50/50">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/60 pb-3">
                   <div>
                     <div className="flex items-center gap-2">
-                      <h4 className="text-sm font-bold text-slate-900">{item.organizationName}</h4>
+                      <h4 className="text-sm font-bold text-slate-900">{item.organizationName || 'Unnamed Provider'}</h4>
                       <StatusBadge status={item.status} />
                     </div>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      TIN / Reg No: <strong className="text-slate-700">{item.taxId}</strong> • Email: <strong className="text-slate-700">{item.contactEmail}</strong>
+                      TIN / Reg No: <strong className="text-slate-700">{item.taxId || 'N/A'}</strong> • Email: <strong className="text-slate-700">{item.contactEmail || 'N/A'}</strong>
                     </p>
                   </div>
-                  <span className="text-[11px] text-slate-400 font-medium">Submitted: {item.submittedAt}</span>
+                  <span className="text-[11px] text-slate-400 font-medium">
+                    {item.submittedAt ? `Submitted: ${item.submittedAt}` : ''}
+                  </span>
                 </div>
 
                 {/* Submitted Files */}
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs font-bold text-slate-700">Proof Documents:</span>
-                  {item.documents && item.documents.map((doc, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setSelectedDocViewer(doc)}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:text-emerald-600 hover:border-emerald-300 transition-colors cursor-pointer"
-                    >
-                      <FileText className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>{doc.name}</span>
-                      <ExternalLink className="w-3 h-3 text-slate-400" />
-                    </button>
-                  ))}
+                  {item.documents && item.documents.length > 0 ? (
+                    item.documents.map((doc, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setSelectedDocViewer(doc)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:text-emerald-600 hover:border-emerald-300 transition-colors cursor-pointer"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>{doc.name || doc.filename || `Document ${idx + 1}`}</span>
+                        <ExternalLink className="w-3 h-3 text-slate-400" />
+                      </button>
+                    ))
+                  ) : (
+                    <span className="text-xs text-slate-400 font-normal">No files uploaded</span>
+                  )}
                 </div>
 
                 {/* Action Buttons for Pending Requests */}
@@ -303,40 +263,12 @@ export default function VerificationQueue() {
         }
       />
 
-      {/* Document Viewer Modal */}
+      {/* Protected Document Viewer Modal */}
       {selectedDocViewer && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-5 space-y-4 border border-slate-200 shadow-xl">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <FileText className="w-4 h-4 text-emerald-600" /> {selectedDocViewer.name}
-              </h3>
-              <button 
-                onClick={() => setSelectedDocViewer(null)}
-                className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            
-            <div className="min-h-[160px] bg-slate-50 border border-slate-200/80 rounded-xl p-4 flex flex-col items-center justify-center gap-2 text-center">
-              <FileText className="w-8 h-8 text-slate-400" />
-              <p className="text-xs font-bold text-slate-700">{selectedDocViewer.name}</p>
-              <p className="text-[11px] text-slate-400">File size: {selectedDocViewer.size || '2.0 MB'}</p>
-              <span className="text-[11px] text-emerald-600 font-semibold mt-1">Document Verified & Virus Scanned</span>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setSelectedDocViewer(null)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
-              >
-                Close Preview
-              </button>
-            </div>
-          </div>
-        </div>
+        <ProtectedDocumentViewer
+          document={selectedDocViewer}
+          onClose={() => setSelectedDocViewer(null)}
+        />
       )}
     </div>
   );

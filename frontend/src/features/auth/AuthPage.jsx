@@ -11,8 +11,6 @@ import {
   Eye,
   EyeOff,
   AlertCircle,
-  ShieldCheck,
-  Zap,
   ArrowLeft,
   KeyRound,
   ShieldAlert
