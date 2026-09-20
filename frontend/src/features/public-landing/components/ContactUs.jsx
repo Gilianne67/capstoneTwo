@@ -64,7 +64,7 @@ export default function ContactUs() {
                 <h3 className="text-base font-bold text-app-text">HQ & Regional Network</h3>
                 <p className="text-xs text-text-muted mt-0.5">Connecting students across Luzon, Visayas, and Mindanao.</p>
                 <p className="text-sm font-semibold text-app-text mt-1.5">
-                  Manila & Bicol Tech Hubs, Philippines
+                  Tech Hubs, Philippines
                 </p>
               </div>
             </div>

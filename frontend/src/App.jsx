@@ -1,5 +1,6 @@
-import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+// App.jsx
+import React, { useEffect, useState } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
 
 // Context
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -11,6 +12,8 @@ import AppLayout from './layouts/AppLayout';
 // Public Pages
 import HomePage from './features/public-landing/pages/HomePage';
 import AuthPage from './features/auth/AuthPage';
+import OnboardingForm from './features/public-landing/pages/OnboardingForm';
+import ParentConsentPage from './features/public-landing/pages/ParentConsentPage';
 
 // Student Module Pages
 import StudentDashboard from './features/student/pages/StudentDashboard';
@@ -43,10 +46,36 @@ import SystemSettings from './features/admin/pages/SystemSettings';
 import AdminNotifications from './features/admin/pages/AdminNotifications';
 import AdminHelp from './features/admin/pages/AdminHelp';
 
-/**
- * Guard component that handles authentication & role-based route protection
- */
-function ProtectedRoute({ allowedRoles, children }) {
+function ConnectionBanner() {
+  const [status, setStatus] = useState('Testing backend connection...');
+
+  useEffect(() => {
+    fetch('/api/v1/auth/me', { credentials: 'include' })
+      .then(async (res) => {
+        if (res.status === 401) {
+          setStatus('✅ Connected to Backend API (Guest / Unauthenticated)');
+          return;
+        }
+        const data = await res.json();
+        if (data.success) {
+          setStatus(`✅ Connected to Backend API (User: ${data.data.email || data.data.role})`);
+        } else {
+          setStatus(`✅ Connected to Backend API (${data.message})`);
+        }
+      })
+      .catch((err) => {
+        setStatus(`❌ Connection Failed: ${err.message}`);
+      });
+  }, []);
+
+  return (
+    <div style={{ background: '#1e293b', color: '#fff', padding: '0.5rem 1rem', textAlign: 'center', fontSize: '0.875rem' }}>
+      {status}
+    </div>
+  );
+}
+
+function ProtectedRouteGuard({ allowedRoles, children }) {
   const { user, loading } = useAuth();
   const location = useLocation();
 
@@ -58,22 +87,20 @@ function ProtectedRoute({ allowedRoles, children }) {
     );
   }
 
-  // 1. If not authenticated, redirect to login
   if (!user) {
     return <Navigate to="/auth?mode=signin" state={{ from: location }} replace />;
   }
 
-  // 2. If user exists but role doesn't match the current route, send them to THEIR dashboard
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
+  const userRoleNormalized = user?.role?.toLowerCase();
+  const isAllowed = allowedRoles?.map((r) => r.toLowerCase()).includes(userRoleNormalized);
+
+  if (allowedRoles && !isAllowed) {
     return <Navigate to={`/dashboard/${user.role}`} replace />;
   }
 
-  return children;
+  return children ? children : <Outlet />;
 }
 
-/**
- * Helper to dynamically redirect `/dashboard` to the user's role-specific home
- */
 function DashboardRedirect() {
   const { user } = useAuth();
   return <Navigate to={`/dashboard/${user?.role || 'student'}`} replace />;
@@ -82,6 +109,7 @@ function DashboardRedirect() {
 export default function App() {
   return (
     <AuthProvider>
+      <ConnectionBanner />
       <BrowserRouter>
         <Routes>
           {/* 1. PUBLIC ROUTES */}
@@ -89,226 +117,77 @@ export default function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/login" element={<AuthPage />} />
+            <Route path="/consent/verify" element={<ParentConsentPage />} />
           </Route>
 
-          {/* 2. PROTECTED DASHBOARD ROUTES */}
-          <Route path="/dashboard" element={<AppLayout />}>
-            {/* Redirect /dashboard to /dashboard/:role */}
-            <Route index element={<DashboardRedirect />} />
+          {/* PUBLIC PARENT CONSENT LANDING (No auth required) */}
+          <Route path="/consent/verify" element={<ParentConsentPage />} />
 
-            {/* Student Routes */}
-            <Route 
-              path="student" 
-              element={
-                <ProtectedRoute allowedRoles={['student']}>
-                  <StudentDashboard />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="student/search" 
-              element={
-                <ProtectedRoute allowedRoles={['student']}>
-                  <ScholarshipSearch />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="student/matches" 
-              element={
-                <ProtectedRoute allowedRoles={['student']}>
-                  <MatchFeed />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="student/profile" 
-              element={
-                <ProtectedRoute allowedRoles={['student']}>
-                  <StudentProfile />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="student/saved" 
-              element={
-                <ProtectedRoute allowedRoles={['student']}>
-                  <SavedScholarships />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="student/applications" 
-              element={
-                <ProtectedRoute allowedRoles={['student']}>
-                  <ApplicationTracker />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="student/notifications" 
-              element={
-                <ProtectedRoute allowedRoles={['student']}>
-                  <DeadlineAlerts />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="student/alerts" 
-              element={
-                <ProtectedRoute allowedRoles={['student']}>
-                  <Settings />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="student/settings" 
-              element={
-                <ProtectedRoute allowedRoles={['student']}>
-                  <Settings />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="student/help" 
-              element={
-                <ProtectedRoute allowedRoles={['student']}>
-                  <HelpCenter />
-                </ProtectedRoute>
-              } 
-            />
+          {/* 2. STANDALONE ONBOARDING ROUTE */}
+          <Route element={<ProtectedRouteGuard allowedRoles={['student']} />}>
+            <Route path="/onboarding" element={<OnboardingForm />} />
+          </Route>
 
-            {/* Provider Routes */}
-            <Route 
-              path="provider" 
-              element={
-                <ProtectedRoute allowedRoles={['provider']}>
-                  <ProviderDashboard />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="provider/listings" 
-              element={
-                <ProtectedRoute allowedRoles={['provider']}>
-                  <ScholarshipListings />
-                </ProtectedRoute>
-              } 
-            />
+                    {/* 3. PROTECTED DASHBOARD ROUTES */}
+                    <Route path="/dashboard" element={<AppLayout />}>
+                      <Route index element={<DashboardRedirect />} />
+
+                      {/* STUDENT SECTION */}
+                      <Route element={<ProtectedRouteGuard allowedRoles={['student']} />}>
+                        <Route path="student" element={<StudentDashboard />} />
+                        <Route path="student/search" element={<ScholarshipSearch />} />
+                        <Route path="student/matches" element={<MatchFeed />} />
+                        <Route path="student/profile" element={<StudentProfile />} />
+                        <Route path="student/saved" element={<SavedScholarships />} />
+                        <Route path="student/applications" element={<ApplicationTracker />} />
+                        <Route path="student/notifications" element={<DeadlineAlerts />} />
+                        <Route path="student/alerts" element={<Settings />} />
+                        <Route path="student/settings" element={<Settings />} />
+                        <Route path="student/help" element={<HelpCenter />} />
+                      </Route>
+
+                      {/* PROVIDER SECTION */}
+          <Route element={<ProtectedRouteGuard allowedRoles={['provider']} />}>
+            <Route path="provider" element={<ProviderDashboard />} />
+
+            <Route path="provider/listings" element={<ScholarshipListings />} />
+
             <Route
               path="provider/scholarships/:id"
-              element={
-                <ProtectedRoute allowedRoles={['provider']}>
-                  <ScholarshipDetails />
-                </ProtectedRoute>
-              }
-          />
-            <Route 
-              path="provider/create" 
-              element={
-                <ProtectedRoute allowedRoles={['provider']}>
-                  <CreateListing />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="provider/analytics" 
-              element={
-                <ProtectedRoute allowedRoles={['provider']}>
-                  <PerformanceAnalytics />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="provider/verification" 
-              element={
-                <ProtectedRoute allowedRoles={['provider']}>
-                  <OrganizationVerification />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="provider/settings" 
-              element={
-                <ProtectedRoute allowedRoles={['provider']}>
-                  <ProviderSettings />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="provider/help" 
-              element={
-                <ProtectedRoute allowedRoles={['provider']}>
-                  <HelpSupport />
-                </ProtectedRoute>
-              } 
+              element={<ScholarshipDetails />}
             />
 
-            {/* Admin Routes */}
-            <Route 
-              path="admin" 
-              element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <AdminDashboard />
-                </ProtectedRoute>
-              } 
+            <Route path="provider/create" element={<CreateListing />} />
+
+            <Route path="provider/analytics" element={<PerformanceAnalytics />} />
+
+            <Route
+              path="provider/verification"
+              element={<OrganizationVerification />}
             />
-            <Route 
-              path="admin/verification" 
-              element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <VerificationQueue />
-                </ProtectedRoute>
-              } 
+
+            <Route
+              path="provider/settings"
+              element={<ProviderSettings />}
             />
-            <Route 
-              path="admin/moderation" 
-              element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <ContentModeration />
-                </ProtectedRoute>
-              } 
+
+            <Route
+              path="provider/help"
+              element={<HelpSupport />}
             />
-            <Route 
-              path="admin/taxonomy" 
-              element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <TaxonomyTags />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="admin/audit-log" 
-              element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <AuditCompliance />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="admin/settings" 
-              element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <SystemSettings />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="admin/notifications" 
-              element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <AdminNotifications />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="admin/help" 
-              element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <AdminHelp />
-                </ProtectedRoute>
-              } 
-            />
+          </Route>
+
+            {/* ADMIN SECTION */}
+            <Route element={<ProtectedRouteGuard allowedRoles={['admin']} />}>
+              <Route path="admin" element={<AdminDashboard />} />
+              <Route path="admin/verification" element={<VerificationQueue />} />
+              <Route path="admin/moderation" element={<ContentModeration />} />
+              <Route path="admin/taxonomy" element={<TaxonomyTags />} />
+              <Route path="admin/audit-log" element={<AuditCompliance />} />
+              <Route path="admin/settings" element={<SystemSettings />} />
+              <Route path="admin/notifications" element={<AdminNotifications />} />
+              <Route path="admin/help" element={<AdminHelp />} />
+            </Route>
           </Route>
 
           {/* Catch-all fallback */}

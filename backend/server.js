@@ -20,8 +20,8 @@ if (process.env.NODE_ENV === 'development') {
 
 // Route Files
 const authRoutes = require('./routes/authRoutes');
-const providerRoutes = require('./routes/providerRoutes');
-const scholarshipRoutes = require('./routes/scholarshipRoutes');
+const providerRoutes = require('./src/routes/providerRoutes');
+const scholarshipRoutes = require('./src/routes/scholarshipRoutes');
 
 // 🔍 DEBUG LOGS
 console.log('--- SERVER DEBUG ---');
