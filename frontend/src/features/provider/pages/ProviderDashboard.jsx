@@ -1,32 +1,32 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
-  Building2, 
-  Layers, 
-  PlusCircle, 
-  Eye, 
-  MousePointerClick, 
-  CheckCircle2, 
+  Layers,
+  PlusCircle,
+  CheckCircle2,
   AlertCircle,
   Loader2,
   Edit,
-  Trash2,
   ExternalLink,
   Power,
   RefreshCw,
   X,
-  AlertTriangle
+  AlertTriangle,
+  Clock3,
+  FileText,
+  CalendarDays
 } from 'lucide-react';
+
 
 // Reusable Common Components
 import PageHeader from '../../../components/common/PageHeader';
-import MetricCard from '../../../components/common/MetricCard';
 import StatusBadge from '../../../components/common/StatusBadge';
-import DataTable from '../../../components/common/DataTable';
-import FilterBar from '../../../components/common/FilterBar';
-import Pagination from '../../../components/common/Pagination';
+
 
 // Create / Edit Listing View Component
 import CreateListing from './CreateListing';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
 
 // ==========================================
 // FALLBACK MOCK DATA & IN-MEMORY TEST STORE
@@ -70,12 +70,12 @@ const INITIAL_MOCK_LISTINGS = [
 ];
 
 export default function ProviderDashboard() {
+  const navigate = useNavigate();
   // Navigation State ('dashboard' | 'create' | 'edit')
   const [currentView, setCurrentView] = useState('dashboard');
   const [editingListing, setEditingListing] = useState(null);
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
+
   const [isLoading, setIsLoading] = useState(true);
   const [isUsingFallback, setIsUsingFallback] = useState(false);
 
@@ -93,12 +93,6 @@ export default function ProviderDashboard() {
   // Dashboard Data State
   const [providerUser, setProviderUser] = useState(MOCK_PROVIDER_USER);
   const [listings, setListings] = useState(INITIAL_MOCK_LISTINGS);
-  const [stats, setStats] = useState({
-    activePostings: 0,
-    impressions: 0,
-    clicks: 0,
-    clickThroughRate: '0%'
-  });
 
   // Helper to show floating toast messages
   const showToast = (message, type = 'success') => {
@@ -108,20 +102,6 @@ export default function ProviderDashboard() {
     }, 3500);
   };
 
-  // Helper to re-calculate stats dynamically from current listing state
-  const recalculateStats = useCallback((currentListings) => {
-    const active = currentListings.filter(l => l.status === 'Open').length;
-    const totalImpressions = currentListings.reduce((sum, l) => sum + (l.impressions || 0), 0);
-    const totalClicks = currentListings.reduce((sum, l) => sum + (l.clicks || 0), 0);
-    const ctr = totalImpressions > 0 ? ((totalClicks / totalImpressions) * 100).toFixed(1) + '%' : '0%';
-
-    setStats({
-      activePostings: active,
-      impressions: totalImpressions,
-      clicks: totalClicks,
-      clickThroughRate: ctr
-    });
-  }, []);
 
   // Dynamic Greeting Helper
   const getGreeting = () => {
@@ -132,75 +112,115 @@ export default function ProviderDashboard() {
   };
 
   // Fetch Dashboard Data (with Fallback Engine)
+ 
   const fetchDashboardData = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const token = localStorage.getItem('token');
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  setIsLoading(true);
 
-      const [statsRes, listingsRes] = await Promise.all([
-        fetch('/api/v1/provider/stats', { headers }),
-        fetch('/api/v1/provider/scholarships', { headers })
-      ]);
+  try {
+    const token = localStorage.getItem('iskolar_token');
 
-      if (statsRes.ok && listingsRes.ok) {
-        const statsData = await statsRes.json();
-        const listingsData = await listingsRes.json();
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(token && { Authorization: `Bearer ${token}` })
+    };
 
-        setProviderUser(statsData.provider || MOCK_PROVIDER_USER);
-        setStats(statsData.metrics || {});
-        const fetchedListings = Array.isArray(listingsData) ? listingsData : listingsData.scholarships || [];
-        setListings(fetchedListings);
-        setIsUsingFallback(false);
-      } else {
-        throw new Error('API server returned unexpected status code');
-      }
-    } catch {
-      // Graceful Mock Fallback for Local Testing
-      setIsUsingFallback(true);
-      setProviderUser(MOCK_PROVIDER_USER);
-      setListings((prevListings) => {
-        const data = prevListings.length > 0 ? prevListings : INITIAL_MOCK_LISTINGS;
-        recalculateStats(data);
-        return data;
-      });
-    } finally {
-      setIsLoading(false);
+    const [dashboardRes, listingsRes] = await Promise.all([
+      fetch(`${API_BASE_URL}/providers/dashboard`, { headers }),
+      fetch(`${API_BASE_URL}/scholarships/my`, { headers })
+    ]);
+
+    const dashboardData = await dashboardRes.json();
+    const listingsData = await listingsRes.json();
+
+    if (!dashboardRes.ok) {
+      throw new Error(
+        dashboardData.message || 'Failed to load provider dashboard.'
+      );
     }
-  }, [recalculateStats]);
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, [fetchDashboardData]);
+    if (!listingsRes.ok) {
+      throw new Error(
+        listingsData.message || 'Failed to load scholarship listings.'
+      );
+    }
 
+    // Provider information
+    if (dashboardData.dashboard?.provider) {
+      setProviderUser({
+        name: dashboardData.dashboard.provider.institutionName,
+        role: 'Scholarship Provider'
+      });
+    }
+
+    // Scholarship listings
+    const fetchedListings = listingsData.scholarships || [];
+
+    setListings(fetchedListings);
+    setIsUsingFallback(false);
+
+   } catch (error) {
+    console.error('Failed to fetch provider dashboard:', error);
+
+    setIsUsingFallback(true);
+
+    // Keep existing mock data as fallback
+    setListings((prevListings) => {
+      return prevListings.length > 0
+        ? prevListings
+        : INITIAL_MOCK_LISTINGS;
+    });
+
+  } finally {
+    setIsLoading(false);
+  }
+}, []);
+
+useEffect(() => {
+  fetchDashboardData();
+}, [fetchDashboardData]);
   // Execute Toggle Status
   const executeToggleStatus = async (listingId, newStatus) => {
-    try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`/api/v1/provider/scholarships/${listingId}/status`, {
+  try {
+    const token = localStorage.getItem('iskolar_token');
+
+    const res = await fetch(
+      `${API_BASE_URL}/scholarships/${listingId}/status`,
+      {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           ...(token && { Authorization: `Bearer ${token}` })
         },
-        body: JSON.stringify({ status: newStatus })
-      });
+        body: JSON.stringify({
+          status: newStatus
+        })
+      }
+    );
 
-      if (!res.ok) throw new Error('Status update failed on server');
-      showToast(`Scholarship status changed to ${newStatus}.`, 'success');
-      fetchDashboardData();
-    } catch {
-      // Local Mock Execution if API Offline
-      setListings((prev) => {
-        const updated = prev.map((item) => 
-          item._id === listingId ? { ...item, status: newStatus } : item
-        );
-        recalculateStats(updated);
-        return updated;
-      });
-      showToast(`Scholarship status updated to ${newStatus} (Local State).`, 'success');
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(
+        data.message || 'Status update failed on server.'
+      );
     }
-  };
+
+    showToast(
+      `Scholarship status changed to ${newStatus}.`,
+      'success'
+    );
+
+    await fetchDashboardData();
+
+  } catch (error) {
+    console.error('Status update failed:', error);
+
+    showToast(
+      error.message || 'Unable to update scholarship status.',
+      'error'
+    );
+  }
+};
 
   // Open Confirmation Popup for Status Toggle
   const handleToggleStatus = (listingId, currentStatus, title) => {
@@ -218,22 +238,26 @@ export default function ProviderDashboard() {
   // Execute Soft-Delete
   const executeDeleteListing = async (listingId, title) => {
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`/api/v1/provider/scholarships/${listingId}`, {
-        method: 'DELETE',
-        headers: token ? { Authorization: `Bearer ${token}` } : {}
-      });
+      const token = localStorage.getItem('iskolar_token');
+      
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/scholarships/${listingId}/archive`,
+        {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
 
       if (!res.ok) throw new Error('Delete operation failed on server');
       showToast(`"${title}" has been deleted.`, 'success');
       fetchDashboardData();
     } catch  {
       // Local Mock Execution if API Offline
-      setListings((prev) => {
-        const updated = prev.filter((item) => item._id !== listingId);
-        recalculateStats(updated);
-        return updated;
-      });
+        setListings((prev) => {
+            return prev.filter((item) => item._id !== listingId);
+          });
       showToast(`"${title}" removed from listing (Local State).`, 'success');
     }
   };
@@ -242,9 +266,9 @@ export default function ProviderDashboard() {
   const handleDeleteListing = (listingId, title) => {
     setConfirmModal({
       isOpen: true,
-      title: 'Delete Scholarship Listing',
-      message: `Are you sure you want to permanently delete "${title}"? This action cannot be undone.`,
-      confirmText: 'Delete Permanently',
+      title: 'Archive Scholarship Listing',
+      message: `Are you sure you want to permanently archive "${title}"? This action cannot be undone.`,
+      confirmText: 'Archived Scholarship',
       variant: 'danger',
       onConfirm: () => executeDeleteListing(listingId, title)
     });
@@ -278,118 +302,45 @@ export default function ProviderDashboard() {
     );
   }
 
-  // Dashboard Metrics Grid
-  const metrics = [
-    { 
-      label: 'Active Postings (Open)', 
-      value: (stats.activePostings ?? 0).toLocaleString(), 
-      icon: Layers, 
-      color: 'emerald' 
-    },
-    { 
-      label: 'Matching Impressions', 
-      value: (stats.impressions ?? 0).toLocaleString(), 
-      icon: Eye, 
-      trend: 'Student feed evaluations', 
-      color: 'blue' 
-    },
-    { 
-      label: 'Outbound Referral Clicks', 
-      value: (stats.clicks ?? 0).toLocaleString(), 
-      icon: MousePointerClick, 
-      trend: `${stats.clickThroughRate || '0%'} CTR to Portal`, 
-      color: 'indigo' 
-    },
-  ];
 
-  // Table Columns configured for Provider Full CRUD & Traffic Metrics
-  const columns = [
-    { 
-      header: 'Scholarship Title', 
-      accessor: 'title', 
-      cell: (row) => (
-        <div className="flex flex-col">
-          <span className="font-bold text-slate-900">{row.title}</span>
-          {row.applicationUrl && (
-            <a 
-              href={row.applicationUrl} 
-              target="_blank" 
-              rel="noopener noreferrer" 
-              className="text-[11px] text-emerald-600 hover:underline flex items-center gap-1 mt-0.5"
-            >
-              Application Portal <ExternalLink className="h-3 w-3" />
-            </a>
-          )}
-        </div>
-      ) 
-    },
-    { 
-      header: 'Grant Value', 
-      accessor: 'amount',
-      cell: (row) => <span className="font-semibold text-slate-700">{row.amount}</span>
-    },
-    { 
-      header: 'Status', 
-      accessor: 'status', 
-      cell: (row) => <StatusBadge status={row.status} /> 
-    },
-    { 
-      header: 'Match Impressions', 
-      accessor: 'impressions', 
-      cell: (row) => (row.impressions ?? 0).toLocaleString() 
-    },
-    { 
-      header: 'Outbound Clicks', 
-      accessor: 'clicks', 
-      cell: (row) => (row.clicks ?? 0).toLocaleString() 
-    },
-    { 
-      header: 'Closing Date', 
-      accessor: 'deadline' 
-    },
-    {
-      header: 'Actions',
-      accessor: 'actions',
-      cell: (row) => (
-        <div className="flex items-center gap-1.5">
-          {/* Toggle Open/Closed State */}
-          <button
-            type="button"
-            onClick={() => handleToggleStatus(row._id, row.status, row.title)}
-            title={row.status === 'Open' ? 'Close Applications' : 'Open Applications'}
-            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
-          >
-            <Power className={`h-4 w-4 ${row.status === 'Open' ? 'text-emerald-600' : 'text-slate-400'}`} />
-          </button>
 
-          {/* Edit Listing */}
-          <button
-            type="button"
-            onClick={() => handleStartEdit(row)}
-            title="Edit Listing & Weights"
-            className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-600 hover:text-blue-600 transition-colors cursor-pointer"
-          >
-            <Edit className="h-4 w-4" />
-          </button>
 
-          {/* Delete Listing */}
-          <button
-            type="button"
-            onClick={() => handleDeleteListing(row._id, row.title)}
-            title="Delete Listing"
-            className="p-1.5 rounded-lg hover:bg-rose-50 text-slate-600 hover:text-rose-600 transition-colors cursor-pointer"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        </div>
-      )
-    }
-  ];
+// Dashboard overview data
+const activeScholarships = listings.filter(
+  (item) => item.status === 'Open'
+);
 
-  // Filter listings based on search input
-  const filteredListings = listings.filter((item) =>
-    item.title?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+
+const today = new Date();
+today.setHours(0, 0, 0, 0);
+
+const closingSoon = listings
+  .filter((item) => {
+    if (!item.deadline || item.status !== 'Open') return false;
+
+    const deadline = new Date(item.deadline);
+    deadline.setHours(23, 59, 59, 999);
+
+    const daysUntil =
+      (deadline - today) / (1000 * 60 * 60 * 24);
+
+    return daysUntil >= 0 && daysUntil <= 14;
+  })
+  .sort(
+    (a, b) =>
+      new Date(a.deadline) - new Date(b.deadline)
+  )
+  .slice(0, 3);
+
+const recentScholarships = [...listings]
+  .sort((a, b) => {
+    if (!a.createdAt && !b.createdAt) return 0;
+    if (!a.createdAt) return 1;
+    if (!b.createdAt) return -1;
+
+    return new Date(b.createdAt) - new Date(a.createdAt);
+  })
+  .slice(0, 5);
 
   if (isLoading) {
     return (
@@ -400,7 +351,7 @@ export default function ProviderDashboard() {
         />
         <div className="min-h-[300px] flex flex-col items-center justify-center gap-3 bg-white rounded-2xl border border-slate-200/80 p-6">
           <Loader2 className="h-7 w-7 text-emerald-600 animate-spin" />
-          <p className="text-xs text-slate-500 font-medium">Retrieving provider metrics and listings...</p>
+          <p className="text-xs text-slate-500 font-medium">Retrieving your scholarship listings...</p>
         </div>
       </div>
     );
@@ -515,31 +466,259 @@ export default function ProviderDashboard() {
         </p>
       </div>
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {metrics.map((m, idx) => (
-          <MetricCard key={idx} {...m} />
-        ))}
+
+      {/* Dashboard Summary */}
+<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+
+  {/* Active */}
+  <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs">
+    <div className="flex items-center justify-between">
+      <div>
+        <p className="text-xs font-semibold text-slate-500">
+          Active Scholarships
+        </p>
+        <p className="text-2xl font-extrabold text-slate-900 mt-1">
+          {activeScholarships.length}
+        </p>
       </div>
 
-      {/* Listing Table Section */}
-      <div className="bg-white border border-slate-200/80 rounded-2xl p-5 space-y-4 shadow-xs">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <h3 className="text-base font-bold text-slate-900">Your Scholarship Listings</h3>
-            <p className="text-xs text-slate-500">Track impressions, manage states, and update destination URLs.</p>
-          </div>
-          <FilterBar searchValue={searchQuery} onSearchChange={setSearchQuery} />
-        </div>
-
-        <DataTable columns={columns} data={filteredListings} />
-
-        <Pagination 
-          currentPage={currentPage} 
-          totalPages={1} 
-          onPageChange={(page) => setCurrentPage(page)} 
-        />
+      <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600">
+        <Layers className="h-5 w-5" />
       </div>
     </div>
+
+    <p className="text-[11px] text-slate-400 mt-3">
+      Currently accepting applications
+    </p>
+  </div>
+
+
+  {/* Closing Soon */}
+  <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs">
+    <div className="flex items-center justify-between">
+      <div>
+        <p className="text-xs font-semibold text-slate-500">
+          Closing Soon
+        </p>
+        <p className="text-2xl font-extrabold text-slate-900 mt-1">
+          {closingSoon.length}
+        </p>
+      </div>
+
+      <div className="p-2.5 rounded-xl bg-amber-50 text-amber-600">
+        <Clock3 className="h-5 w-5" />
+      </div>
+    </div>
+
+    <p className="text-[11px] text-slate-400 mt-3">
+      Within the next 14 days
+    </p>
+  </div>
+
+  {/* Total */}
+  <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs">
+    <div className="flex items-center justify-between">
+      <div>
+        <p className="text-xs font-semibold text-slate-500">
+          Total Scholarships
+        </p>
+        <p className="text-2xl font-extrabold text-slate-900 mt-1">
+          {listings.length}
+        </p>
+      </div>
+
+      <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600">
+        <CalendarDays className="h-5 w-5" />
+      </div>
+    </div>
+
+    <p className="text-[11px] text-slate-400 mt-3">
+      All scholarship listings
+    </p>
+  </div>
+
+</div>
+
+{/* Closing Soon */}
+<div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs">
+
+  <div className="flex items-center justify-between mb-4">
+    <div>
+      <h3 className="text-base font-bold text-slate-900">
+        Scholarships Closing Soon
+      </h3>
+
+      <p className="text-xs text-slate-500 mt-0.5">
+        Applications approaching their deadline
+      </p>
+    </div>
+  </div>
+
+  {closingSoon.length === 0 ? (
+    <div className="py-8 text-center">
+      <CheckCircle2 className="h-7 w-7 text-emerald-500 mx-auto mb-2" />
+
+      <p className="text-xs font-semibold text-slate-700">
+        No scholarships are closing soon.
+      </p>
+
+      <p className="text-[11px] text-slate-400 mt-1">
+        Your current open scholarships have more than 14 days remaining.
+      </p>
+    </div>
+  ) : (
+    <div className="divide-y divide-slate-100">
+      {closingSoon.map((scholarship) => {
+
+        const deadline = new Date(scholarship.deadline);
+        const daysLeft = Math.ceil(
+          (deadline - today) / (1000 * 60 * 60 * 24)
+        );
+
+        return (
+          <div
+            key={scholarship._id}
+            className="flex items-center justify-between py-3 first:pt-0 last:pb-0"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-slate-800 truncate">
+                {scholarship.name}
+              </p>
+
+              <div className="flex items-center gap-1.5 mt-1">
+                <CalendarDays className="h-3.5 w-3.5 text-slate-400" />
+
+                <span className="text-[11px] text-slate-500">
+                  Deadline:{' '}
+                  {deadline.toLocaleDateString('en-PH', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric'
+                  })}
+                </span>
+              </div>
+            </div>
+
+            <span className="shrink-0 ml-4 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold">
+              {daysLeft === 0
+                ? 'Due today'
+                : daysLeft === 1
+                  ? '1 day left'
+                  : `${daysLeft} days left`}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  )}
+</div>
+
+   {/* Recent Scholarship Listings */}
+<div className="bg-white border border-slate-200/80 rounded-2xl p-5 space-y-4 shadow-xs">
+
+  <div className="flex items-center justify-between">
+    <div>
+      <h3 className="text-base font-bold text-slate-900">
+        Recent Scholarship Listings
+      </h3>
+
+      <p className="text-xs text-slate-500 mt-0.5">
+        Your latest scholarship postings
+      </p>
+    </div>
+
+    <button
+      type="button"
+      onClick={() => {
+        
+        navigate('/dashboard/provider/listings');
+      }}
+      className="text-xs font-bold text-emerald-600 hover:text-emerald-700 transition-colors"
+    >
+      View All →
+    </button>
+  </div>
+
+  {recentScholarships.length === 0 ? (
+    <div className="py-10 text-center border border-dashed border-slate-200 rounded-xl">
+      <FileText className="h-7 w-7 text-slate-300 mx-auto mb-2" />
+
+      <p className="text-xs font-semibold text-slate-600">
+        No scholarship listings yet.
+      </p>
+
+      <p className="text-[11px] text-slate-400 mt-1">
+        Create your first scholarship listing to get started.
+      </p>
+    </div>
+  ) : (
+    <div className="divide-y divide-slate-100">
+
+      {recentScholarships.map((listing) => (
+        <div
+          key={listing._id}
+          className="flex items-center justify-between gap-4 py-3.5 first:pt-0 last:pb-0"
+        >
+
+          {/* Scholarship Information */}
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold text-slate-800 truncate">
+              {listing.name}
+            </p>
+
+            <div className="flex flex-wrap items-center gap-3 mt-1.5">
+
+              <span className="text-[11px] text-slate-500 flex items-center gap-1">
+                <CalendarDays className="h-3 w-3" />
+
+                {listing.deadline
+                  ? new Date(listing.deadline).toLocaleDateString(
+                      'en-PH',
+                      {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                      }
+                    )
+                  : 'No deadline'}
+              </span>
+
+              {listing.applicationURL && (
+                <a
+                  href={listing.applicationURL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[11px] text-emerald-600 hover:underline flex items-center gap-1"
+                >
+                  Application Portal
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+
+            </div>
+          </div>
+
+          {/* Status */}
+          <StatusBadge status={listing.status} />
+
+          {/* Edit */}
+          <button
+            type="button"
+            onClick={() => handleStartEdit(listing)}
+            title="Edit Scholarship"
+            className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-500 hover:text-blue-600 transition-colors cursor-pointer"
+          >
+            <Edit className="h-4 w-4" />
+          </button>
+
+        </div>
+      ))}
+
+    </div>
+  )}
+
+</div>
+
+       </div>
   );
 }
