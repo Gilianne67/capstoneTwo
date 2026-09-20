@@ -405,7 +405,7 @@ const handleExecutePublish = async () => {
   };
 
   try {
-    const token = localStorage.getItem('iskolar_token');
+    const token = localStorage.getItem('token');
 
     if (!token) {
       throw new Error(

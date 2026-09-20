@@ -24,7 +24,7 @@ export default function AppLayout() {
   let isMounted = true;
 
   const verifySession = async () => {
-    const token = localStorage.getItem('iskolar_token');
+   const token = localStorage.getItem('token');
 
     if (!token) {
       if (isMounted) {
@@ -59,7 +59,7 @@ export default function AppLayout() {
     } catch (err) {
       console.error('Session verification failed:', err);
 
-      localStorage.removeItem('iskolar_token');
+      localStorage.removeItem('token');
       localStorage.removeItem('iskolar_session');
 
       if (isMounted) {
@@ -117,7 +117,7 @@ export default function AppLayout() {
   // 3. Logout Handler
   const handleLogout = useCallback(async () => {
     try {
-      const token = localStorage.getItem('iskolar_token');
+      const token = localStorage.getItem('token');
       if (token) {
         await fetch(`${API_BASE_URL}/auth/logout`, {
           method: 'POST',

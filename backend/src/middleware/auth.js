@@ -67,4 +67,28 @@ const protect = async (req, res, next) => {
   }
 };
 
-module.exports = { protect };
+/**
+ * Authorization Middleware
+ * Restricts access to specific user roles.
+ */
+const authorize = (...roles) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Not authorized',
+      });
+    }
+
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'User is not authorized to access this route',
+      });
+    }
+
+    next();
+  };
+};
+
+module.exports = { protect, authorize };

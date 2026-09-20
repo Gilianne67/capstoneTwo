@@ -117,7 +117,7 @@ export default function ProviderDashboard() {
   setIsLoading(true);
 
   try {
-    const token = localStorage.getItem('iskolar_token');
+    const token = localStorage.getItem('token')
 
     const headers = {
       'Content-Type': 'application/json',
@@ -181,7 +181,7 @@ useEffect(() => {
   // Execute Toggle Status
   const executeToggleStatus = async (listingId, newStatus) => {
   try {
-    const token = localStorage.getItem('iskolar_token');
+    const token = localStorage.getItem('token');
 
     const res = await fetch(
       `${API_BASE_URL}/scholarships/${listingId}/status`,
@@ -238,7 +238,7 @@ useEffect(() => {
   // Execute Soft-Delete
   const executeDeleteListing = async (listingId, title) => {
     try {
-      const token = localStorage.getItem('iskolar_token');
+      const token = localStorage.getItem('token');
       
       const res = await fetch(
         `${import.meta.env.VITE_API_URL}/scholarships/${listingId}/archive`,
