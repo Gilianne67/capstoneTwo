@@ -10,6 +10,7 @@ const morgan = require('morgan');
 const mongoose = require('mongoose');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
+;
 
 // Load Environment Variables
 dotenv.config();
@@ -22,6 +23,9 @@ const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const consentRoutes = require('./routes/consentRoutes');
 const errorHandler = require('./middleware/error');
+const providerRoutes = require('./routes/providerRoutes');
+const scholarshipRoutes = require('./routes/scholarshipRoutes')
+
 
 // Security & Utility Middlewares
 app.use(helmet());
@@ -53,7 +57,9 @@ const limiter = rateLimit({
   max: 100,
   message: { success: false, error: 'Too many requests from this IP, please try again later.' },
 });
-app.use('/api/v1', limiter);
+if (process.env.NODE_ENV === 'production') {
+  app.use('/api/v1', limiter);
+}
 
 // Health Check Endpoint
 app.get('/api/v1/health', (req, res) => {
@@ -64,6 +70,8 @@ app.get('/api/v1/health', (req, res) => {
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/user', userRoutes);
 app.use('/api/v1/consent', consentRoutes);
+app.use('/api/v1/providers', providerRoutes);
+app.use('/api/v1/scholarships', scholarshipRoutes);
 
 // Centralized Error Handling Middleware (must be after routes)
 app.use(errorHandler);

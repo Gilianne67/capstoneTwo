@@ -33,7 +33,7 @@ export default function ScholarshipDetails() {
         setIsLoading(true);
         setError('');
 
-        const token = localStorage.getItem('iskolar_token');
+        const token = localStorage.getItem('token');
 
         if (!token) {
           throw new Error('Authentication token not found.');

@@ -326,7 +326,6 @@ const formatPublishError = (message) => {
     'incomeRequirement.maximumIncome': 'Annual Income Ceiling'
   };
 
-<<<<<<< HEAD
   const missingFields = [];
 
   Object.entries(fieldMap).forEach(([field, label]) => {
@@ -406,7 +405,7 @@ const handleExecutePublish = async () => {
   };
 
   try {
-    const token = localStorage.getItem('iskolar_token');
+    const token = localStorage.getItem('token');
 
     if (!token) {
       throw new Error(
@@ -425,56 +424,10 @@ const handleExecutePublish = async () => {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`
-=======
-  // Final Action Executed inside Confirm Modal
-  const handleExecutePublish = async () => {
-  setShowConfirmModal(false);
-  setIsSubmitting(true);
-
-  // Build full payload for MongoDB
-  const newListingPayload = {
-    title,
-    grantValue,
-    category,
-    deadline,
-    portalUrl: portalUrl || '#',
-    description,
-    hardFilters: {
-      academicLevel,
-      citizenship,
-      maxGwa: parseFloat(maxGwa) || 2.00,
-      annualIncomeCap: parseFloat(maxIncome) || 250000,
-      allowedCourses,
-      allowedLocations,
-      customHardFilters: customHardFilters.map(item => ({
-        label: item.label,
-        value: item.value
-      })),
-      requiredEligibilityTags: requiredTags
-    },
-    scoringWeights: {
-      wGpa: Number(weights.gpaWeight) / 100,
-      wIncome: Number(weights.incomeWeight) / 100,
-      wTags: Number(weights.tagsWeight) / 100
-    },
-    preferredEligibilityTags: preferredTags,
-    requiredDocuments: requirements,
-    status: 'Active'
-  };
-
-  try {
-    const token = localStorage.getItem('token');
-    const response = await fetch('/api/v1/provider/scholarships', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token && { Authorization: `Bearer ${token}` })
->>>>>>> origin/staging
       },
       body: JSON.stringify(newListingPayload)
     });
 
-<<<<<<< HEAD
     const data = await res.json();
 
     if (!res.ok) {
@@ -484,22 +437,6 @@ const handleExecutePublish = async () => {
         'Unable to publish scholarship listing.'
       );
     }
-=======
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.message || 'Failed to publish listing');
-    }
-
-    setShowSuccessModal(true);
-  } catch (err) {
-    console.error('Submission failed:', err);
-    alert(err.message || 'Server error. Please try again.');
-  } finally {
-    setIsSubmitting(false);
-  }
-};
->>>>>>> origin/staging
 
     console.log(
       isEditMode
