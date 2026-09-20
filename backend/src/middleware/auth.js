@@ -4,6 +4,9 @@ const tokenService = require('../services/tokenService');
 
 /**
  * Authentication Middleware
+ *
+ * Verifies the JWT token and attaches
+ * the authenticated user to req.user.
  */
 const protect = async (req, res, next) => {
   let token;
@@ -18,12 +21,13 @@ const protect = async (req, res, next) => {
   }
 
   if (!token) {
-    return res
-      .status(401)
-      .json({ success: false, message: 'Not authorized to access this route' });
+    return res.status(401).json({
+      success: false,
+      message: 'Not authorized to access this route',
+    });
   }
 
-  // Safe check for token revocation (Redis / Blacklist)
+  // Safe check for token revocation
   try {
     const isBlacklistedFn =
       typeof tokenService === 'function'
@@ -32,6 +36,7 @@ const protect = async (req, res, next) => {
 
     if (typeof isBlacklistedFn === 'function') {
       const blacklisted = await isBlacklistedFn(token);
+
       if (blacklisted) {
         return res.status(401).json({
           success: false,
@@ -46,7 +51,7 @@ const protect = async (req, res, next) => {
   try {
     const decoded = jwt.verify(
       token,
-      process.env.JWT_SECRET || 'fallback_secret'
+      process.env.JWT_SECRET
     );
 
     req.user = await User.findById(decoded.id).select('-password');
@@ -59,12 +64,45 @@ const protect = async (req, res, next) => {
     }
 
     req.token = token;
+
     next();
   } catch (err) {
-    return res
-      .status(401)
-      .json({ success: false, message: 'Token verification failed' });
+    console.error('JWT verification error:', err.message);
+
+    return res.status(401).json({
+      success: false,
+      message: 'Token verification failed',
+    });
   }
 };
 
-module.exports = { protect };
+/**
+ * Authorization Middleware
+ *
+ * Allows only users whose role matches
+ * one of the supplied roles.
+ */
+const authorize = (...roles) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Not authenticated',
+      });
+    }
+
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to access this resource',
+      });
+    }
+
+    next();
+  };
+};
+
+module.exports = {
+  protect,
+  authorize,
+};

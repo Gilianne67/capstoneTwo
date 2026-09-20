@@ -1,59 +1,49 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+} from 'react';
 
 const AuthContext = createContext(null);
 
-// Base backend URL resolution (e.g., http://localhost:5000)
-const RAW_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-const API_BASE_URL = RAW_BASE.endsWith('/') ? RAW_BASE.slice(0, -1) : RAW_BASE;
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+
+const TOKEN_KEY = 'token';
+const SESSION_KEY = 'iskolar_session';
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(() => {
-    const raw = localStorage.getItem('token');
-    return raw ? raw.replace(/^"|"$/g, '').trim() : null;
-  });
   const [loading, setLoading] = useState(true);
 
-  // Utility to retrieve a clean Bearer token
-  const getCleanToken = () => {
-    const rawToken = localStorage.getItem('token') || token;
-    return rawToken ? rawToken.replace(/^"|"$/g, '').replace('Bearer ', '').trim() : null;
-  };
-
-  // Single initialization effect to verify MongoDB JWT session
   useEffect(() => {
     const initializeAuth = async () => {
-      const activeToken = getCleanToken();
+      const token = localStorage.getItem(TOKEN_KEY);
 
-      if (!activeToken) {
-        setUser(null);
+      if (!token) {
         setLoading(false);
         return;
       }
 
       try {
-        const res = await fetch(`${API_BASE_URL}/api/v1/auth/me`, {
-          method: 'GET',
+        const response = await fetch(`${API_BASE_URL}/auth/me`, {
           headers: {
-            'Authorization': `Bearer ${activeToken}`,
-            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
           },
-          credentials: 'include',
         });
 
-        const data = await res.json();
-        
-        if (res.ok && data.success !== false) {
-          setUser(data.data || data.user);
-          setToken(activeToken);
-        } else {
-          // Token invalid/expired -> clear state
-          setUser(null);
-          setToken(null);
-          localStorage.removeItem('token');
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error('Session expired');
         }
-      } catch (err) {
-        console.error('Session initialization error:', err);
+
+        localStorage.setItem(SESSION_KEY, JSON.stringify(data.user));
+        setUser(data.user);
+      } catch (error) {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(SESSION_KEY);
         setUser(null);
       } finally {
         setLoading(false);
@@ -63,85 +53,77 @@ export function AuthProvider({ children }) {
     initializeAuth();
   }, []);
 
-  // Update User state locally (critical after Onboarding/Profile updates)
-  const updateUser = (updatedUserData) => {
-    setUser((prevUser) => {
-      if (!prevUser) return updatedUserData;
-      return {
-        ...prevUser,
-        ...updatedUserData,
-      };
-    });
-  };
-
-  // Login Handler
   const login = async (email, password) => {
-    const emailLower = email.trim().toLowerCase();
-
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+    const response = await fetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ email: emailLower, password }),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: email.trim().toLowerCase(),
+        password,
+      }),
     });
 
     const data = await response.json();
-    if (!response.ok) throw new Error(data.message || 'Invalid email or password.');
 
-    const jwtToken = (data.token || data.accessToken || '').replace(/^"|"$/g, '').trim();
-    if (jwtToken) {
-      localStorage.setItem('token', jwtToken);
-      setToken(jwtToken);
+    if (!response.ok) {
+      throw new Error(
+        data.message || 'Invalid email or password.'
+      );
     }
-    
-    setUser(data.user || data.data);
-    return data.user || data.data;
+
+    localStorage.setItem(TOKEN_KEY, data.token);
+    localStorage.setItem(SESSION_KEY, JSON.stringify(data.user));
+
+    setUser(data.user);
+
+    return data.user;
   };
 
-  // Register Handler
   const register = async (payload) => {
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/register`, {
+    const response = await fetch(`${API_BASE_URL}/auth/register`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify(payload),
     });
 
     const data = await response.json();
-    if (!response.ok) throw new Error(data.message || 'Registration failed.');
 
-    const jwtToken = (data.token || data.accessToken || '').replace(/^"|"$/g, '').trim();
-    if (jwtToken) {
-      localStorage.setItem('token', jwtToken);
-      setToken(jwtToken);
+    if (!response.ok) {
+      throw new Error(
+        data.message || 'Registration failed.'
+      );
     }
 
-    setUser(data.user || data.data);
-    return data.user || data.data;
+    // Registration returns a token, but the desired flow is:
+    // Registration → Login → Onboarding
+    localStorage.setItem(TOKEN_KEY, data.token);
+    localStorage.setItem(SESSION_KEY, JSON.stringify(data.user));
+
+    setUser(data.user);
+
+    return data.user;
   };
 
-  // Password Reset Request
-  const resetPassword = async (email) => {
-    const res = await fetch(`${API_BASE_URL}/api/v1/auth/forgotpassword`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
-    });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || data.error || 'Failed to send reset email');
-    return data;
-  };
-
-  // Logout Handler
   const logout = () => {
-    localStorage.removeItem('token');
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(SESSION_KEY);
     setUser(null);
-    setToken(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout, updateUser }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        login,
+        register,
+        logout,
+      }}
+    >
       {!loading && children}
     </AuthContext.Provider>
   );
@@ -149,8 +131,12 @@ export function AuthProvider({ children }) {
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
+
   if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error(
+      'useAuth must be used within an AuthProvider'
+    );
   }
+
   return context;
 };

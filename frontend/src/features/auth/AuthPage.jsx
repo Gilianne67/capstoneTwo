@@ -1,511 +1,1534 @@
-import React, { useState, useEffect } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { 
-  GraduationCap, 
-  Mail, 
-  Lock, 
-  User, 
-  ArrowRight, 
-  Building2, 
-  CheckCircle2,
-  Eye,
-  EyeOff,
-  AlertCircle,
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  User,
+  BookOpen,
+  Wallet,
+  MapPin,
   ShieldCheck,
-  Zap,
-  ArrowLeft,
-  KeyRound,
-  ShieldAlert
+  Save,
+  Pencil,
+  CheckCircle2,
+  AlertCircle,
+  Mail,
+  Phone,
+  GraduationCap,
+  Loader2,
+  MapPinned,
+  HeartHandshake,
+  X,
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
 
-export default function AuthPage() {
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const { login, register, resetPassword } = useAuth();
+import { useAuth } from "../../context/AuthContext";
 
-  // Mode management: 'signin' | 'signup' | 'forgot'
-  const [authMode, setAuthMode] = useState('signin');
-  const [signupRole, setSignupRole] = useState('student');
-  const [showPassword, setShowPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
-  const [pendingConsentError, setPendingConsentError] = useState(false);
-  const [resetSuccess, setResetSuccess] = useState(false);
+/*
+|--------------------------------------------------------------------------
+| Local Storage
+|--------------------------------------------------------------------------
+| This allows the profile UI to work even while the student profile API
+| is still being developed.
+*/
+const PROFILE_STORAGE_KEY = 'iskolar_student_profile';
 
-  const [formData, setFormData] = useState({
-    fullName: '',
-    organizationName: '',
-    email: '',
-    password: '',
-  });
+/*
+|--------------------------------------------------------------------------
+| Default Student Profile
+|--------------------------------------------------------------------------
+*/
+const DEFAULT_PROFILE = {
+  firstName: '',
+  lastName: '',
+  email: '',
+  phone: '',
 
-  // Sync state with URL Search Parameters
+  academic: {
+    university: '',
+    course: '',
+    yearLevel: '',
+    gwa: '',
+    academicStatus: 'Regular Student',
+  },
+
+  financial: {
+    incomeBracket: '',
+    householdIncome: '',
+  },
+
+  location: {
+    region: '',
+    province: '',
+    municipality: '',
+  },
+
+  eligibility: {
+    isIP: false,
+    isPWD: false,
+    isSoloParentDependent: false,
+    isOrphan: false,
+    isFarmerFisherfolkChild: false,
+    isDisasterAffected: false,
+    isWorkingStudent: false,
+    is4PsBeneficiary: false,
+  },
+};
+
+/*
+|--------------------------------------------------------------------------
+| Test Data
+|--------------------------------------------------------------------------
+| Used only when there is no saved profile yet.
+*/
+const TEST_PROFILE = {
+  firstName: 'Juan',
+  lastName: 'Dela Cruz',
+  email: 'juan.delacruz@camsur.edu.ph',
+  phone: '09171234567',
+
+  academic: {
+    university: 'Mapúa Malayan Digital College',
+    course: 'BS Information Technology',
+    yearLevel: '3rd Year',
+    gwa: '1.25',
+    academicStatus: 'Regular Student',
+  },
+
+  financial: {
+    incomeBracket: '₱10,001 - ₱20,000',
+    householdIncome: '15000',
+  },
+
+  location: {
+    region: 'Region V - Bicol Region',
+    province: 'Camarines Sur',
+    municipality: 'Pili',
+  },
+
+  eligibility: {
+    isIP: false,
+    isPWD: false,
+    isSoloParentDependent: false,
+    isOrphan: false,
+    isFarmerFisherfolkChild: true,
+    isDisasterAffected: true,
+    isWorkingStudent: false,
+    is4PsBeneficiary: true,
+  },
+};
+
+/*
+|--------------------------------------------------------------------------
+| Helpers
+|--------------------------------------------------------------------------
+*/
+
+function mergeProfile(base, incoming = {}) {
+  return {
+    ...base,
+    ...incoming,
+
+    academic: {
+      ...base.academic,
+      ...(incoming.academic || {}),
+    },
+
+    financial: {
+      ...base.financial,
+      ...(incoming.financial || {}),
+    },
+
+    location: {
+      ...base.location,
+      ...(incoming.location || {}),
+    },
+
+    eligibility: {
+      ...base.eligibility,
+      ...(incoming.eligibility || {}),
+    },
+  };
+}
+
+function getInitials(profile) {
+  const first = profile?.firstName?.trim()?.[0] || '';
+  const last = profile?.lastName?.trim()?.[0] || '';
+
+  return `${first}${last}`.toUpperCase() || 'ST';
+}
+
+function calculateProfileCompletion(profile) {
+  const fields = [
+    profile.firstName,
+    profile.lastName,
+    profile.email,
+    profile.phone,
+
+    profile.academic?.university,
+    profile.academic?.course,
+    profile.academic?.yearLevel,
+    profile.academic?.gwa,
+
+    profile.financial?.incomeBracket,
+
+    profile.location?.region,
+    profile.location?.province,
+    profile.location?.municipality,
+  ];
+
+  const completed = fields.filter(
+    (field) => field !== undefined && field !== null && String(field).trim() !== ''
+  ).length;
+
+  return Math.round((completed / fields.length) * 100);
+}
+
+/*
+|--------------------------------------------------------------------------
+| Component
+|--------------------------------------------------------------------------
+*/
+
+export default function StudentProfile() {
+  const { user } = useAuth();
+
+  const [activeTab, setActiveTab] = useState('personal');
+
+  const [profile, setProfile] = useState(null);
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [isUsingLocalStorage, setIsUsingLocalStorage] = useState(false);
+
+  /*
+  |--------------------------------------------------------------------------
+  | Load Student Profile
+  |--------------------------------------------------------------------------
+  */
+
   useEffect(() => {
-    const mode = searchParams.get('mode');
-    const roleParam = searchParams.get('role');
+    let mounted = true;
 
-    if (mode === 'signup') setAuthMode('signup');
-    if (mode === 'signin') setAuthMode('signin');
-    if (mode === 'forgot') setAuthMode('forgot');
+    const loadProfile = async () => {
+      setIsLoading(true);
 
-    if (roleParam === 'provider' || roleParam === 'student') {
-      setSignupRole(roleParam);
-    }
-  }, [searchParams]);
+      try {
+        /*
+        |--------------------------------------------------------------------------
+        | 1. Try local profile first
+        |--------------------------------------------------------------------------
+        */
 
-  // Handle Input Changes
-  const handleChange = (e) => {
-    if (errorMessage) setErrorMessage('');
-    if (pendingConsentError) setPendingConsentError(false);
-    setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
-  };
+        const savedProfile = localStorage.getItem(PROFILE_STORAGE_KEY);
 
-  // Switch modes cleanly
-  const switchMode = (mode) => {
-    setAuthMode(mode);
-    setErrorMessage('');
-    setPendingConsentError(false);
-    setResetSuccess(false);
-    setFormData({
-      fullName: '',
-      organizationName: '',
-      email: '',
-      password: '',
-    });
-  };
+        if (savedProfile) {
+          const parsedProfile = JSON.parse(savedProfile);
 
-  // Dev Quick-Login Helper
-  const loginWithDemoAccount = async (email, password) => {
-    setIsLoading(true);
-    setErrorMessage('');
-    setPendingConsentError(false);
-    try {
-      const authenticatedUser = await login(email, password);
-      const targetRole = authenticatedUser?.role || 'student';
-      
-      setTimeout(() => {
-        navigate(`/dashboard/${targetRole}`, { replace: true });
-      }, 50);
-    } catch (err) {
-      setErrorMessage(err?.message || 'Demo login failed. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+          if (mounted) {
+            setProfile(mergeProfile(DEFAULT_PROFILE, parsedProfile));
+            setIsUsingLocalStorage(true);
+            setIsLoading(false);
+          }
 
-  // Handle Password Reset Request
-  const handleForgotPassword = async (e) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setErrorMessage('');
-
-    const emailTrimmed = formData.email.trim().toLowerCase();
-
-    if (!emailTrimmed) {
-      setErrorMessage('Please enter your email address.');
-      setIsLoading(false);
-      return;
-    }
-
-    try {
-      if (resetPassword) {
-        await resetPassword(emailTrimmed);
-      }
-      setResetSuccess(true);
-    } catch (err) {
-      setErrorMessage(err?.message || 'Failed to send reset email. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Form Submission for Sign In and Sign Up
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    if (authMode === 'forgot') {
-      return handleForgotPassword(e);
-    }
-
-    setIsLoading(true);
-    setErrorMessage('');
-    setPendingConsentError(false);
-
-    const emailTrimmed = formData.email.trim().toLowerCase();
-    const passwordTrimmed = formData.password.trim();
-
-    try {
-      let authenticatedUser;
-
-      if (authMode === 'signup') {
-        const name = signupRole === 'provider' 
-          ? formData.organizationName.trim() 
-          : formData.fullName.trim();
-
-        if (!name) {
-          throw new Error('Please enter your name or organization name.');
+          return;
         }
 
-        const payload = {
-          email: emailTrimmed,
-          password: passwordTrimmed,
-          role: signupRole,
-          name,
-          ...(signupRole === 'provider' && { organization: name }),
+        /*
+        |--------------------------------------------------------------------------
+        | 2. Build profile from logged-in account
+        |--------------------------------------------------------------------------
+        */
+
+        const accountProfile = mergeProfile(TEST_PROFILE, {
+          email: user?.email || TEST_PROFILE.email,
+        });
+
+        /*
+        |--------------------------------------------------------------------------
+        | 3. Try backend API
+        |--------------------------------------------------------------------------
+        */
+
+        const token = localStorage.getItem('token');
+
+        if (token) {
+          try {
+            const response = await fetch('/api/v1/students/profile', {
+              method: 'GET',
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            });
+
+            if (response.ok) {
+              const data = await response.json();
+
+              const backendProfile = data?.profile || data?.data || data;
+
+              if (
+                backendProfile &&
+                typeof backendProfile === 'object' &&
+                !Array.isArray(backendProfile)
+              ) {
+                if (mounted) {
+                  setProfile(
+                    mergeProfile(accountProfile, backendProfile)
+                  );
+                  setIsUsingLocalStorage(false);
+                  setIsLoading(false);
+                }
+
+                return;
+              }
+            }
+          } catch (apiError) {
+            console.warn(
+              'Student profile API is not available yet.',
+              apiError
+            );
+          }
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | 4. Fallback to local test profile
+        |--------------------------------------------------------------------------
+        */
+
+        if (mounted) {
+          setProfile(accountProfile);
+          setIsUsingLocalStorage(true);
+        }
+      } catch (error) {
+        console.error('Failed to load student profile:', error);
+
+        if (mounted) {
+          setProfile(
+            mergeProfile(TEST_PROFILE, {
+              email: user?.email || TEST_PROFILE.email,
+            })
+          );
+
+          setIsUsingLocalStorage(true);
+        }
+      } finally {
+        if (mounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    loadProfile();
+
+    return () => {
+      mounted = false;
+    };
+  }, [user]);
+
+  /*
+  |--------------------------------------------------------------------------
+  | Profile Completion
+  |--------------------------------------------------------------------------
+  */
+
+  const profileCompletion = useMemo(() => {
+    if (!profile) return 0;
+
+    return calculateProfileCompletion(profile);
+  }, [profile]);
+
+  /*
+  |--------------------------------------------------------------------------
+  | Input Handler
+  |--------------------------------------------------------------------------
+  */
+
+  const handleChange = (section, field, value) => {
+    setProfile((previous) => {
+      if (!previous) return previous;
+
+      if (!section) {
+        return {
+          ...previous,
+          [field]: value,
         };
+      }
 
-        authenticatedUser = await register(payload);
+      return {
+        ...previous,
+        [section]: {
+          ...previous[section],
+          [field]: value,
+        },
+      };
+    });
 
-        if (signupRole === 'student') {
-          navigate('/onboarding', { replace: true });
-        } else {
-          navigate('/dashboard/provider', { replace: true });
+    setSaveSuccess(false);
+    setSaveError('');
+  };
+
+  /*
+  |--------------------------------------------------------------------------
+  | Checkbox Handler
+  |--------------------------------------------------------------------------
+  */
+
+  const handleEligibilityChange = (field) => {
+    setProfile((previous) => ({
+      ...previous,
+      eligibility: {
+        ...previous.eligibility,
+        [field]: !previous.eligibility[field],
+      },
+    }));
+
+    setSaveSuccess(false);
+    setSaveError('');
+  };
+
+  /*
+  |--------------------------------------------------------------------------
+  | Save Profile
+  |--------------------------------------------------------------------------
+  */
+
+  const handleSave = async (event) => {
+    if (event) {
+      event.preventDefault();
+    }
+
+    if (!profile) return;
+
+    setIsSaving(true);
+    setSaveSuccess(false);
+    setSaveError('');
+
+    try {
+      const token = localStorage.getItem('token');
+
+      let savedToBackend = false;
+
+      /*
+      |--------------------------------------------------------------------------
+      | Try Backend
+      |--------------------------------------------------------------------------
+      */
+
+      if (token) {
+        try {
+          const response = await fetch('/api/v1/students/profile', {
+            method: 'PUT',
+
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+
+            body: JSON.stringify(profile),
+          });
+
+          if (response.ok) {
+            savedToBackend = true;
+          }
+        } catch (apiError) {
+          console.warn(
+            'Student profile API unavailable. Saving locally instead.',
+            apiError
+          );
         }
-      } else {
-        authenticatedUser = await login(emailTrimmed, passwordTrimmed);
-
-        const targetRole = authenticatedUser?.user?.role || authenticatedUser?.role || 'student';
-        navigate(`/dashboard/${targetRole}`, { replace: true });
       }
-    } catch (err) {
-      // Check for parental consent block status (403 status or specific backend flags)
-      const isConsentPending = 
-        err?.response?.status === 403 ||
-        err?.requiresConsent || 
-        err?.message?.toLowerCase().includes('parental consent') ||
-        err?.message?.toLowerCase().includes('pending_consent');
 
-      if (isConsentPending) {
-        setPendingConsentError(true);
-        setErrorMessage(
-          err?.message || 'Your account is pending parental consent. Please ask your parent/guardian to approve the verification email.'
-        );
-      } else {
-        setErrorMessage(err?.message || 'Authentication failed. Please check your credentials.');
-      }
+      /*
+      |--------------------------------------------------------------------------
+      | Always save locally as backup
+      |--------------------------------------------------------------------------
+      */
+
+      localStorage.setItem(
+        PROFILE_STORAGE_KEY,
+        JSON.stringify(profile)
+      );
+
+      setIsUsingLocalStorage(!savedToBackend);
+      setIsEditing(false);
+      setSaveSuccess(true);
+
+      setTimeout(() => {
+        setSaveSuccess(false);
+      }, 3500);
+    } catch (error) {
+      console.error('Failed to save profile:', error);
+
+      setSaveError(
+        'Unable to save your profile. Please try again.'
+      );
     } finally {
-      setIsLoading(false);
+      setIsSaving(false);
     }
   };
 
-  const isProvider = authMode === 'signup' && signupRole === 'provider';
+  /*
+  |--------------------------------------------------------------------------
+  | Cancel Editing
+  |--------------------------------------------------------------------------
+  */
+
+  const handleCancel = () => {
+    const savedProfile = localStorage.getItem(PROFILE_STORAGE_KEY);
+
+    if (savedProfile) {
+      try {
+        setProfile(
+          mergeProfile(
+            DEFAULT_PROFILE,
+            JSON.parse(savedProfile)
+          )
+        );
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+    setIsEditing(false);
+    setSaveError('');
+  };
+
+  /*
+  |--------------------------------------------------------------------------
+  | Tabs
+  |--------------------------------------------------------------------------
+  */
+
+  const tabs = [
+    {
+      id: 'personal',
+      label: 'Personal Information',
+      icon: User,
+    },
+    {
+      id: 'academic',
+      label: 'Academic Information',
+      icon: BookOpen,
+    },
+    {
+      id: 'financial',
+      label: 'Financial Information',
+      icon: Wallet,
+    },
+    {
+      id: 'location',
+      label: 'Location',
+      icon: MapPin,
+    },
+    {
+      id: 'eligibility',
+      label: 'Eligibility',
+      icon: ShieldCheck,
+    },
+  ];
+
+  /*
+  |--------------------------------------------------------------------------
+  | Eligibility Options
+  |--------------------------------------------------------------------------
+  */
+
+  const eligibilityOptions = [
+    {
+      key: 'isIP',
+      label: 'Indigenous Peoples (IP)',
+      description:
+        'Member of a recognized Indigenous Cultural Community.',
+    },
+
+    {
+      key: 'isPWD',
+      label: 'Person with Disability (PWD)',
+      description:
+        'Student with a valid PWD identification.',
+    },
+
+    {
+      key: 'isSoloParentDependent',
+      label: 'Solo Parent Dependent',
+      description:
+        'Child or dependent of a registered solo parent.',
+    },
+
+    {
+      key: 'isOrphan',
+      label: 'Orphan Status',
+      description:
+        'Student who has lost one or both parents.',
+    },
+
+    {
+      key: 'isFarmerFisherfolkChild',
+      label: 'Child of Farmer / Fisherfolk',
+      description:
+        'Student whose parent or household earner is a farmer or fisherfolk.',
+    },
+
+    {
+      key: 'isDisasterAffected',
+      label: 'Disaster-Affected Family',
+      description:
+        'Family affected by a declared disaster or state of calamity.',
+    },
+
+    {
+      key: 'isWorkingStudent',
+      label: 'Working Student',
+      description:
+        'Student currently working while studying.',
+    },
+
+    {
+      key: 'is4PsBeneficiary',
+      label: '4Ps Beneficiary',
+      description:
+        'Registered member or dependent of Pantawid Pamilyang Pilipino Program.',
+    },
+  ];
+
+  /*
+  |--------------------------------------------------------------------------
+  | Loading
+  |--------------------------------------------------------------------------
+  */
+
+  if (isLoading || !profile) {
+    return (
+      <div className="min-h-[400px] flex flex-col items-center justify-center gap-3">
+        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+
+        <p className="text-sm font-semibold text-slate-600">
+          Loading your profile...
+        </p>
+      </div>
+    );
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | UI
+  |--------------------------------------------------------------------------
+  */
 
   return (
-    <div className="min-h-screen bg-app-bg text-app-text flex flex-col justify-between relative overflow-hidden pt-20">
-      {/* Top Accent Bar */}
-      <div className={`h-1.5 w-full transition-colors duration-300 ${isProvider ? 'bg-emerald-900' : 'bg-primary'}`} />
+    <div className="max-w-7xl mx-auto pb-12 space-y-6">
 
-      {/* Main Container */}
-      <div className="max-w-6xl w-full mx-auto px-4 py-8 sm:px-6 lg:px-8 flex-1 flex items-center justify-center relative z-10">
-        <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-0 items-stretch bg-card-bg border border-app-text/10 rounded-3xl shadow-2xl overflow-hidden">
-          
-          {/* Left Hero Panel */}
-          <div className={`lg:col-span-5 ${isProvider ? 'bg-emerald-900' : 'bg-primary'} text-white p-8 sm:p-12 flex flex-col justify-between relative overflow-hidden transition-colors duration-500`}>
-            <div className="absolute -right-10 -bottom-10 w-64 h-64 border border-white/10 rounded-3xl rotate-12 bg-white/[0.04] pointer-events-none" />
-            <div className="absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.15)_1px,transparent_1px)] [background-size:20px_20px] pointer-events-none" />
+      {/* ================================================================
+          TOP INFORMATION
+      ================================================================= */}
 
-            <div className="relative z-10 space-y-6">
-              <Link to="/" className="inline-flex items-center gap-2.5 group">
-                <GraduationCap className="h-8 w-8 text-accent transition-transform duration-300 group-hover:scale-110" />
-                <span className="font-extrabold text-2xl tracking-tight text-white">
-                  ISKOLAR<span className="text-accent">MATCH</span>
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
+
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+
+          <div className="flex items-center gap-4">
+
+            {/* Avatar */}
+
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center text-xl font-black shadow-md">
+              {getInitials(profile)}
+            </div>
+
+            {/* Name */}
+
+            <div>
+
+              <div className="flex flex-wrap items-center gap-2">
+
+                <h1 className="text-xl font-black text-slate-900">
+                  {profile.firstName || 'Student'}{' '}
+                  {profile.lastName || ''}
+                </h1>
+
+                <span className="px-2.5 py-1 rounded-full bg-blue-100 text-blue-700 text-[11px] font-bold">
+                  Student
                 </span>
-              </Link>
 
-              <div className="space-y-3 pt-4">
-                <h2 className="text-2xl sm:text-3xl font-black tracking-tight leading-tight">
-                  {authMode === 'forgot'
-                    ? 'Account Recovery'
-                    : authMode === 'signup' 
-                    ? (signupRole === 'provider' ? 'Partner with Us to Support Students' : 'Unlock Your Ideal Scholarships') 
-                    : 'One Portal. Unlimited Opportunities.'}
-                </h2>
-                <p className="text-white/80 text-xs sm:text-sm leading-relaxed">
-                  {authMode === 'forgot'
-                    ? 'Don’t worry! Enter your email address and we will help you reset your password to regain access.'
-                    : authMode === 'signup' 
-                    ? (signupRole === 'provider' 
-                        ? 'Register your organization to post listings, review applicants, and connect with deserving scholars.' 
-                        : 'Create your account to match with verified scholarships based on your academic profile.') 
-                    : 'Sign in to access your personalized dashboard—whether you are a student, scholarship sponsor, or platform administrator.'}
-                </p>
               </div>
+
+              <p className="text-sm text-slate-500 mt-1 flex items-center gap-2">
+                <GraduationCap className="w-4 h-4" />
+
+                {profile.academic?.course ||
+                  'Course not yet provided'}
+              </p>
+
             </div>
 
-            {/* Features List */}
-            <div className="relative z-10 space-y-3 my-8">
-              {[
-                'Transparent Eligibility Matching Engine',
-                'Verified Partner Scholarship Directory',
-                'Direct External Links & Application Guides'
-              ].map((feat, idx) => (
-                <div key={idx} className="flex items-center gap-2.5 text-xs sm:text-sm text-white/90 font-medium">
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-accent" />
-                  <span>{feat}</span>
-                </div>
-              ))}
-            </div>
-
-            <div className="relative z-10 pt-6 border-t border-white/15 text-xs text-white/70">
-              Built with ❤️ for Iskolar ng Bayan
-            </div>
           </div>
 
-          {/* Right Form Panel */}
-          <div className="lg:col-span-7 p-6 sm:p-10 lg:p-12 flex flex-col justify-center">
-            <div className="max-w-md mx-auto w-full space-y-6">
-              
-              {/* Header */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-2xl font-black text-app-text">
-                    {authMode === 'forgot'
-                      ? 'Reset Password'
-                      : authMode === 'signup' 
-                      ? 'Create an Account' 
-                      : 'Welcome Back'}
-                  </h3>
-                  <p className="text-xs text-text-muted mt-1">
-                    {authMode === 'forgot'
-                      ? 'Enter your registered email to receive reset instructions.'
-                      : authMode === 'signup' 
-                      ? 'Choose your account type and fill in your details.' 
-                      : 'Sign in with your email to access your workspace.'}
-                  </p>
-                </div>
-                
-                {authMode !== 'forgot' && (
-                  <button
-                    type="button"
-                    onClick={() => switchMode(authMode === 'signup' ? 'signin' : 'signup')}
-                    className="text-xs font-bold text-primary hover:underline focus:outline-none"
-                  >
-                    {authMode === 'signup' ? 'Sign In' : 'Sign Up'}
-                  </button>
-                )}
-              </div>
+          {/* Completion */}
 
-              {/* Role Toggle for Sign Up */}
-              {authMode === 'signup' && (
-                <div className="grid grid-cols-2 gap-2 p-1 bg-app-bg rounded-2xl border border-app-text/10">
-                  <button
-                    type="button"
-                    onClick={() => setSignupRole('student')}
-                    className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold transition-all ${
-                      signupRole === 'student'
-                        ? 'bg-primary text-white shadow-md'
-                        : 'text-text-muted hover:text-app-text'
-                    }`}
-                  >
-                    <GraduationCap className="h-4 w-4" />
-                    <span>Student</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSignupRole('provider')}
-                    className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold transition-all ${
-                      signupRole === 'provider'
-                        ? 'bg-emerald-900 text-white shadow-md'
-                        : 'text-text-muted hover:text-app-text'
-                    }`}
-                  >
-                    <Building2 className="h-4 w-4" />
-                    <span>Sponsor / Provider</span>
-                  </button>
-                </div>
-              )}
+          <div className="min-w-[240px]">
 
-              {/* Pending Consent Warning Banner */}
-              {pendingConsentError ? (
-                <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-xs text-amber-800 space-y-2">
-                  <div className="flex items-center gap-2 font-bold text-amber-900">
-                    <ShieldAlert className="h-5 w-5 text-amber-600 shrink-0" />
-                    <span>Parental Authorization Required</span>
-                  </div>
-                  <p className="leading-relaxed">
-                    {errorMessage}
-                  </p>
-                  <div className="text-[11px] text-amber-700 font-medium border-t border-amber-500/15 pt-2">
-                    Tip: Ask your guardian to check their email inbox (and spam folder) for the authorization link.
-                  </div>
-                </div>
-              ) : (
-                /* Standard Error Alert */
-                errorMessage && (
-                  <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-center gap-2.5 text-xs text-rose-600">
-                    <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
-                    <span>{errorMessage}</span>
-                  </div>
-                )
-              )}
+            <div className="flex justify-between mb-2">
 
-              {/* Password Reset Confirmation Screen */}
-              {authMode === 'forgot' && resetSuccess ? (
-                <div className="p-6 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-center space-y-4">
-                  <div className="w-12 h-12 bg-emerald-500/20 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
-                    <KeyRound className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-app-text text-base">Check your inbox</h4>
-                    <p className="text-xs text-text-muted mt-1 leading-relaxed">
-                      We sent a password reset link to <span className="font-semibold text-app-text">{formData.email}</span>. Please check your email to continue.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => switchMode('signin')}
-                    className="w-full py-2.5 px-4 bg-primary text-white rounded-xl font-bold text-xs shadow-md hover:opacity-90 transition-all inline-flex items-center justify-center gap-2"
-                  >
-                    <ArrowLeft className="h-4 w-4" />
-                    <span>Return to Sign In</span>
-                  </button>
-                </div>
-              ) : (
-                /* Main Form Body */
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  {authMode === 'signup' && (
-                    <div>
-                      <label className="block text-xs font-bold text-app-text mb-1.5">
-                        {signupRole === 'provider' ? 'Organization / Agency Name' : 'Full Name'}
-                      </label>
-                      <div className="relative">
-                        {signupRole === 'provider' ? (
-                          <Building2 className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-                        ) : (
-                          <User className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-                        )}
-                        <input
-                          type="text"
-                          name={signupRole === 'provider' ? 'organizationName' : 'fullName'}
-                          required
-                          value={signupRole === 'provider' ? formData.organizationName : formData.fullName}
-                          onChange={handleChange}
-                          placeholder={signupRole === 'provider' ? 'e.g., CHED / DOST Foundation' : 'e.g., Juan Dela Cruz'}
-                          className="w-full pl-10 pr-4 py-3 rounded-xl bg-app-bg border border-app-text/10 text-sm text-app-text focus:outline-none focus:border-primary transition-colors"
-                        />
-                      </div>
-                    </div>
-                  )}
+              <span className="text-xs font-bold text-slate-600">
+                Profile Completion
+              </span>
 
-                  <div>
-                    <label className="block text-xs font-bold text-app-text mb-1.5">
-                      Email Address
-                    </label>
-                    <div className="relative">
-                      <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-                      <input
-                        type="email"
-                        name="email"
-                        required
-                        value={formData.email}
-                        onChange={handleChange}
-                        placeholder="name@example.com"
-                        className="w-full pl-10 pr-4 py-3 rounded-xl bg-app-bg border border-app-text/10 text-sm text-app-text focus:outline-none focus:border-primary transition-colors"
-                      />
-                    </div>
-                  </div>
-
-                  {authMode !== 'forgot' && (
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <label className="block text-xs font-bold text-app-text">
-                          Password
-                        </label>
-                        {authMode === 'signin' && (
-                          <button
-                            type="button"
-                            onClick={() => switchMode('forgot')}
-                            className="text-xs font-medium text-primary hover:underline focus:outline-none"
-                          >
-                            Forgot password?
-                          </button>
-                        )}
-                      </div>
-                      <div className="relative">
-                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-                        <input
-                          type={showPassword ? 'text' : 'password'}
-                          name="password"
-                          required
-                          value={formData.password}
-                          onChange={handleChange}
-                          placeholder="••••••••"
-                          className="w-full pl-10 pr-10 py-3 rounded-xl bg-app-bg border border-app-text/10 text-sm text-app-text focus:outline-none focus:border-primary transition-colors"
-                        />
-                        <button
-                          type="button"
-                          aria-label={showPassword ? 'Hide password' : 'Show password'}
-                          onClick={() => setShowPassword((prev) => !prev)}
-                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-app-text"
-                        >
-                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  <button
-                    type="submit"
-                    disabled={isLoading}
-                    className={`w-full py-3.5 px-6 rounded-xl text-white font-bold text-sm shadow-lg transition-all flex items-center justify-center gap-2 mt-2 disabled:opacity-70 disabled:cursor-not-allowed ${
-                      isProvider
-                        ? 'bg-emerald-900 hover:bg-emerald-950 shadow-emerald-900/20'
-                        : 'bg-primary hover:opacity-90 shadow-primary/20'
-                    }`}
-                  >
-                    {isLoading ? (
-                      <span className="inline-block animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
-                    ) : (
-                      <>
-                        <span>
-                          {authMode === 'forgot'
-                            ? 'Send Reset Link'
-                            : authMode === 'signup'
-                            ? 'Create Account'
-                            : 'Sign In'}
-                        </span>
-                        <ArrowRight className="h-4 w-4" />
-                      </>
-                    )}
-                  </button>
-                </form>
-              )}
-
-              {/* Mode Switch Footer */}
-              <div className="text-center pt-2">
-                {authMode === 'forgot' ? (
-                  <button
-                    type="button"
-                    onClick={() => switchMode('signin')}
-                    className="inline-flex items-center gap-1.5 text-xs font-bold text-primary hover:underline"
-                  >
-                    <ArrowLeft className="h-3.5 w-3.5" />
-                    <span>Back to Sign In</span>
-                  </button>
-                ) : (
-                  <p className="text-xs text-text-muted">
-                    {authMode === 'signup' ? 'Already have an account?' : "Don't have an account yet?"}{' '}
-                    <button
-                      type="button"
-                      onClick={() => switchMode(authMode === 'signup' ? 'signin' : 'signup')}
-                      className="font-bold text-primary hover:underline"
-                    >
-                      {authMode === 'signup' ? 'Sign In' : 'Register now'}
-                    </button>
-                  </p>
-                )}
-              </div>
+              <span className="text-xs font-black text-blue-600">
+                {profileCompletion}%
+              </span>
 
             </div>
+
+            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+
+              <div
+                className="h-full bg-blue-600 rounded-full transition-all duration-500"
+                style={{
+                  width: `${profileCompletion}%`,
+                }}
+              />
+
+            </div>
+
           </div>
 
         </div>
+
       </div>
 
-      <div className="text-center py-4 text-xs text-text-muted border-t border-app-text/10 relative z-10">
-        © {new Date().getFullYear()} IskolarMatch. All rights reserved.
+      {/* ================================================================
+          LOCAL MODE NOTICE
+      ================================================================= */}
+
+      {isUsingLocalStorage && (
+        <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+
+          <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+
+          <div>
+
+            <p className="text-sm font-bold text-amber-800">
+              Student profile API is not connected yet
+            </p>
+
+            <p className="text-xs text-amber-700 mt-1">
+              Your profile changes are currently saved in your
+              browser so you can continue testing the student-facing
+              experience.
+            </p>
+
+          </div>
+
+        </div>
+      )}
+
+      {/* ================================================================
+          SAVE SUCCESS
+      ================================================================= */}
+
+      {saveSuccess && (
+        <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+
+          <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+
+          <div>
+
+            <p className="text-sm font-bold text-emerald-800">
+              Profile updated successfully!
+            </p>
+
+            <p className="text-xs text-emerald-700">
+              Your updated information is now displayed.
+            </p>
+
+          </div>
+
+        </div>
+      )}
+
+      {/* ================================================================
+          SAVE ERROR
+      ================================================================= */}
+
+      {saveError && (
+        <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-200 rounded-xl">
+
+          <AlertCircle className="w-5 h-5 text-red-600" />
+
+          <p className="text-sm font-semibold text-red-700">
+            {saveError}
+          </p>
+
+        </div>
+      )}
+
+      {/* ================================================================
+          PROFILE CARD
+      ================================================================= */}
+
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+
+        {/* Header */}
+
+        <div className="p-6 border-b border-slate-200">
+
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+
+            <div>
+
+              <h2 className="text-lg font-black text-slate-900">
+                Student Profile
+              </h2>
+
+              <p className="text-xs text-slate-500 mt-1">
+                Keep your information updated so scholarships can
+                be matched accurately to your profile.
+              </p>
+
+            </div>
+
+            {!isEditing ? (
+              <button
+                type="button"
+                onClick={() => setIsEditing(true)}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-colors"
+              >
+                <Pencil className="w-4 h-4" />
+                Edit Profile
+              </button>
+            ) : (
+              <div className="flex gap-2">
+
+                <button
+                  type="button"
+                  onClick={handleCancel}
+                  disabled={isSaving}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-colors disabled:opacity-50"
+                >
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      Save Changes
+                    </>
+                  )}
+                </button>
+
+              </div>
+            )}
+
+          </div>
+
+        </div>
+
+        {/* ================================================================
+            TABS
+        ================================================================= */}
+
+        <div className="px-4 pt-4 overflow-x-auto">
+
+          <div className="flex gap-2 min-w-max">
+
+            {tabs.map((tab) => {
+
+              const Icon = tab.icon;
+
+              const active = activeTab === tab.id;
+
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`
+                    flex items-center gap-2
+                    px-4 py-2.5
+                    rounded-xl
+                    text-xs font-bold
+                    transition-all
+                    whitespace-nowrap
+                    ${
+                      active
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }
+                  `}
+                >
+                  <Icon className="w-4 h-4" />
+
+                  {tab.label}
+                </button>
+              );
+            })}
+
+          </div>
+
+        </div>
+
+        {/* ================================================================
+            FORM
+        ================================================================= */}
+
+        <form
+          onSubmit={handleSave}
+          className="p-6"
+        >
+
+          {/* ============================================================
+              PERSONAL INFORMATION
+          ============================================================ */}
+
+          {activeTab === 'personal' && (
+            <div className="space-y-6">
+
+              <SectionTitle
+                icon={User}
+                title="Personal Information"
+                description="Basic information associated with your student account."
+              />
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+                <InputField
+                  label="First Name"
+                  value={profile.firstName}
+                  disabled={!isEditing}
+                  onChange={(value) =>
+                    handleChange(null, 'firstName', value)
+                  }
+                  placeholder="Juan"
+                />
+
+                <InputField
+                  label="Last Name"
+                  value={profile.lastName}
+                  disabled={!isEditing}
+                  onChange={(value) =>
+                    handleChange(null, 'lastName', value)
+                  }
+                  placeholder="Dela Cruz"
+                />
+
+                <InputField
+                  label="Email Address"
+                  type="email"
+                  value={profile.email}
+                  disabled={true}
+                  onChange={(value) =>
+                    handleChange(null, 'email', value)
+                  }
+                  icon={Mail}
+                  placeholder="student@example.com"
+                />
+
+                <InputField
+                  label="Phone Number"
+                  value={profile.phone}
+                  disabled={!isEditing}
+                  onChange={(value) =>
+                    handleChange(null, 'phone', value)
+                  }
+                  icon={Phone}
+                  placeholder="09XXXXXXXXX"
+                />
+
+              </div>
+
+              <InfoBox>
+                Your email address is linked to your account and
+                cannot be changed from this page.
+              </InfoBox>
+
+            </div>
+          )}
+
+          {/* ============================================================
+              ACADEMIC INFORMATION
+          ============================================================ */}
+
+          {activeTab === 'academic' && (
+            <div className="space-y-6">
+
+              <SectionTitle
+                icon={BookOpen}
+                title="Academic Information"
+                description="Your academic details are used to determine scholarship eligibility."
+              />
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+                <InputField
+                  label="University / School"
+                  value={profile.academic?.university}
+                  disabled={!isEditing}
+                  onChange={(value) =>
+                    handleChange(
+                      'academic',
+                      'university',
+                      value
+                    )
+                  }
+                  placeholder="Enter your school"
+                />
+
+                <InputField
+                  label="Course / Program"
+                  value={profile.academic?.course}
+                  disabled={!isEditing}
+                  onChange={(value) =>
+                    handleChange(
+                      'academic',
+                      'course',
+                      value
+                    )
+                  }
+                  placeholder="BS Information Technology"
+                />
+
+                <SelectField
+                  label="Year Level"
+                  value={profile.academic?.yearLevel}
+                  disabled={!isEditing}
+                  onChange={(value) =>
+                    handleChange(
+                      'academic',
+                      'yearLevel',
+                      value
+                    )
+                  }
+                  options={[
+                    '1st Year',
+                    '2nd Year',
+                    '3rd Year',
+                    '4th Year',
+                    '5th Year',
+                    'Postgraduate',
+                  ]}
+                />
+
+                <InputField
+                  label="Current GWA / GPA"
+                  value={profile.academic?.gwa}
+                  disabled={!isEditing}
+                  onChange={(value) =>
+                    handleChange(
+                      'academic',
+                      'gwa',
+                      value
+                    )
+                  }
+                  placeholder="Example: 1.50"
+                />
+
+                <SelectField
+                  label="Academic Status"
+                  value={profile.academic?.academicStatus}
+                  disabled={!isEditing}
+                  onChange={(value) =>
+                    handleChange(
+                      'academic',
+                      'academicStatus',
+                      value
+                    )
+                  }
+                  options={[
+                    'Regular Student',
+                    'Irregular Student',
+                    'Transferee',
+                    'Returning Student',
+                  ]}
+                />
+
+              </div>
+
+            </div>
+          )}
+
+          {/* ============================================================
+              FINANCIAL INFORMATION
+          ============================================================ */}
+
+          {activeTab === 'financial' && (
+            <div className="space-y-6">
+
+              <SectionTitle
+                icon={Wallet}
+                title="Financial Information"
+                description="Financial information helps the matching engine identify scholarships intended for specific income groups."
+              />
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+                <SelectField
+                  label="Household Monthly Income Bracket"
+                  value={profile.financial?.incomeBracket}
+                  disabled={!isEditing}
+                  onChange={(value) =>
+                    handleChange(
+                      'financial',
+                      'incomeBracket',
+                      value
+                    )
+                  }
+                  options={[
+                    'Below ₱10,000',
+                    '₱10,001 - ₱20,000',
+                    '₱20,001 - ₱40,000',
+                    'Above ₱40,000',
+                  ]}
+                />
+
+                <InputField
+                  label="Estimated Monthly Household Income"
+                  type="number"
+                  value={profile.financial?.householdIncome}
+                  disabled={!isEditing}
+                  onChange={(value) =>
+                    handleChange(
+                      'financial',
+                      'householdIncome',
+                      value
+                    )
+                  }
+                  placeholder="Example: 15000"
+                />
+
+              </div>
+
+              <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl">
+
+                <div className="flex items-start gap-3">
+
+                  <HeartHandshake className="w-5 h-5 text-blue-600 shrink-0" />
+
+                  <div>
+
+                    <p className="text-sm font-bold text-blue-900">
+                      Why do we ask for this?
+                    </p>
+
+                    <p className="text-xs text-blue-700 mt-1 leading-relaxed">
+                      Some scholarships prioritize students from
+                      specific household income brackets. This
+                      information helps ISKOLARMATCH identify
+                      potentially relevant opportunities.
+
+                    </p>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+            </div>
+          )}
+
+          {/* ============================================================
+              LOCATION
+          ============================================================ */}
+
+          {activeTab === 'location' && (
+            <div className="space-y-6">
+
+              <SectionTitle
+                icon={MapPin}
+                title="Location"
+                description="Your location may affect eligibility for regional, provincial, municipal, or local scholarships."
+              />
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+                <InputField
+                  label="Region"
+                  value={profile.location?.region}
+                  disabled={!isEditing}
+                  onChange={(value) =>
+                    handleChange(
+                      'location',
+                      'region',
+                      value
+                    )
+                  }
+                  placeholder="Example: Region VI - Western Visayas"
+                  icon={MapPinned}
+                />
+
+                <InputField
+                  label="Province"
+                  value={profile.location?.province}
+                  disabled={!isEditing}
+                  onChange={(value) =>
+                    handleChange(
+                      'location',
+                      'province',
+                      value
+                    )
+                  }
+                  placeholder="Example: Negros Occidental"
+                />
+
+                <InputField
+                  label="Municipality / City"
+                  value={profile.location?.municipality}
+                  disabled={!isEditing}
+                  onChange={(value) =>
+                    handleChange(
+                      'location',
+                      'municipality',
+                      value
+                    )
+                  }
+                  placeholder="Example: Bago City"
+                />
+
+              </div>
+
+            </div>
+          )}
+
+          {/* ============================================================
+              ELIGIBILITY
+          ============================================================ */}
+
+          {activeTab === 'eligibility' && (
+            <div className="space-y-6">
+
+              <SectionTitle
+                icon={ShieldCheck}
+                title="Eligibility Information"
+                description="Select the conditions that apply to you. These are used by the scholarship matching engine."
+              />
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                {eligibilityOptions.map((option) => {
+
+                  const checked =
+                    profile.eligibility?.[option.key] || false;
+
+                  return (
+                    <label
+                      key={option.key}
+                      className={`
+                        flex items-start gap-3
+                        p-4
+                        rounded-xl
+                        border
+                        cursor-pointer
+                        transition-all
+                        ${
+                          checked
+                            ? 'border-blue-300 bg-blue-50'
+                            : 'border-slate-200 bg-white hover:border-slate-300'
+                        }
+                        ${
+                          !isEditing
+                            ? 'cursor-default'
+                            : ''
+                        }
+                      `}
+                    >
+
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={!isEditing}
+                        onChange={() =>
+                          handleEligibilityChange(
+                            option.key
+                          )
+                        }
+                        className="mt-1 w-4 h-4 accent-blue-600"
+                      />
+
+                      <div>
+
+                        <p className="text-sm font-bold text-slate-800">
+                          {option.label}
+                        </p>
+
+                        <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                          {option.description}
+                        </p>
+
+                      </div>
+
+                    </label>
+                  );
+                })}
+
+              </div>
+
+              <InfoBox>
+                Only select eligibility conditions that accurately
+                describe your current situation. Scholarship
+                providers may require supporting documents during
+                their application process.
+              </InfoBox>
+
+            </div>
+          )}
+
+        </form>
+
       </div>
+
+      {/* ================================================================
+          PROFILE SUMMARY
+      ================================================================= */}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+        <SummaryCard
+          icon={GraduationCap}
+          title="Academic"
+          value={
+            profile.academic?.course ||
+            'Not provided'
+          }
+          description={
+            profile.academic?.yearLevel ||
+            'Year level not provided'
+          }
+        />
+
+        <SummaryCard
+          icon={Wallet}
+          title="Financial"
+          value={
+            profile.financial?.incomeBracket ||
+            'Not provided'
+          }
+          description="Income bracket"
+        />
+
+        <SummaryCard
+          icon={MapPin}
+          title="Location"
+          value={
+            profile.location?.municipality ||
+            'Not provided'
+          }
+          description={
+            profile.location?.province ||
+            'Province not provided'
+          }
+        />
+
+      </div>
+
+    </div>
+  );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Reusable Components
+|--------------------------------------------------------------------------
+*/
+
+function SectionTitle({
+  icon: Icon,
+  title,
+  description,
+}) {
+  return (
+    <div className="flex items-start gap-3">
+
+      <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+        <Icon className="w-5 h-5" />
+      </div>
+
+      <div>
+
+        <h3 className="text-base font-black text-slate-900">
+          {title}
+        </h3>
+
+        <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+          {description}
+        </p>
+
+      </div>
+
+    </div>
+  );
+}
+
+function InputField({
+  label,
+  value,
+  onChange,
+  disabled,
+  placeholder,
+  type = 'text',
+  icon: Icon,
+}) {
+  return (
+    <div>
+
+      <label className="block text-xs font-bold text-slate-700 mb-2">
+        {label}
+      </label>
+
+      <div className="relative">
+
+        {Icon && (
+          <Icon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+        )}
+
+        <input
+          type={type}
+          value={value || ''}
+          disabled={disabled}
+          placeholder={placeholder}
+          onChange={(event) =>
+            onChange(event.target.value)
+          }
+          className={`
+            w-full
+            px-3.5
+            py-3
+            rounded-xl
+            border
+            text-sm
+            outline-none
+            transition-all
+            ${
+              Icon
+                ? 'pl-10'
+                : ''
+            }
+            ${
+              disabled
+                ? 'bg-slate-50 border-slate-200 text-slate-600 cursor-not-allowed'
+                : 'bg-white border-slate-300 text-slate-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-100'
+            }
+          `}
+        />
+
+      </div>
+
+    </div>
+  );
+}
+
+function SelectField({
+  label,
+  value,
+  onChange,
+  disabled,
+  options,
+}) {
+  return (
+    <div>
+
+      <label className="block text-xs font-bold text-slate-700 mb-2">
+        {label}
+      </label>
+
+      <select
+        value={value || ''}
+        disabled={disabled}
+        onChange={(event) =>
+          onChange(event.target.value)
+        }
+        className={`
+          w-full
+          px-3.5
+          py-3
+          rounded-xl
+          border
+          text-sm
+          outline-none
+          transition-all
+          ${
+            disabled
+              ? 'bg-slate-50 border-slate-200 text-slate-600 cursor-not-allowed'
+              : 'bg-white border-slate-300 text-slate-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-100'
+          }
+        `}
+      >
+
+        <option value="">
+          Select an option
+        </option>
+
+        {options.map((option) => (
+          <option
+            key={option}
+            value={option}
+          >
+            {option}
+          </option>
+        ))}
+
+      </select>
+
+    </div>
+  );
+}
+
+function InfoBox({ children }) {
+  return (
+    <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+
+      <p className="text-xs text-slate-600 leading-relaxed">
+        {children}
+      </p>
+
+    </div>
+  );
+}
+
+function SummaryCard({
+  icon: Icon,
+  title,
+  value,
+  description,
+}) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+
+      <div className="flex items-center gap-3">
+
+        <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+          <Icon className="w-5 h-5" />
+        </div>
+
+        <div className="min-w-0">
+
+          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+            {title}
+          </p>
+
+          <p className="text-sm font-black text-slate-900 truncate mt-0.5">
+            {value}
+          </p>
+
+          <p className="text-xs text-slate-500 truncate mt-0.5">
+            {description}
+          </p>
+
+        </div>
+
+      </div>
+
     </div>
   );
 }

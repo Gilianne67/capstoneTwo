@@ -11,7 +11,7 @@ import AppLayout from './layouts/AppLayout';
 
 // Public Pages
 import HomePage from './features/public-landing/pages/HomePage';
-import AuthPage from './features/auth/AuthPage';
+import AuthPage from './features/auth/AuthScreen';
 import OnboardingForm from './features/public-landing/pages/OnboardingForm';
 import ParentConsentPage from './features/public-landing/pages/ParentConsentPage';
 
@@ -25,6 +25,7 @@ import ApplicationTracker from './features/student/pages/ApplicationTracker';
 import DeadlineAlerts from './features/student/pages/DeadlineAlerts';
 import Settings from './features/student/pages/Settings';
 import HelpCenter from './features/student/pages/HelpCenter';
+import StudentOnboarding from './features/student/pages/StudentOnboarding';
 
 // Provider Module Pages
 import ProviderDashboard from './features/provider/pages/ProviderDashboard';
@@ -134,6 +135,7 @@ export default function App() {
             {/* STUDENT SECTION */}
             <Route element={<ProtectedRouteGuard allowedRoles={['student']} />}>
               <Route path="student" element={<StudentDashboard />} />
+              <Route path="student/onboarding" element={<StudentOnboarding />}/>
               <Route path="student/search" element={<ScholarshipSearch />} />
               <Route path="student/matches" element={<MatchFeed />} />
               <Route path="student/profile" element={<StudentProfile />} />
@@ -143,7 +145,7 @@ export default function App() {
               <Route path="student/alerts" element={<Settings />} />
               <Route path="student/settings" element={<Settings />} />
               <Route path="student/help" element={<HelpCenter />} />
-            </Route>
+              </Route>
 
             {/* PROVIDER SECTION */}
             <Route element={<ProtectedRouteGuard allowedRoles={['provider']} />}>

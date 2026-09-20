@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Sparkles, 
@@ -24,6 +24,9 @@ import {
 import { useAuth } from '../../../context/AuthContext';
 import StatusBadge from '../../../components/common/StatusBadge';
 import ConfirmModal from '../../../components/common/ConfirmModal';
+
+// API Configuration
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
 
 // Mock Data Fallbacks using theme-aligned structure
 const MOCK_FALLBACK_MATCHES = [
@@ -135,16 +138,34 @@ const getGreeting = () => {
   }
 };
 
+const normalizeDashboardProfile = (profile = {}) => ({
+  gwa: profile.academic?.gwa ?? profile.academic?.gpa ?? profile.gwa,
+  location: profile.location?.municipality ?? profile.address?.municipality ?? profile.location,
+  province: profile.location?.province ?? profile.address?.province ?? profile.province,
+  region: profile.location?.region ?? profile.address?.region ?? profile.region,
+  financialBracket: profile.financial?.incomeBracket ?? profile.financialBracket ?? profile.incomeBracket,
+  course: profile.academic?.course ?? profile.course,
+  academicLevel: profile.academic?.academicLevel ?? profile.academicLevel,
+});
+
 export default function StudentDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  const [studentProfile, setStudentProfile] = useState(null);
+
+  const normalizedProfile = normalizeDashboardProfile(studentProfile || user?.profile || {});
+
   const userProfile = {
     name: user?.name?.split(' ')[0] || 'Iskolar',
     fullName: user?.name || 'Iskolar',
-    gwa: user?.profile?.gwa || '1.25',
-    location: user?.profile?.location || 'Pili, Camarines Sur',
-    financialBracket: user?.profile?.financialBracket || 'Low-Income Tier'
+    gwa: normalizedProfile.gwa ?? 'Not set',
+    location: normalizedProfile.location ?? 'Not set',
+    financialBracket: normalizedProfile.financialBracket ?? 'Not set',
+    course: normalizedProfile.course ?? 'Not set',
+    academicLevel: normalizedProfile.academicLevel ?? 'Not set',
+    region: normalizedProfile.region ?? '',
+    province: normalizedProfile.province ?? '',
   };
 
   const [weightedMatches, setWeightedMatches] = useState([]);
@@ -153,18 +174,20 @@ export default function StudentDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingId, setIsSavingId] = useState(null);
   const [isUsingFallback, setIsUsingFallback] = useState(false);
+  const [profileError, setProfileError] = useState(false);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedScholarship, setSelectedScholarship] = useState(null);
   const [expandedMatchId, setExpandedMatchId] = useState(null);
 
-  const safeFetchJson = async (url, options) => {
+  const safeFetchJson = async (url, options = {}) => {
     const res = await fetch(url, options);
     const contentType = res.headers.get('content-type');
     
     if (!res.ok || (contentType && contentType.includes('text/html'))) {
       throw new Error(`Server returned status: ${res.status}`);
     }
+
     return await res.json();
   };
 
@@ -173,29 +196,64 @@ export default function StudentDashboard() {
 
     const fetchDashboardData = async () => {
       setIsLoading(true);
+      setProfileError(false);
 
       try {
         const token = localStorage.getItem('token');
-        const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-        const [matchesData, appsData] = await Promise.all([
-          safeFetchJson('/api/v1/scholarships/recommended', { headers }),
-          safeFetchJson('/api/v1/students/applications', { headers })
+        const headers = {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        };
+
+        const [matchesResult, appsResult, profileResult] = await Promise.allSettled([
+          safeFetchJson(`${API_BASE_URL}/scholarships/recommended`, { headers }),
+          safeFetchJson(`${API_BASE_URL}/students/applications`, { headers }),
+          safeFetchJson(`${API_BASE_URL}/students/profile`, { headers })
         ]);
 
         if (!isMounted) return;
 
-        setWeightedMatches(matchesData);
-        setTrackedApplications(appsData);
-        setIsUsingFallback(false);
+        if (matchesResult.status === 'fulfilled') {
+          const matchesResponse = matchesResult.value;
+          const matches = Array.isArray(matchesResponse)
+            ? matchesResponse
+            : matchesResponse?.data || matchesResponse?.matches || [];
 
-      } catch (_err) {
+          setWeightedMatches(matches);
+          setIsUsingFallback(false);
+        } else {
+          setWeightedMatches(MOCK_FALLBACK_MATCHES);
+          setIsUsingFallback(true);
+        }
+
+        if (appsResult.status === 'fulfilled') {
+          const appsResponse = appsResult.value;
+          const applications = Array.isArray(appsResponse)
+            ? appsResponse
+            : appsResponse?.data || appsResponse?.applications || [];
+
+          setTrackedApplications(applications);
+        } else {
+          setTrackedApplications(MOCK_FALLBACK_APPS);
+        }
+
+        if (profileResult.status === 'fulfilled') {
+          const profileResponse = profileResult.value;
+          const profile = profileResponse?.profile || profileResponse?.data || profileResponse;
+
+          setStudentProfile(profile);
+        } else {
+          setProfileError(true);
+        }
+
+      } catch {
         if (!isMounted) return;
 
-        // Fallback mode using theme colors & 5 tailored matches
         setWeightedMatches(MOCK_FALLBACK_MATCHES);
         setTrackedApplications(MOCK_FALLBACK_APPS);
         setIsUsingFallback(true);
+        setProfileError(true);
 
       } finally {
         if (isMounted) setIsLoading(false);
@@ -226,7 +284,8 @@ export default function StudentDashboard() {
     try {
       if (!isUsingFallback) {
         const token = localStorage.getItem('token');
-        await safeFetchJson(`/api/v1/scholarships/${scholarshipId}/bookmark`, {
+
+        await safeFetchJson(`${API_BASE_URL}/scholarships/${scholarshipId}/bookmark`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -240,7 +299,7 @@ export default function StudentDashboard() {
           item._id === scholarshipId ? { ...item, isSaved: !item.isSaved } : item
         )
       );
-    } catch (_err) {
+    } catch {
       console.warn('Bookmark state updated locally.');
     } finally {
       setIsSavingId(null);
@@ -256,6 +315,7 @@ export default function StudentDashboard() {
     if (selectedScholarship?.externalUrl) {
       window.open(selectedScholarship.externalUrl, '_blank', 'noopener,noreferrer');
     }
+
     setIsModalOpen(false);
   };
 
@@ -263,9 +323,27 @@ export default function StudentDashboard() {
     setExpandedMatchId((prev) => (prev === id ? null : id));
   };
 
+  const handleEditProfile = () => {
+    navigate('/dashboard/student/profile');
+  };
+
+  const getProfileLocation = () => {
+    const locationParts = [
+      userProfile.location,
+      userProfile.province,
+      userProfile.region
+    ].filter(Boolean);
+
+    if (locationParts.length === 0) {
+      return 'Not set';
+    }
+
+    return locationParts.join(', ');
+  };
+
   if (isLoading) {
     return (
-      <div className="min-h-[420px] flex flex-col items-center justify-center gap-3">
+      <div className="min-h-105 flex flex-col items-center justify-center gap-3">
         <div className="p-3 bg-primary/10 rounded-2xl animate-bounce">
           <Sparkles className="h-8 w-8 text-primary" />
         </div>
@@ -280,17 +358,17 @@ export default function StudentDashboard() {
       {/* Dynamic Student Banner with Geometric Pattern & Dynamic Greeting */}
       <div className="relative overflow-hidden rounded-3xl bg-primary p-6 md:p-8 text-white shadow-lg">
         {/* Background Geometric Pattern Accent */}
-        <div className="absolute inset-0 z-0 opacity-10 pointer-events-none bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:24px_24px]" />
+        <div className="absolute inset-0 z-0 opacity-10 pointer-events-none bg-[radial-gradient(#ffffff_1px,transparent_1px)] bg-size-[24px_24px]" />
         <div className="absolute -bottom-16 -right-16 w-80 h-80 rounded-full border border-white/10 bg-white/5 backdrop-blur-3xl pointer-events-none" />
 
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2">
             <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">
-  {getGreeting()}, {userProfile.name}!
-</h1>
-<p className="text-xs md:text-sm text-white/90 max-w-xl font-medium leading-relaxed">
-  We found <strong className="text-accent font-black">{weightedMatches.length} scholarship matches</strong> for you based on your profile.
-</p>
+              {getGreeting()}, {userProfile.name}!
+            </h1>
+            <p className="text-xs md:text-sm text-white/90 max-w-xl font-medium leading-relaxed">
+              We found <strong className="text-accent font-black">{weightedMatches.length} scholarship matches</strong> for you based on your profile.
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -316,7 +394,7 @@ export default function StudentDashboard() {
           </span>
 
           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-secondary/10 text-secondary font-bold border border-secondary/20">
-            <MapPin className="h-3.5 w-3.5" /> {userProfile.location}
+            <MapPin className="h-3.5 w-3.5" /> {getProfileLocation()}
           </span>
 
           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-accent/10 text-accent font-bold border border-accent/20">
@@ -326,12 +404,78 @@ export default function StudentDashboard() {
 
         <button 
           type="button"
-          onClick={() => navigate('/dashboard/student/profile')}
+          onClick={handleEditProfile}
           className="text-xs font-bold text-primary hover:underline cursor-pointer bg-transparent border-0"
         >
           Edit Profile
         </button>
       </div>
+
+      {/* Profile Information Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+        <div className="bg-card-bg border border-app-text/10 rounded-2xl p-4 shadow-xs">
+          <div className="flex items-center gap-2 mb-2">
+            <GraduationCap className="h-4 w-4 text-primary" />
+            <span className="text-[11px] uppercase tracking-wider font-bold text-text-muted">Academic</span>
+          </div>
+          <p className="text-sm font-extrabold text-app-text">
+            {userProfile.course}
+          </p>
+          <p className="text-[11px] text-text-muted mt-1">
+            {userProfile.academicLevel}
+          </p>
+        </div>
+
+        <div className="bg-card-bg border border-app-text/10 rounded-2xl p-4 shadow-xs">
+          <div className="flex items-center gap-2 mb-2">
+            <MapPin className="h-4 w-4 text-secondary" />
+            <span className="text-[11px] uppercase tracking-wider font-bold text-text-muted">Location</span>
+          </div>
+          <p className="text-sm font-extrabold text-app-text">
+            {getProfileLocation()}
+          </p>
+          <p className="text-[11px] text-text-muted mt-1">
+            Used for scholarship matching
+          </p>
+        </div>
+
+        <div className="bg-card-bg border border-app-text/10 rounded-2xl p-4 shadow-xs">
+          <div className="flex items-center gap-2 mb-2">
+            <Coins className="h-4 w-4 text-accent" />
+            <span className="text-[11px] uppercase tracking-wider font-bold text-text-muted">Financial</span>
+          </div>
+          <p className="text-sm font-extrabold text-app-text">
+            {userProfile.financialBracket}
+          </p>
+          <p className="text-[11px] text-text-muted mt-1">
+            Used for eligibility matching
+          </p>
+        </div>
+
+      </div>
+
+      {/* Profile Error / Completion Notice */}
+      {profileError && (
+        <div className="bg-accent/5 border border-accent/20 rounded-2xl p-4 flex items-start gap-3">
+          <AlertCircle className="h-5 w-5 text-accent shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-xs font-extrabold text-app-text">
+              Complete your student profile
+            </p>
+            <p className="text-[11px] text-text-muted mt-1">
+              Add your academic, financial, location, and eligibility information so ISKOLARMatch can provide more relevant scholarship matches.
+            </p>
+            <button
+              type="button"
+              onClick={handleEditProfile}
+              className="mt-2 text-[11px] font-extrabold text-primary hover:underline cursor-pointer bg-transparent border-0 p-0"
+            >
+              Complete Profile →
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Layout Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -341,7 +485,7 @@ export default function StudentDashboard() {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-base font-extrabold text-app-text flex items-center gap-2">
-                
+                <Sparkles className="h-4 w-4 text-primary" />
                 <span>Top Matches For You</span>
               </h2>
               <p className="text-xs text-text-muted font-medium">Ranked directly by your GWA, residence, and income class.</p>
@@ -361,6 +505,14 @@ export default function StudentDashboard() {
               <Inbox className="h-10 w-10 text-text-muted mx-auto" />
               <p className="text-sm font-bold text-app-text">No matches available right now</p>
               <p className="text-xs text-text-muted">Update your academic profile to unlock fresh recommendations.</p>
+              <button
+                type="button"
+                onClick={handleEditProfile}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-xs font-extrabold hover:bg-primary/90 transition-all cursor-pointer"
+              >
+                Update Profile
+                <ArrowRight className="h-3.5 w-3.5" />
+              </button>
             </div>
           ) : (
             <div className="space-y-3.5">
@@ -409,9 +561,11 @@ export default function StudentDashboard() {
 
                     {/* Title & Provider */}
                     <h3 className="text-sm font-black text-app-text group-hover:text-primary transition-colors">
-                      {item.title}
+                      {item.title || item.name || 'Scholarship Program'}
                     </h3>
-                    <p className="text-xs text-text-muted font-medium mt-0.5">{item.provider}</p>
+                    <p className="text-xs text-text-muted font-medium mt-0.5">
+                      {item.provider || item.providerName || 'Scholarship Provider'}
+                    </p>
 
                     {/* Qualification Reason Dropdown */}
                     {item.matchBreakdown && (
@@ -431,20 +585,20 @@ export default function StudentDashboard() {
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                               <div className="bg-card-bg p-2 rounded-lg border border-app-text/10">
                                 <span className="text-text-muted text-[10px] uppercase font-bold block">Academic Fit</span>
-                                <strong className="text-app-text text-xs">{item.matchBreakdown.gwa?.score}/{item.matchBreakdown.gwa?.max} pts</strong>
-                                <p className="text-[10px] text-text-muted mt-0.5">{item.matchBreakdown.gwa?.detail}</p>
+                                <strong className="text-app-text text-xs">{item.matchBreakdown.gwa?.score || 0}/{item.matchBreakdown.gwa?.max || 40} pts</strong>
+                                <p className="text-[10px] text-text-muted mt-0.5">{item.matchBreakdown.gwa?.detail || 'Academic qualification match'}</p>
                               </div>
 
                               <div className="bg-card-bg p-2 rounded-lg border border-app-text/10">
                                 <span className="text-text-muted text-[10px] uppercase font-bold block">Residency</span>
-                                <strong className="text-app-text text-xs">{item.matchBreakdown.location?.score}/{item.matchBreakdown.location?.max} pts</strong>
-                                <p className="text-[10px] text-text-muted mt-0.5">{item.matchBreakdown.location?.detail}</p>
+                                <strong className="text-app-text text-xs">{item.matchBreakdown.location?.score || 0}/{item.matchBreakdown.location?.max || 30} pts</strong>
+                                <p className="text-[10px] text-text-muted mt-0.5">{item.matchBreakdown.location?.detail || 'Location qualification match'}</p>
                               </div>
 
                               <div className="bg-card-bg p-2 rounded-lg border border-app-text/10">
                                 <span className="text-text-muted text-[10px] uppercase font-bold block">Financial Bracket</span>
-                                <strong className="text-app-text text-xs">{item.matchBreakdown.financial?.score}/{item.matchBreakdown.financial?.max} pts</strong>
-                                <p className="text-[10px] text-text-muted mt-0.5">{item.matchBreakdown.financial?.detail}</p>
+                                <strong className="text-app-text text-xs">{item.matchBreakdown.financial?.score || 0}/{item.matchBreakdown.financial?.max || 30} pts</strong>
+                                <p className="text-[10px] text-text-muted mt-0.5">{item.matchBreakdown.financial?.detail || 'Financial qualification match'}</p>
                               </div>
                             </div>
                           </div>
@@ -457,7 +611,7 @@ export default function StudentDashboard() {
                       <div>
                         <span className="text-text-muted font-medium">Grant Amount: </span>
                         <strong className="text-sm font-extrabold text-app-text">
-                          {formatCurrency(item.amount)} <span className="text-xs font-normal text-text-muted">/{item.amountPeriod || 'yr'}</span>
+                          {formatCurrency(item.amount || item.amountValue || 0)} <span className="text-xs font-normal text-text-muted">/{item.amountPeriod || 'yr'}</span>
                         </strong>
                       </div>
 
@@ -517,11 +671,31 @@ export default function StudentDashboard() {
           {/* Quick Tip Box with Theme Primary */}
           <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4 space-y-1 text-xs">
             <p className="font-extrabold text-primary flex items-center gap-1.5">
+              <Zap className="h-3.5 w-3.5" />
               Quick Iskolar Tip
             </p>
             <p className="text-text-muted leading-relaxed text-[11px]">
-              Keep your profile GWA up to date! Providers prioritize students whose profiles match their target grade range.
+              Keep your profile GWA, course, income bracket, and location up to date! These details help ISKOLARMatch identify scholarships that fit your eligibility.
             </p>
+          </div>
+
+          {/* Profile Action Card */}
+          <div className="bg-card-bg border border-app-text/10 rounded-2xl p-4 shadow-xs">
+            <div className="flex items-center gap-2 mb-2">
+              <Flame className="h-4 w-4 text-accent" />
+              <span className="text-xs font-extrabold text-app-text">Improve Your Matches</span>
+            </div>
+            <p className="text-[11px] text-text-muted leading-relaxed mb-3">
+              Make sure your student profile is complete so the matching engine can use your latest information.
+            </p>
+            <button
+              type="button"
+              onClick={handleEditProfile}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-primary text-white rounded-xl text-xs font-extrabold hover:bg-primary/90 transition-all cursor-pointer"
+            >
+              View / Edit Profile
+              <ArrowRight className="h-3.5 w-3.5" />
+            </button>
           </div>
         </div>
 

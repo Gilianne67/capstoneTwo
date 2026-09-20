@@ -21,6 +21,7 @@ const app = express();
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const consentRoutes = require('./routes/consentRoutes');
+const studentRoutes = require('../routes/studentRoutes');
 const errorHandler = require('./middleware/error');
 
 // Security & Utility Middlewares
@@ -64,6 +65,7 @@ app.get('/api/v1/health', (req, res) => {
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/user', userRoutes);
 app.use('/api/v1/consent', consentRoutes);
+app.use('/api/v1/students', studentRoutes);
 
 // Centralized Error Handling Middleware (must be after routes)
 app.use(errorHandler);

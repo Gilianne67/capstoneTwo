@@ -2,12 +2,14 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { Bell, LogOut, Loader2, User as UserIcon, WifiOff } from 'lucide-react';
 import Sidebar from '../components/navigation/Sidebar';
+import { useAuth } from '../context/AuthContext';
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_URL || 'https://api.iskolarmatch.ph/v1';
+  import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
 
 export default function AppLayout() {
   const navigate = useNavigate();
+  const { logout: clearAuth } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [session, setSession] = useState(null);
   const [isLoadingSession, setIsLoadingSession] = useState(true);
@@ -24,7 +26,7 @@ export default function AppLayout() {
   let isMounted = true;
 
   const verifySession = async () => {
-    const token = localStorage.getItem('iskolar_token');
+    const token = localStorage.getItem('token');
 
     if (!token) {
       if (isMounted) {
@@ -59,7 +61,7 @@ export default function AppLayout() {
     } catch (err) {
       console.error('Session verification failed:', err);
 
-      localStorage.removeItem('iskolar_token');
+      localStorage.removeItem('token');
       localStorage.removeItem('iskolar_session');
 
       if (isMounted) {
@@ -115,7 +117,7 @@ export default function AppLayout() {
   // 3. Logout Handler
   const handleLogout = useCallback(async () => {
     try {
-      const token = localStorage.getItem('iskolar_token');
+      const token = localStorage.getItem('token');
       if (token) {
         await fetch(`${API_BASE_URL}/auth/logout`, {
           method: 'POST',
@@ -125,11 +127,10 @@ export default function AppLayout() {
     } catch (_err) {
       console.warn('Logout API unreachable.');
     } finally {
-      localStorage.removeItem('token');
-      localStorage.removeItem('iskolar_session');
+      clearAuth();
       navigate('/auth?mode=signin', { replace: true });
     }
-  }, [navigate]);
+  }, [clearAuth, navigate]);
 
   const role = session?.role || 'student';
 

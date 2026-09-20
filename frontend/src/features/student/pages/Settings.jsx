@@ -3,6 +3,7 @@ import ProfileHeader from '../../../components/settings/ProfileHeader';
 import SecurityForm from '../../../components/settings/SecurityForm';
 import NotificationToggles from '../../../components/settings/NotificationToggles';
 import { GraduationCap, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { useAuth } from '../../../context/AuthContext';
 
 const DEFAULT_ACADEMIC = {
   course: 'BS Information Technology',
@@ -18,6 +19,7 @@ const DEFAULT_NOTIFICATIONS = [
 ];
 
 export function Settings() {
+  const { user } = useAuth();
   const [academicDetails, setAcademicDetails] = useState(DEFAULT_ACADEMIC);
   const [notifications, setNotifications] = useState(DEFAULT_NOTIFICATIONS);
   const [isLoading, setIsLoading] = useState(true);
@@ -138,9 +140,9 @@ export function Settings() {
 
       {/* Header Profile Section */}
       <ProfileHeader 
-        name="Juan Dela Cruz"
-        email="jdelacruz@gmail.com"
-        role="student"
+        name={user?.name || 'Student'}
+        email={user?.email || ''}
+        role={user?.role || 'student'}
         subtitle={academicDetails.course || "Student"}
         badgeText="Verified Student"
         onAvatarChange={async (file) => {
