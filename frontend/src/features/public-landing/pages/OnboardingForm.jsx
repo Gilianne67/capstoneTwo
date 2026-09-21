@@ -13,6 +13,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
+import { REGIONS } from "../../../data/locationData";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
@@ -458,14 +459,21 @@ export function OnboardingForm({ onComplete }) {
 
           <div>
             <label className="block text-xs font-bold text-app-text mb-1">Region</label>
-            <input
-              type="text"
-              name="region"
-              value={formData.region}
-              onChange={handleChange}
-              required
-              className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none"
-            />
+              <select
+                  name="region"
+                  value={formData.region}
+                  onChange={handleChange}
+                  required
+                  className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none cursor-pointer"
+                >
+                  <option value="">Select region</option>
+
+                  {REGIONS.map((region) => (
+                    <option key={region} value={region}>
+                      {region}
+                    </option>
+                  ))}
+                </select>
           </div>
 
           <div className="sm:col-span-2">
