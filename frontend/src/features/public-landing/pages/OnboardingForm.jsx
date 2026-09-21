@@ -21,16 +21,17 @@ export function OnboardingForm({ onComplete }) {
   const { user, token: contextToken, updateUser } = useAuth();
 
   const [formData, setFormData] = useState({
-    dob: '',
-    course: '',
-    yearLevel: '1st Year',
-    gpa: '',
-    region: '',
-    householdIncome: 'Below ₱10,000 / month',
-    guardianName: '',
-    guardianEmail: '',
-    dpaConsent: false
-  });
+  dob: '',
+  course: '',
+  academicLevel: 'College',
+  yearLevel: '1st Year',
+  gpa: '',
+  region: '',
+  householdIncome: 'Below ₱10,000 / month',
+  guardianName: '',
+  guardianEmail: '',
+  dpaConsent: false
+});;
 
   const [isMinor, setIsMinor] = useState(false);
   const [calculatedAge, setCalculatedAge] = useState(null);
@@ -100,6 +101,24 @@ export function OnboardingForm({ onComplete }) {
       }
     }
 
+    const gwa = parseFloat(formData.gpa);
+
+    if (isNaN(gwa)) {
+      setError('Please enter a valid GWA.');
+      return;
+    }
+
+    let gwaScale;
+
+    if (gwa >= 1 && gwa <= 5) {
+      gwaScale = '1.00-5.00';
+    } else if (gwa >= 60 && gwa <= 100) {
+      gwaScale = '60-100';
+    } else {
+      setError('GWA must be between 1.00–5.00 or 60–100.');
+      return;
+    }
+
     setIsSubmitting(true);
     const token = getCleanToken();
 
@@ -114,8 +133,10 @@ export function OnboardingForm({ onComplete }) {
         body: JSON.stringify({
           dob: formData.dob,
           course: formData.course,
+          academicLevel: formData.academicLevel,
           yearLevel: formData.yearLevel,
-          gpa: parseFloat(formData.gpa),
+          gpa: gwa,
+          gwaScale: gwaScale,
           region: formData.region,
           householdIncome: formData.householdIncome,
           guardianName: isMinor ? formData.guardianName : undefined,
@@ -350,34 +371,89 @@ export function OnboardingForm({ onComplete }) {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-app-text mb-1">Year Level</label>
-            <select
-              name="yearLevel"
-              value={formData.yearLevel}
-              onChange={handleChange}
-              className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none cursor-pointer"
-            >
-              <option>1st Year</option>
-              <option>2nd Year</option>
-              <option>3rd Year</option>
-              <option>4th Year</option>
-              <option>Postgraduate</option>
-            </select>
-          </div>
+  <label className="block text-xs font-bold text-app-text mb-1">
+  Academic Level
+</label>
+
+<select
+  name="academicLevel"
+  value={formData.academicLevel}
+  onChange={(e) => {
+    const academicLevel = e.target.value;
+
+    setFormData(prev => ({
+      ...prev,
+      academicLevel,
+      yearLevel:
+        academicLevel === 'Senior High School'
+          ? 'Grade 11'
+          : academicLevel === 'College'
+            ? '1st Year'
+            : 'Masteral'
+    }));
+  }}
+  className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none cursor-pointer"
+>
+  <option value="Senior High School">Senior High School</option>
+  <option value="College">College</option>
+  <option value="Graduate Studies">Post Graduate Studies</option>
+</select>
+</div>
+
+<div>
+  <label className="block text-xs font-bold text-app-text mb-1">
+    {formData.academicLevel === 'Senior High School'
+      ? 'Grade Level'
+      : formData.academicLevel === 'Graduate Studies'
+        ? 'Program Level'
+        : 'Year Level'}
+  </label>
+
+  <select
+    name="yearLevel"
+    value={formData.yearLevel}
+    onChange={handleChange}
+    className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none cursor-pointer"
+  >
+    {formData.academicLevel === 'Senior High School' ? (
+      <>
+        <option value="Grade 11">Grade 11</option>
+        <option value="Grade 12">Grade 12</option>
+      </>
+    ) : formData.academicLevel === 'Graduate Studies' ? (
+      <>
+        <option value="Masteral">Master's</option>
+        <option value="Doctoral">Doctoral</option>
+      </>
+    ) : (
+      <>
+        <option value="1st Year">1st Year</option>
+        <option value="2nd Year">2nd Year</option>
+        <option value="3rd Year">3rd Year</option>
+        <option value="4th Year">4th Year</option>
+      </>
+    )}
+  </select>
+</div>
 
           <div>
             <label className="block text-xs font-bold text-app-text mb-1">Current GWA / GPA</label>
             <input
               type="number"
               step="0.01"
-              min="1.0"
-              max="5.0"
+              min="1"
+              max="100"
               name="gpa"
               value={formData.gpa}
               onChange={handleChange}
               required
+              placeholder="e.g. 1.75 or 85"
               className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none"
             />
+
+            <p className="text-[10px] text-slate-500 mt-1">
+              Enter your GWA using your school's grading scale (1.00–5.00 or 60–100).
+            </p>
           </div>
 
           <div>
