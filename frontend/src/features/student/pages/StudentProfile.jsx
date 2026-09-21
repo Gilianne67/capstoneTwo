@@ -1038,25 +1038,33 @@ export default function StudentProfile() {
                 }
                 className="w-full md:w-1/2 px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-hidden focus:border-blue-500"
               >
-                <option value="">
-                  Select income bracket
-                </option>
+            
 
-                <option value="Category A">
-                  Category A
-                </option>
+                  <option value="">Select income bracket</option>
 
-                <option value="Category B">
-                  Category B
-                </option>
+                      <option value="Below ₱10,000 / month">
+                        Below ₱10,000 / month
+                      </option>
 
-                <option value="Category C">
-                  Category C
-                </option>
+                      <option value="₱10,001 – ₱21,190 / month">
+                        ₱10,001 – ₱21,190 / month
+                      </option>
 
-                <option value="Category D">
-                  Category D
-                </option>
+                      <option value="₱21,191 – ₱43,828 / month">
+                        ₱21,191 – ₱43,828  / month
+                      </option>
+
+                      <option value="₱43,829 – ₱76,669 / month">
+                        ₱43,829 – ₱76,669 / month
+                      </option>
+
+                      <option value="₱76,670 – ₱131,484 / month">
+                        ₱76,670 – ₱131,484 / month
+                      </option>
+
+                      <option value="Above ₱131,484 / month">
+                        Above ₱131,484 / month
+                      </option>
               </select>
             </div>
 

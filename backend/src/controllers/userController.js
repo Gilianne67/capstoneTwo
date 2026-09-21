@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const StudentProfile = require('../models/StudentProfile');
 const { sendParentConsentEmail } = require('../utils/emailService');
 
 // Shared secret for signing & verifying consent tokens across all functions
@@ -9,9 +10,17 @@ const JWT_SECRET = process.env.JWT_SECRET || 'iskolarmatch_fallback_secret_key';
 exports.handleOnboarding = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { 
-      dob, course, yearLevel, gpa, region, 
-      householdIncome, guardianName, guardianEmail, isMinor 
+    const {
+      dob,
+      course,
+      academicLevel,
+      yearLevel,
+      gpa,
+      region,
+      householdIncome,
+      guardianName,
+      guardianEmail,
+      isMinor
     } = req.body;
 
     const studentUser = await User.findById(userId);
@@ -61,6 +70,28 @@ exports.handleOnboarding = async (req, res) => {
       { new: true, runValidators: true }
     );
 
+
+// Create or update the StudentProfile using onboarding data
+      await StudentProfile.findOneAndUpdate(
+          { userId: userId },
+          {
+            userId: userId,
+            dateOfBirth: dob,
+            academicLevel: academicLevel,
+            yearLevel: yearLevel,
+            course: course,
+            gwa: gpa,
+            region: region,
+            incomeBracket: householdIncome,
+            isMinor: !!isMinor
+          },
+          {
+            returnDocument: 'after',
+            upsert: true,
+            runValidators: true,
+            setDefaultsOnInsert: true
+          }
+);
     if (isMinor) {
       const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
       const consentLink = `${clientUrl}/consent/verify?token=${consentToken}`;
