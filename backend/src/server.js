@@ -26,6 +26,7 @@ const errorHandler = require('./middleware/error');
 const providerRoutes = require('./routes/providerRoutes');
 const scholarshipRoutes = require('./routes/scholarshipRoutes');
 const studentRoutes = require('./routes/studentRoutes');
+const matchingRoutes = require('./routes/matchingRoutes');
 
 
 // Security & Utility Middlewares
@@ -74,6 +75,7 @@ app.use('/api/v1/consent', consentRoutes);
 app.use('/api/v1/providers', providerRoutes);
 app.use('/api/v1/scholarships', scholarshipRoutes);
 app.use('/api/v1/students', studentRoutes);
+app.use('/api/v1/matching', matchingRoutes);
 
 // Centralized Error Handling Middleware (must be after routes)
 app.use(errorHandler);

@@ -12,6 +12,12 @@ import {
   Loader2
 } from 'lucide-react';
 
+import {
+  REGIONS,
+  PROVINCES,
+  MUNICIPALITIES
+} from '../../../data/locationData';
+
 const API_BASE_URL = (
   import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
 ).replace(/\/$/, '');
@@ -755,20 +761,35 @@ export default function StudentProfile() {
                   Municipality / City
                 </label>
 
-                <input
-                  type="text"
-                  value={
-                    formData.municipalityCity ||
-                    ''
-                  }
-                  onChange={(e) =>
-                    handleInputChange(
-                      'municipalityCity',
-                      e.target.value
-                    )
-                  }
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-hidden focus:border-blue-500"
-                />
+                    <select
+                        value={formData.municipalityCity || ''}
+                        onChange={(e) =>
+                          handleInputChange(
+                            'municipalityCity',
+                            e.target.value
+                          )
+                        }
+                        disabled={!formData.province}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-hidden focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
+                      >
+                        <option value="">
+                          {formData.province
+                            ? 'Select municipality / city'
+                            : 'Select province first'}
+                        </option>
+
+                        {(MUNICIPALITIES[formData.province] || []).map(
+                          (municipality) => (
+                            <option
+                              key={municipality}
+                              value={municipality}
+                            >
+                              {municipality}
+                            </option>
+                          )
+                        )}
+                      </select>
+
               </div>
 
               {/* Province */}
@@ -777,19 +798,27 @@ export default function StudentProfile() {
                   Province
                 </label>
 
-                <input
-                  type="text"
-                  value={
-                    formData.province || ''
-                  }
-                  onChange={(e) =>
-                    handleInputChange(
-                      'province',
-                      e.target.value
-                    )
-                  }
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-hidden focus:border-blue-500"
-                />
+                    <select
+                        value={formData.province || ''}
+                        onChange={(e) => {
+                          handleInputChange('province', e.target.value);
+                          handleInputChange('municipalityCity', '');
+                        }}
+                        disabled={!formData.region}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-hidden focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
+                      >
+                        <option value="">
+                          {formData.region
+                            ? 'Select province'
+                            : 'Select region first'}
+                        </option>
+
+                        {(PROVINCES[formData.region] || []).map((province) => (
+                          <option key={province} value={province}>
+                            {province}
+                          </option>
+                        ))}
+                      </select>
               </div>
 
               {/* Region */}
@@ -798,19 +827,23 @@ export default function StudentProfile() {
                   Region
                 </label>
 
-                <input
-                  type="text"
-                  value={
-                    formData.region || ''
-                  }
-                  onChange={(e) =>
-                    handleInputChange(
-                      'region',
-                      e.target.value
-                    )
-                  }
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-hidden focus:border-blue-500"
-                />
+                      <select
+                    value={formData.region || ''}
+                    onChange={(e) => {
+                      handleInputChange('region', e.target.value);
+                      handleInputChange('province', '');
+                      handleInputChange('municipalityCity', '');
+                    }}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-hidden focus:border-blue-500"
+                  >
+                    <option value="">Select region</option>
+
+                    {REGIONS.map((region) => (
+                      <option key={region} value={region}>
+                        {region}
+                      </option>
+                    ))}
+                  </select>
               </div>
 
             </div>

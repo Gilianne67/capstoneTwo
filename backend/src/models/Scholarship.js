@@ -68,6 +68,18 @@ const scholarshipSchema = new mongoose.Schema(
       },
 
       geographicLocation: {
+        scope: {
+          type: String,
+          enum: [
+            'Nationwide',
+            'Region',
+            'Province',
+            'Municipality'
+          ],
+          default: 'Nationwide',
+          required: true
+        },
+
         regions: {
           type: [String],
           default: []

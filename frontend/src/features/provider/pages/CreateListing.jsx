@@ -18,6 +18,12 @@ import {
 
 import PageHeader from '../../../components/common/PageHeader';
 
+import {
+  REGIONS,
+  PROVINCES,
+  MUNICIPALITIES
+} from '../../../data/locationData';
+
 // Standard System Demographic Tags from Paper Blueprint (Table 3.8)
 const SYSTEM_DEMOGRAPHIC_TAGS = [
   '4Ps Beneficiary',
@@ -29,6 +35,7 @@ const SYSTEM_DEMOGRAPHIC_TAGS = [
   'Disaster-Affected Family',
   'Working Student'
 ];
+;
 
 
 export default function CreateListing({ onBack, onSuccess, initialData = null }) {
@@ -63,8 +70,10 @@ const [maxIncome, setMaxIncome] = useState('');
 const [allowedCourses, setAllowedCourses] = useState([]);
 const [newCourse, setNewCourse] = useState('');
 
-const [allowedLocations, setAllowedLocations] = useState([]);
-const [newLocation, setNewLocation] = useState('');
+const [geographicScope, setGeographicScope] = useState('Nationwide');
+const [selectedRegion, setSelectedRegion] = useState('');
+const [selectedProvince, setSelectedProvince] = useState('');
+const [selectedMunicipality, setSelectedMunicipality] = useState('');
 
 const [customHardFilters, setCustomHardFilters] = useState([]);
 const [newHardFilterLabel, setNewHardFilterLabel] = useState('');
@@ -135,17 +144,26 @@ useEffect(() => {
       initialData.hardFilters?.courseProgram || []
     );
 
-  const geographicLocation = initialData.hardFilters?.geographicLocation;
+      const geographicLocation =
+      initialData.hardFilters?.geographicLocation;
 
-  if (geographicLocation) {
-    const locations = [
-      ...(geographicLocation.regions || []),
-      ...(geographicLocation.provinces || []),
-      ...(geographicLocation.municipalities || [])
-    ];
+    if (geographicLocation) {
+      setGeographicScope(
+        geographicLocation.scope || 'Nationwide'
+      );
 
-    setAllowedLocations(locations);
-  } else {
+      setSelectedRegion(
+        geographicLocation.regions?.[0] || ''
+      );
+
+      setSelectedProvince(
+        geographicLocation.provinces?.[0] || ''
+      );
+
+      setSelectedMunicipality(
+        geographicLocation.municipalities?.[0] || ''
+      );
+    } else {
     setAllowedLocations([]);
   }
 
@@ -188,18 +206,6 @@ useEffect(() => {
 
   const handleRemoveCourse = (index) => {
     setAllowedCourses(prev => prev.filter((_, idx) => idx !== index));
-  };
-
-  const handleAddLocation = () => {
-    if (!newLocation.trim()) return;
-    if (!allowedLocations.includes(newLocation.trim())) {
-      setAllowedLocations(prev => [...prev, newLocation.trim()]);
-    }
-    setNewLocation('');
-  };
-
-  const handleRemoveLocation = (index) => {
-    setAllowedLocations(prev => prev.filter((_, idx) => idx !== index));
   };
 
   const handleAddCustomHardFilter = () => {
@@ -367,11 +373,27 @@ const handleExecutePublish = async () => {
     hardFilters: {
       academicLevel,
       courseProgram: allowedCourses,
-      geographicLocation: {
-        regions: allowedLocations,
-        provinces: [],
-        municipalities: []
-      },
+        geographicLocation: {
+          scope: geographicScope,
+
+          regions:
+            geographicScope !== 'Nationwide' && selectedRegion
+              ? [selectedRegion]
+              : [],
+
+          provinces:
+            (geographicScope === 'Province' ||
+              geographicScope === 'Municipality') &&
+            selectedProvince
+              ? [selectedProvince]
+              : [],
+
+          municipalities:
+            geographicScope === 'Municipality' &&
+            selectedMunicipality
+              ? [selectedMunicipality]
+              : []
+        },
       citizenshipStatus: citizenship
     },
 
@@ -699,41 +721,109 @@ const handleSuccessClose = () => {
             </div>
 
             {/* Locations */}
-            <div className="space-y-2 text-xs font-semibold pt-1 border-t border-rose-100/80">
-              <label className="block text-slate-700 flex items-center justify-between">
-                <span className="flex items-center gap-1">
-                  <MapPin className="w-3.5 h-3.5 text-rose-600" /> Geographic Bounds (Regions / Provinces)
-                </span>
-                <span className="text-[10px] text-slate-400 font-normal">Custom Dynamic List</span>
-              </label>
-              <div className="flex gap-2">
-                <input 
-                  type="text"
-                  placeholder="e.g. Region V (Bicol Region)"
-                  value={newLocation}
-                  onChange={e => setNewLocation(e.target.value)}
-                  className="flex-1 px-3.5 py-2 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500"
-                />
-                <button
-                  type="button"
-                  onClick={handleAddLocation}
-                  className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold transition-colors cursor-pointer flex items-center gap-1"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Add Region
-                </button>
-              </div>
+            {/* Geographic Eligibility */}
+              <div className="space-y-3 text-xs font-semibold pt-1 border-t border-rose-100/80">
+                <label className="block text-slate-700 flex items-center gap-1">
+                  <MapPin className="w-3.5 h-3.5 text-rose-600" />
+                  Geographic Eligibility
+                </label>
 
-              <div className="flex flex-wrap gap-2 pt-1">
-                {allowedLocations.map((loc, idx) => (
-                  <span key={idx} className="inline-flex items-center gap-1.5 px-3 py-1 bg-white text-slate-800 border border-slate-200 rounded-xl text-xs font-semibold shadow-2xs">
-                    {loc}
-                    <button type="button" onClick={() => handleRemoveLocation(idx)} className="hover:text-rose-600 transition-colors cursor-pointer">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </span>
-                ))}
+                {/* Geographic Scope */}
+                <select
+                  value={geographicScope}
+                  onChange={(e) => {
+                    setGeographicScope(e.target.value);
+                    setSelectedRegion('');
+                    setSelectedProvince('');
+                    setSelectedMunicipality('');
+                  }}
+                  className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500 cursor-pointer"
+                >
+                  <option value="Nationwide">Nationwide</option>
+                  <option value="Region">Region</option>
+                  <option value="Province">Province</option>
+                  <option value="Municipality">Municipality / City</option>
+                </select>
+
+                {/* Region */}
+                {geographicScope !== 'Nationwide' && (
+                  <div>
+                    <label className="block text-slate-700 mb-1">
+                      Region
+                    </label>
+
+                    <select
+                      value={selectedRegion}
+                      onChange={(e) => {
+                        setSelectedRegion(e.target.value);
+                        setSelectedProvince('');
+                        setSelectedMunicipality('');
+                      }}
+                      className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500 cursor-pointer"
+                    >
+                      <option value="">Select region</option>
+
+                      {REGIONS.map((region) => (
+                        <option key={region} value={region}>
+                          {region}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Province */}
+                {(geographicScope === 'Province' ||
+                  geographicScope === 'Municipality') &&
+                  selectedRegion && (
+                    <div>
+                      <label className="block text-slate-700 mb-1">
+                        Province
+                      </label>
+
+                      <select
+                        value={selectedProvince}
+                        onChange={(e) => {
+                          setSelectedProvince(e.target.value);
+                          setSelectedMunicipality('');
+                        }}
+                        className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500 cursor-pointer"
+                      >
+                        <option value="">Select province</option>
+
+                        {(PROVINCES[selectedRegion] || []).map((province) => (
+                          <option key={province} value={province}>
+                            {province}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                {/* Municipality */}
+                {geographicScope === 'Municipality' &&
+                  selectedProvince && (
+                    <div>
+                      <label className="block text-slate-700 mb-1">
+                        Municipality / City
+                      </label>
+
+                      <select
+                        value={selectedMunicipality}
+                        onChange={(e) => setSelectedMunicipality(e.target.value)}
+                        className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500 cursor-pointer"
+                      >
+                        <option value="">Select municipality / city</option>
+
+                        {(MUNICIPALITIES[selectedProvince] || []).map((municipality) => (
+                          <option key={municipality} value={municipality}>
+                            {municipality}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
               </div>
-            </div>
 
             {/* Custom Hard Filters */}
             <div className="space-y-2 text-xs font-semibold pt-1 border-t border-rose-100/80">
@@ -848,7 +938,7 @@ const handleSuccessClose = () => {
             </div>
           </div>
         );
-      })}
+      })}      
     </div>
   </div>
 
