@@ -6,7 +6,7 @@ exports.createScholarship = async (req, res) => {
   try {
     // Find the Provider profile linked to the authenticated user
     const provider = await Provider.findOne({
-      userId: req.user.id,
+      userId: req.user.id || req.user._id,
     });
 
     if (!provider) {
@@ -24,10 +24,10 @@ exports.createScholarship = async (req, res) => {
       });
     }
 
-    // Create scholarship using the authenticated provider's ID
+    // Create scholarship using the updated Schema structure
     const scholarship = await Scholarship.create({
       ...req.body,
-      providerId: provider._id,
+      provider: provider._id, // Updated reference field to match model
     });
 
     res.status(201).json({
@@ -37,6 +37,14 @@ exports.createScholarship = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Create Scholarship Error:', error);
+
+    // Capture Mongoose weight validation & schema errors
+    if (error.name === 'ValidationError' || error.message.includes('100%')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
 
     res.status(500).json({
       success: false,
@@ -49,7 +57,7 @@ exports.createScholarship = async (req, res) => {
 exports.getMyScholarships = async (req, res) => {
   try {
     const provider = await Provider.findOne({
-      userId: req.user.id,
+      userId: req.user.id || req.user._id,
     });
 
     if (!provider) {
@@ -60,8 +68,8 @@ exports.getMyScholarships = async (req, res) => {
     }
 
     const scholarships = await Scholarship.find({
-      providerId: provider._id,
-      isArchived: false,
+      provider: provider._id,
+      isPublished: true, // Filters active listings matching updated schema
     }).sort({ createdAt: -1 });
 
     res.status(200).json({
@@ -70,7 +78,7 @@ exports.getMyScholarships = async (req, res) => {
       scholarships,
     });
   } catch (error) {
-    console.error(' Get My Scholarships Error:', error);
+    console.error('❌ Get My Scholarships Error:', error);
 
     res.status(500).json({
       success: false,
@@ -83,7 +91,7 @@ exports.getMyScholarships = async (req, res) => {
 exports.getScholarshipById = async (req, res) => {
   try {
     const provider = await Provider.findOne({
-      userId: req.user.id,
+      userId: req.user.id || req.user._id,
     });
 
     if (!provider) {
@@ -95,7 +103,7 @@ exports.getScholarshipById = async (req, res) => {
 
     const scholarship = await Scholarship.findOne({
       _id: req.params.id,
-      providerId: provider._id,
+      provider: provider._id,
     });
 
     if (!scholarship) {
@@ -110,7 +118,7 @@ exports.getScholarshipById = async (req, res) => {
       scholarship,
     });
   } catch (error) {
-    console.error(' Get Scholarship Error:', error);
+    console.error('❌ Get Scholarship Error:', error);
 
     res.status(500).json({
       success: false,
@@ -123,7 +131,7 @@ exports.getScholarshipById = async (req, res) => {
 exports.updateScholarship = async (req, res) => {
   try {
     const provider = await Provider.findOne({
-      userId: req.user.id,
+      userId: req.user.id || req.user._id,
     });
 
     if (!provider) {
@@ -136,7 +144,7 @@ exports.updateScholarship = async (req, res) => {
     // Find scholarship and verify ownership
     const scholarship = await Scholarship.findOne({
       _id: req.params.id,
-      providerId: provider._id,
+      provider: provider._id,
     });
 
     if (!scholarship) {
@@ -146,24 +154,22 @@ exports.updateScholarship = async (req, res) => {
       });
     }
 
-    // Fields that providers are allowed to edit
+    // Fields allowed according to updated Scholarship Schema
     const allowedFields = [
-      'name',
-      'scholarshipType',
-      'description',
-      'benefits',
+      'title',
       'grantValue',
-      'academicRequirement',
-      'hardFilters',
-      'incomeRequirement',
-      'specialTags',
-      'criteriaWeights',
-      'rankingMode',
-      'deadline',
-      'applicationURL',
+      'category',
+      'applicationDeadline',
+      'externalUrl',
+      'overview',
+      'contactDetails',
+      'hardRequirements',
+      'specialEligibilityTags',
+      'rankingWeights',
+      'isPublished',
     ];
 
-    // Update only allowed fields
+    // Update allowed fields
     allowedFields.forEach((field) => {
       if (req.body[field] !== undefined) {
         scholarship[field] = req.body[field];
@@ -178,7 +184,14 @@ exports.updateScholarship = async (req, res) => {
       scholarship,
     });
   } catch (error) {
-    console.error('Update Scholarship Error:', error);
+    console.error('❌ Update Scholarship Error:', error);
+
+    if (error.name === 'ValidationError' || error.message.includes('100%')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
 
     res.status(500).json({
       success: false,
@@ -187,11 +200,11 @@ exports.updateScholarship = async (req, res) => {
   }
 };
 
-// Update the status of a scholarship belonging to the logged-in provider
+// Toggle or update published status of a scholarship
 exports.updateScholarshipStatus = async (req, res) => {
   try {
     const provider = await Provider.findOne({
-      userId: req.user.id,
+      userId: req.user.id || req.user._id,
     });
 
     if (!provider) {
@@ -203,7 +216,7 @@ exports.updateScholarshipStatus = async (req, res) => {
 
     const scholarship = await Scholarship.findOne({
       _id: req.params.id,
-      providerId: provider._id,
+      provider: provider._id,
     });
 
     if (!scholarship) {
@@ -213,18 +226,16 @@ exports.updateScholarshipStatus = async (req, res) => {
       });
     }
 
-    const { status } = req.body;
+    const { isPublished } = req.body;
 
-    // Only allow valid scholarship statuses
-    if (!['Open', 'Closed'].includes(status)) {
+    if (typeof isPublished !== 'boolean') {
       return res.status(400).json({
         success: false,
-        message: 'Status must be either Open or Closed',
+        message: 'isPublished must be a boolean value (true or false)',
       });
     }
 
-    scholarship.status = status;
-
+    scholarship.isPublished = isPublished;
     await scholarship.save();
 
     res.status(200).json({
@@ -233,7 +244,7 @@ exports.updateScholarshipStatus = async (req, res) => {
       scholarship,
     });
   } catch (error) {
-    console.error('Update Scholarship Status Error:', error);
+    console.error('❌ Update Scholarship Status Error:', error);
 
     res.status(500).json({
       success: false,
@@ -242,11 +253,11 @@ exports.updateScholarshipStatus = async (req, res) => {
   }
 };
 
-// Archive a scholarship belonging to the logged-in provider
+// Archive / Unpublish a scholarship belonging to the logged-in provider
 exports.archiveScholarship = async (req, res) => {
   try {
     const provider = await Provider.findOne({
-      userId: req.user.id,
+      userId: req.user.id || req.user._id,
     });
 
     if (!provider) {
@@ -256,10 +267,9 @@ exports.archiveScholarship = async (req, res) => {
       });
     }
 
-    // Find scholarship and verify ownership
     const scholarship = await Scholarship.findOne({
       _id: req.params.id,
-      providerId: provider._id,
+      provider: provider._id,
     });
 
     if (!scholarship) {
@@ -269,16 +279,14 @@ exports.archiveScholarship = async (req, res) => {
       });
     }
 
-    // Prevent archiving an already archived scholarship
-    if (scholarship.isArchived) {
+    if (!scholarship.isPublished) {
       return res.status(400).json({
         success: false,
-        message: 'Scholarship is already archived',
+        message: 'Scholarship is already unpublished/archived',
       });
     }
 
-    scholarship.isArchived = true;
-
+    scholarship.isPublished = false;
     await scholarship.save();
 
     res.status(200).json({
@@ -287,7 +295,7 @@ exports.archiveScholarship = async (req, res) => {
       scholarship,
     });
   } catch (error) {
-    console.error('Archive Scholarship Error:', error);
+    console.error('❌ Archive Scholarship Error:', error);
 
     res.status(500).json({
       success: false,

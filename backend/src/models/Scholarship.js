@@ -1,177 +1,208 @@
-const mongoose = require('mongoose');  
+const mongoose = require('mongoose');
 
 const scholarshipSchema = new mongoose.Schema(
   {
-
-    providerId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Provider',
-      required: true,
+    // ==========================================
+    // 1. BASIC PROGRAM DETAILS
+    // ==========================================
+    title: {
+      type: String,
+      required: [true, 'Scholarship Program Title is required'],
+      trim: true,
       index: true
     },
-
-
-    name: {
-      type: String,
-      required: true,
-      trim: true
-    },
-
-    scholarshipType: {
-      type: String,
-      required: true,
-      trim: true
-    },
-
-    description: {
-      type: String,
-      required: true,
-      trim: true
-    },
-
-    benefits: {
-      type: [String],
-      default: []
-    },
-
     grantValue: {
       type: String,
-      required: true,
+      required: [true, 'Grant / Financial Value is required'],
       trim: true
     },
-
-    academicRequirement: {
-      minimumGPA: {
-        type: Number,
-        required: true,
-        min: 1,
-        max: 100
-      },
-
-      gradingScale: {
+    category: {
+      type: [{
         type: String,
-        enum: ['1-5', '60-100'],
-        required: true
+        enum: [
+          'Merit-Based',
+          'Need-Based',
+          'STEM Specialized',
+          'Agricultural',
+          'Municipal / Local'
+        ]
+      }],
+      validate: {
+        validator: function (v) {
+          return Array.isArray(v) && v.length > 0;
+        },
+        message: 'At least one scholarship category must be selected'
       }
     },
+    applicationDeadline: {
+      type: Date,
+      required: [true, 'Application Deadline is required']
+    },
+    externalUrl: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    overview: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    contactDetails: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    provider: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User', // References the provider account creating the listing
+      required: false
+    },
 
-    hardFilters: {
+    // ==========================================
+    // 2. HARD REQUIREMENTS (Gatekeeper Constraints)
+    // ==========================================
+    hardRequirements: {
       academicLevel: {
-        type: String,
-        required: true,
-        trim: true
+        type: [{
+          type: String,
+          enum: [
+            'Senior High School',
+            'College / Undergraduate',
+            "Graduate Studies (Master's / PhD)"
+          ]
+        }],
+        default: []
       },
-
-      courseProgram: {
+      citizenship: {
+        type: String,
+        enum: ['Filipino Citizen Only', 'Open to Any Citizenship'],
+        default: 'Filipino Citizen Only'
+      },
+      maxAllowableGwa: {
+        type: Number,
+        default: null
+      },
+      minGwaPercentage: {
+        type: Number,
+        default: null
+      },
+      annualIncomeCeiling: {
+        type: Number,
+        default: null
+      },
+      eligibleDegreePrograms: {
         type: [String],
         default: []
       },
-
-      geographicLocation: {
-        regions: {
-          type: [String],
-          default: []
-        },
-
-        provinces: {
-          type: [String],
-          default: []
-        },
-
-        municipalities: {
-          type: [String],
-          default: []
-        }
+      geographicBounds: {
+        type: [String],
+        default: []
       },
+      customHardRequirements: {
+        type: [String],
+        default: []
+      }
+    },
 
-      citizenshipStatus: {
+    // ==========================================
+    // 3. SPECIAL ELIGIBILITY TAGS (Dynamic Gatekeeping)
+    // ==========================================
+    specialEligibilityTags: {
+      // System Standard Demographic Tags ("Require", "Prefer", or "None")
+      fourPsBeneficiary: {
         type: String,
+        enum: ['Require', 'Prefer', 'None'],
+        default: 'None'
+      },
+      indigenousPeoples: {
+        type: String,
+        enum: ['Require', 'Prefer', 'None'],
+        default: 'None'
+      },
+      pwd: {
+        type: String,
+        enum: ['Require', 'Prefer', 'None'],
+        default: 'None'
+      },
+      soloParentDependent: {
+        type: String,
+        enum: ['Require', 'Prefer', 'None'],
+        default: 'None'
+      },
+      orphanStatus: {
+        type: String,
+        enum: ['Require', 'Prefer', 'None'],
+        default: 'None'
+      },
+      childOfFarmerFisherfolk: {
+        type: String,
+        enum: ['Require', 'Prefer', 'None'],
+        default: 'None'
+      },
+      disasterAffectedFamily: {
+        type: String,
+        enum: ['Require', 'Prefer', 'None'],
+        default: 'None'
+      },
+      workingStudent: {
+        type: String,
+        enum: ['Require', 'Prefer', 'None'],
+        default: 'None'
+      },
+      femaleOnly: {
+        type: String,
+        enum: ['Require', 'Prefer', 'None'],
+        default: 'None'
+      },
+      ofwDependent: {
+        type: String,
+        enum: ['Require', 'Prefer', 'None'],
+        default: 'None'
+      },
+
+      // Custom Dynamic Lists added by provider
+      customRequiredTags: {
+        type: [String],
+        default: []
+      },
+      customPreferredTags: {
+        type: [String],
+        default: []
+      }
+    },
+
+    // ==========================================
+    // 4. PROVIDER-DEFINED RANKING WEIGHT DISTRIBUTION
+    // ==========================================
+    rankingWeights: {
+      wGpa: {
+        type: Number,
         required: true,
-        trim: true
-      }
-    },
-
-   
-    incomeRequirement: {
-      maximumIncome: {
-        type: Number,
-        default: null,
-        min: 0
-      }
-    },
-
- 
-    specialTags: [
-      {
-        tagName: {
-          type: String,
-          required: true,
-          trim: true
-        },
-
-        mode: {
-          type: String,
-          enum: ['Preferred', 'Exclusive'],
-          required: true
-        }
-      }
-    ],
-
-    
-    criteriaWeights: {
-      gwaWeight: {
-        type: Number,
-        default: 0.40,
-        min: 0.20,
-        max: 0.70
+        min: [20, 'Academic Score weight must be at least 20%'],
+        max: [70, 'Academic Score weight cannot exceed 70%'],
+        default: 40
       },
-
-      incomeWeight: {
+      wIncome: {
         type: Number,
-        default: 0.40,
-        min: 0.20,
-        max: 0.70
+        required: true,
+        min: [20, 'Financial Need weight must be at least 20%'],
+        max: [70, 'Financial Need weight cannot exceed 70%'],
+        default: 40
       },
-
-      tagsWeight: {
+      wTags: {
         type: Number,
-        default: 0.20,
-        min: 0,
-        max: 0.30
+        required: true,
+        min: [0, 'Preferred Tags weight must be at least 0%'],
+        max: [30, 'Preferred Tags weight cannot exceed 30%'],
+        default: 20
       }
     },
 
-    rankingMode: {
-      type: String,
-      required: true,
-      default: 'Weighted'
-    },
-
-
-    deadline: {
-      type: Date,
-      required: true
-    },
-
-    applicationURL: {
-      type: String,
-      required: true,
-      trim: true
-    },
-
-  
-    status: {
-      type: String,
-      enum: ['Open', 'Closed'],
-      default: 'Open',
-      index: true
-    },
-
-
-    isArchived: {
+    // Metadata
+    isPublished: {
       type: Boolean,
-      default: false,
-      index: true
+      default: true
     }
   },
   {
@@ -179,27 +210,39 @@ const scholarshipSchema = new mongoose.Schema(
   }
 );
 
+// ==========================================
+// BACKEND VALIDATION: Enforce Weight Total = 100%
+// ==========================================
+scholarshipSchema.pre('save', function (next) {
+  if (this.rankingWeights) {
+    const { wGpa, wIncome, wTags } = this.rankingWeights;
+    const total = (wGpa || 0) + (wIncome || 0) + (wTags || 0);
 
-
-
-scholarshipSchema.pre('validate', function () {
-  const weights = this.criteriaWeights;
-
-  if (!weights) {
-    return;
+    if (total !== 100) {
+      return next(
+        new Error(`Ranking weights must sum up to exactly 100%. Current sum: ${total}%`)
+      );
+    }
   }
-
-  const total =
-    weights.gwaWeight +
-    weights.incomeWeight +
-    weights.tagsWeight;
-
-  if (Math.abs(total - 1.0) > 0.0001) {
-    throw new Error(
-      'GPA, income, and special eligibility weights must total 100%.'
-    );
-  }
+  next();
 });
 
+scholarshipSchema.pre('findOneAndUpdate', function (next) {
+  const update = this.getUpdate();
+  const weights = update.rankingWeights || (update.$set && update.$set.rankingWeights);
 
-module.exports = mongoose.model('Scholarship', scholarshipSchema);
+  if (weights) {
+    const { wGpa, wIncome, wTags } = weights;
+    if (wGpa !== undefined && wIncome !== undefined && wTags !== undefined) {
+      const total = wGpa + wIncome + wTags;
+      if (total !== 100) {
+        return next(
+          new Error(`Ranking weights must sum up to exactly 100%. Current sum: ${total}%`)
+        );
+      }
+    }
+  }
+  next();
+});
+
+module.exports = mongoose.models.Scholarship || mongoose.model('Scholarship', scholarshipSchema);
