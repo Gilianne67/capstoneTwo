@@ -27,7 +27,6 @@ const UserSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      // ALIGNED: Added 'superadmin' to match authorization middleware
       enum: ['student', 'provider', 'admin', 'superadmin'],
       default: 'student',
     },

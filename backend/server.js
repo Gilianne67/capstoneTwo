@@ -15,7 +15,7 @@ const path = require('path');
 // Load Environment Variables
 dotenv.config();
 
-// 1. Initialize Express App FIRST
+// 1. Initialize Express App 
 const app = express();
 
 // Route & Middleware Imports

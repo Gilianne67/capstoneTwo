@@ -3,12 +3,14 @@ const Scholarship = require('../models/Scholarship');
 const User = require('../models/User'); 
 const { sendProviderAdminNotification, sendProviderConfirmation } = require('../utils/sendEmail');
 
+// Helper to safely resolve user ID from Passport / JWT middleware
+const getUserId = (user) => user?._id || user?.id;
+
 // Get the logged-in provider's profile
 exports.getProfile = async (req, res) => {
   try {
-    const provider = await Provider.findOne({
-      userId: req.user.id,
-    });
+    const userId = getUserId(req.user);
+    const provider = await Provider.findOne({ userId });
 
     if (!provider) {
       return res.status(404).json({
@@ -23,7 +25,6 @@ exports.getProfile = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Get Provider Profile Error:', error);
-
     res.status(500).json({
       success: false,
       message: error.message,
@@ -34,11 +35,10 @@ exports.getProfile = async (req, res) => {
 // Update the logged-in provider's profile
 exports.updateProfile = async (req, res) => {
   try {
+    const userId = getUserId(req.user);
     const { institutionName, institutionType, website, contactNumber, address, representative } = req.body;
 
-    const provider = await Provider.findOne({
-      userId: req.user.id,
-    });
+    const provider = await Provider.findOne({ userId });
 
     if (!provider) {
       return res.status(404).json({
@@ -78,7 +78,6 @@ exports.updateProfile = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Update Provider Profile Error:', error);
-
     res.status(500).json({
       success: false,
       message: error.message,
@@ -89,9 +88,8 @@ exports.updateProfile = async (req, res) => {
 // Get the logged-in provider's dashboard
 exports.getDashboard = async (req, res) => {
   try {
-    const provider = await Provider.findOne({
-      userId: req.user.id,
-    });
+    const userId = getUserId(req.user);
+    const provider = await Provider.findOne({ userId });
 
     if (!provider) {
       return res.status(404).json({
@@ -144,7 +142,6 @@ exports.getDashboard = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Get Provider Dashboard Error:', error);
-
     res.status(500).json({
       success: false,
       message: error.message,
@@ -155,7 +152,7 @@ exports.getDashboard = async (req, res) => {
 // POST /api/v1/provider/onboarding
 exports.handleOnboarding = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = getUserId(req.user);
     const {
       institutionName,
       institutionType,
@@ -166,12 +163,15 @@ exports.handleOnboarding = async (req, res) => {
       province,
       region,
       repName,
+      fullName, // Fallback key if frontend sends fullName
       repTitle,
+      jobTitle, // Fallback key if frontend sends jobTitle
       repEmail,
+      workEmail, // Fallback key if frontend sends workEmail
       documentType,
     } = req.body;
 
-    // 1. Verify file was uploaded via Multer / GridFS
+    // 1. Verify file upload
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -179,17 +179,19 @@ exports.handleOnboarding = async (req, res) => {
       });
     }
 
-    // 2. Find existing Provider record created during registration
+    // 2. Find or initialize Provider record
     let provider = await Provider.findOne({ userId });
 
     if (!provider) {
-      return res.status(404).json({
-        success: false,
-        message: 'Provider profile not found.',
-      });
+      provider = new Provider({ userId });
     }
 
-    // 3. Update Provider Profile & Verification Status
+    // 3. Normalize field values
+    const finalRepName = repName || fullName || provider.representative?.name;
+    const finalRepTitle = repTitle || jobTitle || provider.representative?.title;
+    const finalRepEmail = repEmail || workEmail || provider.representative?.workEmail;
+
+    // 4. Update Profile Fields
     provider.institutionName = institutionName || provider.institutionName;
     provider.institutionType = institutionType || provider.institutionType;
     provider.website = website || provider.website;
@@ -203,35 +205,37 @@ exports.handleOnboarding = async (req, res) => {
     };
 
     provider.representative = {
-      name: repName || provider.representative?.name,
-      title: repTitle || provider.representative?.title,
-      workEmail: repEmail || provider.representative?.workEmail,
+      name: finalRepName,
+      title: finalRepTitle,
+      workEmail: finalRepEmail,
     };
 
-    provider.verificationStatus = 'Submitted';
+    provider.verificationStatus = 'Pending Review';
     provider.submittedAt = new Date();
 
-    // Ensure array is initialized before push
     if (!Array.isArray(provider.verificationDocuments)) {
       provider.verificationDocuments = [];
     }
 
-    // Reference GridFS file endpoint or GridFS filename
-    const gridFsFileUrl = `/api/v1/documents/${req.file.filename}`;
+    // Reference GridFS file endpoint or fallback to disk upload path
+    const fileUrl = req.file.filename 
+      ? `/api/v1/documents/${req.file.filename}` 
+      : `/uploads/${req.file.originalname}`;
 
     provider.verificationDocuments.push({
-      documentType: documentType || 'SEC_DTI',
-      fileUrl: gridFsFileUrl,
+      documentType: documentType || 'SEC / DTI Registration',
+      fileUrl,
       fileId: req.file.id,
+      originalName: req.file.originalname,
       uploadedAt: new Date(),
     });
 
     await provider.save();
 
-    // 4. Update User record onboarding status
+    // 5. Update User onboarding state
     await User.findByIdAndUpdate(userId, { isOnboarded: true });
 
-    // 5. Send Email Notifications (Admin + Provider)
+    // 6. Send Email Notifications
     const providerData = {
       institutionName: provider.institutionName,
       institutionType: provider.institutionType,
@@ -240,19 +244,25 @@ exports.handleOnboarding = async (req, res) => {
       repName: provider.representative.name,
       repTitle: provider.representative.title,
       repEmail: provider.representative.workEmail,
-      documentType: documentType || 'SEC_DTI',
+      documentType: documentType || 'SEC / DTI Registration',
     };
 
-    // Dispatch email to Admin with file attachment
-    await sendProviderAdminNotification(providerData, req.file);
+    try {
+      await sendProviderAdminNotification(providerData, req.file);
+    } catch (emailErr) {
+      console.warn('⚠️ Admin email failed:', emailErr.message);
+    }
 
-    // Dispatch email confirmation to Provider
     if (provider.representative.workEmail) {
-      await sendProviderConfirmation(
-        provider.representative.workEmail,
-        provider.representative.name,
-        provider.institutionName
-      );
+      try {
+        await sendProviderConfirmation(
+          provider.representative.workEmail,
+          provider.representative.name,
+          provider.institutionName
+        );
+      } catch (emailErr) {
+        console.warn('⚠️ Provider confirmation email failed:', emailErr.message);
+      }
     }
 
     return res.status(200).json({

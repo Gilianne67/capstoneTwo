@@ -30,7 +30,7 @@ const createSuperAdmin = async () => {
     await mongoose.connect(mongoUri);
     console.log('✅ Connected to MongoDB Atlas successfully!');
 
-    const adminEmail = process.env.ADMIN_EMAIL || 'admin@iskolarmatch.ph';
+    const adminEmail = process.env.ADMIN_EMAIL || 'iskolarmatch@gmail.com';
     const adminPassword = process.env.ADMIN_PASSWORD || 'SuperAdmin@2026!';
     const adminName = process.env.ADMIN_NAME || 'Super Administrator';
 
