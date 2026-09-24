@@ -1,5 +1,4 @@
 const dns = require('dns');
-// Force Node to use Google Public DNS for SRV record resolution
 dns.setServers(['8.8.8.8', '8.8.4.4']);
 
 const express = require('express');
@@ -11,111 +10,100 @@ const mongoose = require('mongoose');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
-;
 
-// Load Environment Variables
 dotenv.config();
 
-// 1. Initialize Express App FIRST
 const app = express();
 
-// Route & Middleware Imports
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const consentRoutes = require('./routes/consentRoutes');
 const providerRoutes = require('./routes/providerRoutes');
 const errorHandler = require('./middleware/error');
-const documentRoutes = require('./routes/documentRoutes');
-const providerRoutes = require('./routes/providerRoutes');
-const scholarshipRoutes = require('./routes/scholarshipRoutes')
 
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
-// Security Middlewares
-app.use(
-  helmet({
-    crossOriginResourcePolicy: { policy: 'cross-origin' }, // Allows frontend to view uploaded static files
-  })
-);
-
-// 2. Serve uploaded static files
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
-
-// CORS Setup
 const allowedOrigins = [
   process.env.CLIENT_URL,
   process.env.FRONTEND_URL,
   'http://localhost:3000',
   'http://localhost:5173',
-  'http://localhost:5174',
+  'http://localhost:5174'
 ].filter(Boolean);
 
-app.use(
-  cors({
-    origin: allowedOrigins,
-    credentials: true,
-  })
-);
-
+app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-if (process.env.NODE_ENV === 'development') {
-  app.use(morgan('dev'));
+if (process.env.NODE_ENV === 'development') { 
+  app.use(morgan('dev')); 
 }
 
-// Rate Limiter
-const limiter = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 100,
-  message: { success: false, error: 'Too many requests from this IP, please try again later.' },
+const limiter = rateLimit({ 
+  windowMs: 10 * 60 * 1000, 
+  max: 100, 
+  message: { success: false, error: 'Too many requests' } 
 });
-if (process.env.NODE_ENV === 'production') {
-  app.use('/api/v1', limiter);
-}
+app.use('/api/v1', limiter);
 
-// Health Check Endpoint
-app.get('/api/v1/health', (req, res) => {
-  res.status(200).json({ status: 'success', message: 'IskolarMatch Auth API Online' });
+app.get('/api/v1/health', (req, res) => res.status(200).json({ status: 'success', message: 'API Online' }));
+
+// GridFS Mongo Document Streaming Route
+app.get('/api/v1/documents/:filename', async (req, res) => {
+  try {
+    if (!mongoose.connection.db) {
+      return res.status(500).json({ message: 'Database connection not initialized' });
+    }
+
+    const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
+      bucketName: 'uploads' // Maps to uploads.files and uploads.chunks
+    });
+
+    const files = await bucket.find({ filename: req.params.filename }).toArray();
+    if (!files || files.length === 0) {
+      return res.status(404).json({ message: 'Document file not found in database' });
+    }
+
+    const file = files[0];
+    res.set('Content-Type', file.contentType || 'image/jpeg');
+    res.set('Content-Length', file.length);
+
+    const downloadStream = bucket.openDownloadStreamByName(req.params.filename);
+    
+    downloadStream.on('error', (err) => {
+      console.error('Stream Error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ message: 'Error streaming file' });
+      }
+    });
+
+    downloadStream.pipe(res);
+  } catch (error) {
+    console.error('GridFS streaming error:', error);
+    res.status(500).json({ message: 'Error retrieving document from database' });
+  }
 });
 
-// Import your upload routes
-const uploadRoutes = require('./routes/documentRoutes');
-
-// Connect to MongoDB
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('MongoDB connected'))
-  .catch((err) => console.error('MongoDB connection error:', err));
-
-// Register the route middleware
-app.use('/api/v1/documents', documentRoutes);
-
-// Mount Application Routes
+// API Routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/user', userRoutes);
 app.use('/api/v1/consent', consentRoutes);
 app.use('/api/v1/provider', providerRoutes);
 app.use('/api/v1/admin', adminRoutes);
-app.use('/api/v1/providers', providerRoutes);
-app.use('/api/v1/scholarships', scholarshipRoutes);
 
-// Centralized Error Handling Middleware (must be after routes)
 app.use(errorHandler);
 
-// Database Connection & Server Startup
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/iskolarmatch';
 
-mongoose
-  .connect(MONGO_URI)
-  .then(() => {
-    console.log('✅ Connected to MongoDB successfully.');
-    app.listen(PORT, () => {
-      console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
-    });
+mongoose.connect(MONGO_URI)
+  .then(() => { 
+    console.log('✅ Connected to MongoDB successfully.'); 
+    app.listen(PORT, () => console.log('🚀 Server running on port ' + PORT)); 
   })
-  .catch((err) => {
-    console.error('❌ Database connection error:', err);
-    process.exit(1);
+  .catch(err => { 
+    console.error('❌ Database connection error:', err); 
+    process.exit(1); 
   });

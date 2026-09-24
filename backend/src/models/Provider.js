@@ -10,7 +10,17 @@ const providerSchema = new mongoose.Schema({
   institutionName: { type: String, required: true },
   institutionType: {
     type: String,
-    enum: ['University', 'Non-Profit', 'Corporate', 'Government', 'Other'],
+    enum: [
+      'University / College',
+      'Non-Profit / NGO',
+      'Corporate Foundation',
+      'Government Agency',
+      'University',
+      'Non-Profit',
+      'Corporate',
+      'Government',
+      'Other'
+    ],
     default: 'Other',
   },
   website: { type: String },
@@ -28,17 +38,30 @@ const providerSchema = new mongoose.Schema({
   },
   // Verification Document Files
   verificationDocuments: [{
-    documentType: { type: String, enum: ['SEC_DTI', 'CHED_DepEd', 'Authorization_Letter', 'Gov_ID'] },
+    documentType: { 
+      type: String, 
+      enum: [
+        'SEC / DTI Registration', 
+        'CHED / DepEd Recognition', 
+        'Signed Authorization Letter', 
+        'Government ID of Representative', 
+        'SEC_DTI', 
+        'CHED_DepEd', 
+        'Authorization_Letter', 
+        'Gov_ID'
+      ] 
+    },
     fileUrl: { type: String, required: true },
+    originalName: { type: String },
     uploadedAt: { type: Date, default: Date.now }
   }],
   verificationStatus: {
     type: String,
-    enum: ['Pending', 'Submitted', 'Verified', 'Rejected'],
-    default: 'Pending',
+    enum: ['Pending', 'Pending Review', 'Submitted', 'Approved', 'Verified', 'Rejected'], // Added 'Approved'
+    default: 'Pending Review',
   },
   rejectionReason: { type: String },
-  submittedAt: { type: Date },
+  submittedAt: { type: Date, default: Date.now },
   verifiedAt: { type: Date },
 }, { timestamps: true });
 

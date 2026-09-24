@@ -104,7 +104,7 @@ export function OnboardingForm({ onComplete }) {
     const token = getCleanToken();
 
     try {
-      const response = await fetch(`${API_BASE_URL}/user/onboarding`, {
+      const response = await fetch(`/api/v1/user/onboarding`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

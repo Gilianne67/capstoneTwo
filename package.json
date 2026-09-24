@@ -17,6 +17,7 @@
     "denque": "^2.1.0",
     "emoji-regex": "^8.0.0",
     "escalade": "^3.2.0",
+    "express-validator": "^7.3.2",
     "get-caller-file": "^2.0.5",
     "has-flag": "^4.0.0",
     "ioredis": "^6.0.0",

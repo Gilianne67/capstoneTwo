@@ -1,5 +1,6 @@
 const nodemailer = require('nodemailer');
 
+
 /**
  * Core transporter helper function
  */
@@ -11,10 +12,12 @@ const createTransporter = () => {
     throw new Error('SMTP credentials missing. Please set SMTP_EMAIL and SMTP_PASSWORD in your .env file.');
   }
 
+  const port = parseInt(process.env.SMTP_PORT || '587', 10);
+
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.SMTP_PORT || '587', 10),
-    secure: process.env.SMTP_PORT == 465,
+    port: port,
+    secure: port === 465, // True for 465, false for 587
     auth: { user, pass },
   });
 };
@@ -38,12 +41,17 @@ const sendEmail = async (options) => {
 };
 
 /**
- * 2. Provider Onboarding Notification (Sent TO YOU / ADMIN)
+ * 2. Provider Onboarding Notification (Sent TO ADMIN)
  */
-const sendProviderAdminNotification = async (providerData, fileInfo = null) => {
+const sendProviderAdminNotification = async (providerData = {}, fileInfo = null) => {
   const transporter = createTransporter();
   const user = process.env.SMTP_EMAIL || process.env.EMAIL_USER;
-  const adminEmail = process.env.ADMIN_EMAIL || user; // Defaults to SMTP user if ADMIN_EMAIL is not set
+  const adminEmail = process.env.ADMIN_EMAIL || user;
+
+  const rawWebsite = providerData.website || '';
+  const formattedWebsite = rawWebsite
+    ? (rawWebsite.startsWith('http') ? rawWebsite : `https://${rawWebsite}`)
+    : null;
 
   const htmlContent = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
@@ -51,7 +59,7 @@ const sendProviderAdminNotification = async (providerData, fileInfo = null) => {
         🏛️ New Scholarship Provider Onboarding
       </h2>
       <p style="color: #475569; font-size: 14px;">
-        A new scholarship provider has submitted their verification documents and is awaiting your approval.
+        A new scholarship provider has submitted their verification details and is awaiting your approval.
       </p>
 
       <table style="width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 14px;">
@@ -69,7 +77,7 @@ const sendProviderAdminNotification = async (providerData, fileInfo = null) => {
         <tr>
           <td style="padding: 8px 12px; font-weight: bold; border-bottom: 1px solid #f1f5f9;">Website:</td>
           <td style="padding: 8px 12px; border-bottom: 1px solid #f1f5f9;">
-            <a href="${providerData.website}" target="_blank" style="color: #2563eb;">${providerData.website || 'N/A'}</a>
+            ${formattedWebsite ? `<a href="${formattedWebsite}" target="_blank" style="color: #2563eb;">${rawWebsite}</a>` : 'N/A'}
           </td>
         </tr>
         <tr>
@@ -113,11 +121,10 @@ const sendProviderAdminNotification = async (providerData, fileInfo = null) => {
   const mailOptions = {
     from: `${process.env.FROM_NAME || 'IskolarMatch System'} <${process.env.FROM_EMAIL || user}>`,
     to: adminEmail,
-    subject: `🚨 [Action Required] Provider Registration: ${providerData.institutionName}`,
+    subject: `🚨 [Action Required] Provider Registration: ${providerData.institutionName || 'New Provider'}`,
     html: htmlContent,
   };
 
-  // Optional: Attach the uploaded document directly to your admin email
   if (fileInfo && fileInfo.path) {
     mailOptions.attachments = [
       {
@@ -131,7 +138,7 @@ const sendProviderAdminNotification = async (providerData, fileInfo = null) => {
 };
 
 /**
- * 3. Provider Onboarding Confirmation (Sent TO THE PROVIDER)
+ * 3. Provider Onboarding Confirmation (Sent TO PROVIDER)
  */
 const sendProviderConfirmation = async (repEmail, repName, institutionName) => {
   const transporter = createTransporter();
@@ -140,9 +147,9 @@ const sendProviderConfirmation = async (repEmail, repName, institutionName) => {
   const htmlContent = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
       <h2 style="color: #064e3b; margin-top: 0;">Verification Details Received</h2>
-      <p style="color: #334155; font-size: 14px;">Dear ${repName},</p>
+      <p style="color: #334155; font-size: 14px;">Dear ${repName || 'Partner'},</p>
       <p style="color: #475569; font-size: 14px; line-height: 1.6;">
-        Thank you for submitting the verification details for <strong>${institutionName}</strong> on IskolarMatch.
+        Thank you for submitting the verification details for <strong>${institutionName || 'your organization'}</strong> on IskolarMatch.
       </p>
       <p style="color: #475569; font-size: 14px; line-height: 1.6;">
         Our administration team is currently reviewing your application and verification documents. Verification usually takes <strong>1–2 business days</strong>.

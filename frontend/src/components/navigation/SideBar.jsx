@@ -22,7 +22,8 @@ import {
   AlertTriangle,
   Layers,
   Menu,
-  X
+  X,
+  BarChart3
 } from 'lucide-react';
 
 export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) {
@@ -94,6 +95,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
           { label: 'Dashboard', path: '/dashboard/provider', icon: LayoutDashboard },
           { label: 'Scholarship Listings', path: '/dashboard/provider/listings', icon: Layers },
           { label: 'Create Listing', path: '/dashboard/provider/create', icon: PlusCircle },
+          { label: 'Performance & Analytics', path: '/dashboard/provider/analytics', icon: BarChart3 },
           { label: 'Organization Verification', path: '/dashboard/provider/verification', icon: Building2 },
         ],
         general: [
