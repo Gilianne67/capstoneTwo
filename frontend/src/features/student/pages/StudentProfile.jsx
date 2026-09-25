@@ -290,9 +290,42 @@ export default function StudentProfile() {
   const handleSave = async (e) => {
     if (e) e.preventDefault();
 
-    setIsSaving(true);
     setSaveSuccess(false);
     setErrorMessage('');
+
+    const gwaValue = Number(formData.gwa);
+
+    if (formData.gwa === '' || Number.isNaN(gwaValue)) {
+      setErrorMessage('Current GWA is required.');
+      return;
+    }
+
+    if (!formData.gwaScale) {
+      setErrorMessage('Please select a GWA scale.');
+      return;
+    }
+
+    if (
+      formData.gwaScale === '1.00-5.00' &&
+      (gwaValue < 1 || gwaValue > 5)
+    ) {
+      setErrorMessage(
+        'GWA must be between 1.00 and 5.00 for the 1.00-5.00 scale.'
+      );
+      return;
+    }
+
+    if (
+      formData.gwaScale === '60-100' &&
+      (gwaValue < 60 || gwaValue > 100)
+    ) {
+      setErrorMessage(
+        'GWA must be between 60 and 100 for the 60-100 scale.'
+      );
+      return;
+    }
+
+    setIsSaving(true);
 
     try {
       const token = getToken();
