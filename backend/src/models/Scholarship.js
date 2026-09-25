@@ -43,16 +43,34 @@ const scholarshipSchema = new mongoose.Schema(
     academicRequirement: {
       minimumGPA: {
         type: Number,
-        required: true,
         min: 1,
         max: 100
       },
 
       gradingScale: {
         type: String,
-        enum: ['1.00-5.00', '60-100'],
-        required: true
+        enum: ['1.00-5.00', '60-100', '1-5']
       }
+    },
+
+    academicRequirements: {
+      type: [
+        {
+          _id: false,
+          gradingScale: {
+            type: String,
+            enum: ['1.00-5.00', '60-100'],
+            required: true
+          },
+          minimumGPA: {
+            type: Number,
+            required: true,
+            min: 1,
+            max: 100
+          }
+        }
+      ],
+      default: []
     },
 
     hardFilters: {
@@ -195,6 +213,21 @@ const scholarshipSchema = new mongoose.Schema(
 
 
 scholarshipSchema.pre('validate', function () {
+  const hasNewRequirements =
+    Array.isArray(this.academicRequirements) &&
+    this.academicRequirements.length > 0;
+
+  const hasLegacyRequirement =
+    this.academicRequirement &&
+    this.academicRequirement.minimumGPA != null &&
+    Boolean(this.academicRequirement.gradingScale);
+
+  if (!hasNewRequirements && !hasLegacyRequirement) {
+    throw new Error(
+      'At least one academic grading scale requirement is required.'
+    );
+  }
+
   const weights = this.criteriaWeights;
 
   if (!weights) {

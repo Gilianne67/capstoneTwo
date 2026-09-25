@@ -154,6 +154,7 @@ exports.updateScholarship = async (req, res) => {
       'benefits',
       'grantValue',
       'academicRequirement',
+      'academicRequirements',
       'hardFilters',
       'incomeRequirement',
       'specialTags',

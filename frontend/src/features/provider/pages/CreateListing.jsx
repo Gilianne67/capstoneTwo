@@ -64,8 +64,10 @@ export default function CreateListing({ onBack, onSuccess, initialData = null })
   // ---------------------------------------------------------
  const [academicLevel, setAcademicLevel] = useState('');
 const [citizenship, setCitizenship] = useState('');
-const [maxGwa, setMaxGwa] = useState('');
-const [gwaScale, setGwaScale] = useState('1.00-5.00');
+const [enableScale105, setEnableScale105] = useState(true);
+const [maxGwa105, setMaxGwa105] = useState('');
+const [enableScale60100, setEnableScale60100] = useState(false);
+const [minGpa60100, setMinGpa60100] = useState('');
 const [maxIncome, setMaxIncome] = useState('');
 
 const [allowedCourses, setAllowedCourses] = useState([]);
@@ -133,13 +135,43 @@ useEffect(() => {
     initialData.hardFilters?.citizenshipStatus || ''
   );
 
-  setMaxGwa(
-    initialData.academicRequirement?.minimumGPA?.toString() || ''
-  );
+  const normalizeScale = (scale) => {
+    if (scale === '1-5' || scale === '1.00-5.00') return '1.00-5.00';
+    if (scale === '60-100') return '60-100';
+    return null;
+  };
 
-  const loadedScale =
-    initialData.academicRequirement?.gradingScale || '1.00-5.00';
-  setGwaScale(loadedScale === '1-5' ? '1.00-5.00' : loadedScale);
+  let loadedRequirements = Array.isArray(initialData.academicRequirements)
+    ? initialData.academicRequirements
+    : [];
+
+  if (loadedRequirements.length === 0 && initialData.academicRequirement) {
+    loadedRequirements = [initialData.academicRequirement];
+  }
+
+  setEnableScale105(false);
+  setMaxGwa105('');
+  setEnableScale60100(false);
+  setMinGpa60100('');
+
+  loadedRequirements.forEach((requirement) => {
+    const scale = normalizeScale(requirement?.gradingScale);
+    const value =
+      requirement?.minimumGPA !== undefined &&
+      requirement?.minimumGPA !== null
+        ? requirement.minimumGPA.toString()
+        : '';
+
+    if (scale === '1.00-5.00') {
+      setEnableScale105(true);
+      setMaxGwa105(value);
+    }
+
+    if (scale === '60-100') {
+      setEnableScale60100(true);
+      setMinGpa60100(value);
+    }
+  });
 
   setMaxIncome(
     initialData.incomeRequirement?.maximumIncome?.toString() || ''
@@ -300,19 +332,53 @@ useEffect(() => {
     return null;
   };
 
+  const buildAcademicRequirements = () => {
+    const requirements = [];
+
+    if (enableScale105) {
+      requirements.push({
+        gradingScale: '1.00-5.00',
+        minimumGPA: parseFloat(maxGwa105)
+      });
+    }
+
+    if (enableScale60100) {
+      requirements.push({
+        gradingScale: '60-100',
+        minimumGPA: parseFloat(minGpa60100)
+      });
+    }
+
+    return requirements;
+  };
+
   const validateGwa = () => {
-    const gwaValue = parseFloat(maxGwa);
-
-    if (maxGwa === '' || Number.isNaN(gwaValue)) {
-      return 'Maximum Allowable GWA / GPA is required.';
+    if (!enableScale105 && !enableScale60100) {
+      return 'Select at least one grading scale.';
     }
 
-    if (gwaScale === '1.00-5.00' && (gwaValue < 1 || gwaValue > 5)) {
-      return 'Maximum Allowable GWA / GPA must be between 1.00 and 5.00 for the 1.00-5.00 scale.';
+    if (enableScale105) {
+      const gwaValue = parseFloat(maxGwa105);
+
+      if (maxGwa105 === '' || Number.isNaN(gwaValue)) {
+        return 'Maximum Allowable GWA is required for the 1.00-5.00 scale.';
+      }
+
+      if (gwaValue < 1 || gwaValue > 5) {
+        return 'Maximum Allowable GWA must be between 1.00 and 5.00.';
+      }
     }
 
-    if (gwaScale === '60-100' && (gwaValue < 60 || gwaValue > 100)) {
-      return 'Maximum Allowable GWA / GPA must be between 60 and 100 for the 60-100 scale.';
+    if (enableScale60100) {
+      const gpaValue = parseFloat(minGpa60100);
+
+      if (minGpa60100 === '' || Number.isNaN(gpaValue)) {
+        return 'Minimum Required GPA is required for the 60-100 scale.';
+      }
+
+      if (gpaValue < 60 || gpaValue > 100) {
+        return 'Minimum Required GPA must be between 60 and 100.';
+      }
     }
 
     return null;
@@ -352,6 +418,7 @@ const formatPublishError = (message) => {
     'hardFilters.citizenshipStatus': 'Citizenship Requirement',
     'hardFilters.academicLevel': 'Academic Level',
     'academicRequirement.minimumGPA': 'Minimum GWA / GPA',
+    'academicRequirements': 'Academic Grading Scale Requirements',
     'description': 'Program Description',
     'applicationURL': 'Application URL',
     'name': 'Scholarship Name',
@@ -393,10 +460,7 @@ const handleExecutePublish = async () => {
 
     benefits: [],
 
-    academicRequirement: {
-      minimumGPA: parseFloat(maxGwa),
-      gradingScale: gwaScale
-    },
+    academicRequirements: buildAcademicRequirements(),
 
     hardFilters: {
       academicLevel,
@@ -686,32 +750,73 @@ const handleSuccessClose = () => {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-slate-700 mb-1 flex items-center gap-1">
-                  <ShieldAlert className="w-3.5 h-3.5 text-rose-600" /> Maximum Allowable GWA / GPA
+              <div className="md:col-span-2 space-y-3">
+                <label className="block text-slate-700 flex items-center gap-1">
+                  <ShieldAlert className="w-3.5 h-3.5 text-rose-600" /> Accepted Grading Scales
                 </label>
-                <input 
-                  type="number"
-                  step="0.01"
-                  placeholder={gwaScale === '60-100' ? 'e.g. 85' : 'e.g. 2.00'}
-                  value={maxGwa}
-                  onChange={e => setMaxGwa(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500"
-                />
-              </div>
+                <p className="text-[10px] text-slate-400 font-normal">
+                  Select at least one scale. Students matching any selected scale can be accepted.
+                </p>
 
-              <div>
-                <label className="block text-slate-700 mb-1 flex items-center gap-1">
-                  <ShieldAlert className="w-3.5 h-3.5 text-rose-600" /> Grading Scale
-                </label>
-                <select
-                  value={gwaScale}
-                  onChange={e => setGwaScale(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500 cursor-pointer"
-                >
-                  <option value="1.00-5.00">1.00 - 5.00</option>
-                  <option value="60-100">60 - 100</option>
-                </select>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+                    <label className="flex items-center gap-2 text-slate-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={enableScale105}
+                        onChange={(e) => setEnableScale105(e.target.checked)}
+                      />
+                      1.00 - 5.00
+                    </label>
+                    {enableScale105 && (
+                      <>
+                        <label className="block text-slate-700">
+                          Maximum Allowable GWA
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="e.g. 2.50"
+                          value={maxGwa105}
+                          onChange={(e) => setMaxGwa105(e.target.value)}
+                          className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500"
+                        />
+                        <p className="text-[10px] text-slate-400 font-normal">
+                          Lower value is better.
+                        </p>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+                    <label className="flex items-center gap-2 text-slate-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={enableScale60100}
+                        onChange={(e) => setEnableScale60100(e.target.checked)}
+                      />
+                      60 - 100
+                    </label>
+                    {enableScale60100 && (
+                      <>
+                        <label className="block text-slate-700">
+                          Minimum Required GPA
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="e.g. 85"
+                          value={minGpa60100}
+                          onChange={(e) => setMinGpa60100(e.target.value)}
+                          className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500"
+                        />
+                        <p className="text-[10px] text-slate-400 font-normal">
+                          Higher value is better.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div>
