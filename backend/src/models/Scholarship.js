@@ -50,7 +50,7 @@ const scholarshipSchema = new mongoose.Schema(
 
       gradingScale: {
         type: String,
-        enum: ['1-5', '60-100'],
+        enum: ['1.00-5.00', '60-100'],
         required: true
       }
     },

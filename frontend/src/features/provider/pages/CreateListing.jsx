@@ -65,6 +65,7 @@ export default function CreateListing({ onBack, onSuccess, initialData = null })
  const [academicLevel, setAcademicLevel] = useState('');
 const [citizenship, setCitizenship] = useState('');
 const [maxGwa, setMaxGwa] = useState('');
+const [gwaScale, setGwaScale] = useState('1.00-5.00');
 const [maxIncome, setMaxIncome] = useState('');
 
 const [allowedCourses, setAllowedCourses] = useState([]);
@@ -135,6 +136,10 @@ useEffect(() => {
   setMaxGwa(
     initialData.academicRequirement?.minimumGPA?.toString() || ''
   );
+
+  const loadedScale =
+    initialData.academicRequirement?.gradingScale || '1.00-5.00';
+  setGwaScale(loadedScale === '1-5' ? '1.00-5.00' : loadedScale);
 
   setMaxIncome(
     initialData.incomeRequirement?.maximumIncome?.toString() || ''
@@ -295,13 +300,36 @@ useEffect(() => {
     return null;
   };
 
-  
+  const validateGwa = () => {
+    const gwaValue = parseFloat(maxGwa);
+
+    if (maxGwa === '' || Number.isNaN(gwaValue)) {
+      return 'Maximum Allowable GWA / GPA is required.';
+    }
+
+    if (gwaScale === '1.00-5.00' && (gwaValue < 1 || gwaValue > 5)) {
+      return 'Maximum Allowable GWA / GPA must be between 1.00 and 5.00 for the 1.00-5.00 scale.';
+    }
+
+    if (gwaScale === '60-100' && (gwaValue < 60 || gwaValue > 100)) {
+      return 'Maximum Allowable GWA / GPA must be between 60 and 100 for the 60-100 scale.';
+    }
+
+    return null;
+  };
 
   // Open Confirmation Modal on Form Submit
   // Open Confirmation Modal on Form Submit
 const handleOpenConfirmModal = (e) => {
   e.preventDefault();
   setErrorMsg(null);
+
+  const gwaValidationError = validateGwa();
+
+  if (gwaValidationError) {
+    setErrorMsg(gwaValidationError);
+    return;
+  }
 
   const weightValidationError = validateWeights();
 
@@ -367,7 +395,7 @@ const handleExecutePublish = async () => {
 
     academicRequirement: {
       minimumGPA: parseFloat(maxGwa),
-      gradingScale: '60-100'
+      gradingScale: gwaScale
     },
 
     hardFilters: {
@@ -663,12 +691,27 @@ const handleSuccessClose = () => {
                   <ShieldAlert className="w-3.5 h-3.5 text-rose-600" /> Maximum Allowable GWA / GPA
                 </label>
                 <input 
-                  type="text"
-                  placeholder="e.g. 2.00 (PH Inverse Scale)"
+                  type="number"
+                  step="0.01"
+                  placeholder={gwaScale === '60-100' ? 'e.g. 85' : 'e.g. 2.00'}
                   value={maxGwa}
                   onChange={e => setMaxGwa(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500"
                 />
+              </div>
+
+              <div>
+                <label className="block text-slate-700 mb-1 flex items-center gap-1">
+                  <ShieldAlert className="w-3.5 h-3.5 text-rose-600" /> Grading Scale
+                </label>
+                <select
+                  value={gwaScale}
+                  onChange={e => setGwaScale(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500 cursor-pointer"
+                >
+                  <option value="1.00-5.00">1.00 - 5.00</option>
+                  <option value="60-100">60 - 100</option>
+                </select>
               </div>
 
               <div>
