@@ -173,8 +173,16 @@ useEffect(() => {
     }
   });
 
+  const loadedMonthlyIncome =
+    initialData.incomeRequirement?.maxMonthlyIncome ??
+    initialData.incomeRequirement?.maximumIncome;
+
   setMaxIncome(
-    initialData.incomeRequirement?.maximumIncome?.toString() || ''
+    loadedMonthlyIncome !== undefined &&
+    loadedMonthlyIncome !== null &&
+    loadedMonthlyIncome !== ''
+      ? loadedMonthlyIncome.toString()
+      : ''
   );
 
     setAllowedCourses(
@@ -384,6 +392,22 @@ useEffect(() => {
     return null;
   };
 
+  const validateIncome = () => {
+    if (maxIncome === '') return null;
+
+    const incomeValue = Number(maxIncome);
+
+    if (!Number.isFinite(incomeValue)) {
+      return 'Maximum Household Monthly Income must be a valid number.';
+    }
+
+    if (incomeValue < 0) {
+      return 'Maximum Household Monthly Income cannot be negative.';
+    }
+
+    return null;
+  };
+
   // Open Confirmation Modal on Form Submit
   // Open Confirmation Modal on Form Submit
 const handleOpenConfirmModal = (e) => {
@@ -394,6 +418,13 @@ const handleOpenConfirmModal = (e) => {
 
   if (gwaValidationError) {
     setErrorMsg(gwaValidationError);
+    return;
+  }
+
+  const incomeValidationError = validateIncome();
+
+  if (incomeValidationError) {
+    setErrorMsg(incomeValidationError);
     return;
   }
 
@@ -424,7 +455,8 @@ const formatPublishError = (message) => {
     'name': 'Scholarship Name',
     'scholarshipType': 'Scholarship Type',
     'deadline': 'Application Deadline',
-    'incomeRequirement.maximumIncome': 'Annual Income Ceiling'
+    'incomeRequirement.maximumIncome': 'Maximum Household Monthly Income',
+    'incomeRequirement.maxMonthlyIncome': 'Maximum Household Monthly Income'
   };
 
   const missingFields = [];
@@ -490,7 +522,8 @@ const handleExecutePublish = async () => {
     },
 
     incomeRequirement: {
-      maximumIncome: parseFloat(maxIncome)
+      maxMonthlyIncome:
+        maxIncome === '' ? null : Number(maxIncome)
     },
 
     specialTags: [
@@ -821,15 +854,20 @@ const handleSuccessClose = () => {
 
               <div>
                 <label className="block text-slate-700 mb-1 flex items-center gap-1">
-                  <ShieldAlert className="w-3.5 h-3.5 text-rose-600" /> Annual Income Ceiling (PHP)
+                  <ShieldAlert className="w-3.5 h-3.5 text-rose-600" /> Maximum Household Monthly Income
                 </label>
                 <input 
                   type="number"
-                  placeholder="e.g. 250000"
+                  min="0"
+                  step="1"
+                  placeholder="e.g. 30000"
                   value={maxIncome}
                   onChange={e => setMaxIncome(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500"
                 />
+                <p className="text-[10px] text-slate-400 font-normal mt-1">
+                  Enter a peso amount without ₱ or commas. Leave blank if there is no income ceiling.
+                </p>
               </div>
             </div>
 

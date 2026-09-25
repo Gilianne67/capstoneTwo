@@ -123,6 +123,12 @@ const scholarshipSchema = new mongoose.Schema(
 
    
     incomeRequirement: {
+      maxMonthlyIncome: {
+        type: Number,
+        default: null,
+        min: 0
+      },
+
       maximumIncome: {
         type: Number,
         default: null,

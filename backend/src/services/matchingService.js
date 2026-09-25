@@ -1,11 +1,24 @@
 const Scholarship = require('../models/Scholarship');
+const {
+  loadAliasIndex,
+  CATALOG_INDEX,
+  toMatchIds,
+  setsIntersect
+} = require('../utils/courseCanonical');
 
 /**
  * Checks whether a student's course matches
  * one of the scholarship's eligible courses.
+ *
+ * Empty provider list = no course restriction.
+ * Match on exact canonical ID, otherwise raw normalized text.
  */
-const matchesCourse = (studentCourse, scholarshipCourses) => {
-  // Empty course list means the scholarship has no course restriction.
+const matchesCourse = (
+  studentCourse,
+  scholarshipCourses,
+  academicLevel,
+  aliasIndex = CATALOG_INDEX
+) => {
   if (!scholarshipCourses || scholarshipCourses.length === 0) {
     return true;
   }
@@ -14,13 +27,29 @@ const matchesCourse = (studentCourse, scholarshipCourses) => {
     return false;
   }
 
-  const studentCourseNormalized = studentCourse.trim().toLowerCase();
-
-  return scholarshipCourses.some(
-    (course) =>
-      course &&
-      course.trim().toLowerCase() === studentCourseNormalized
+  const studentIds = toMatchIds(
+    studentCourse,
+    academicLevel,
+    aliasIndex
   );
+
+  if (studentIds.size === 0) {
+    return false;
+  }
+
+  return scholarshipCourses.some((course) => {
+    if (!course) {
+      return false;
+    }
+
+    const providerIds = toMatchIds(
+      course,
+      academicLevel,
+      aliasIndex
+    );
+
+    return setsIntersect(studentIds, providerIds);
+  });
 };
 
 /**
@@ -137,7 +166,11 @@ const matchesExclusiveTags = (studentProfile, specialTags) => {
 /**
  * Applies all hard eligibility filters to one scholarship.
  */
-const passesHardFilters = (studentProfile, scholarship) => {
+const passesHardFilters = (
+  studentProfile,
+  scholarship,
+  aliasIndex = CATALOG_INDEX
+) => {
   // 1. Academic Level
   if (
     scholarship.hardFilters?.academicLevel &&
@@ -151,7 +184,9 @@ const passesHardFilters = (studentProfile, scholarship) => {
   if (
     !matchesCourse(
       studentProfile.course,
-      scholarship.hardFilters?.courseProgram
+      scholarship.hardFilters?.courseProgram,
+      studentProfile.academicLevel,
+      aliasIndex
     )
   ) {
     return false;
@@ -193,13 +228,16 @@ const passesHardFilters = (studentProfile, scholarship) => {
  * Gets scholarships that pass all hard eligibility filters.
  */
 const getEligibleScholarships = async (studentProfile) => {
-  const scholarships = await Scholarship.find({
-    status: 'Open',
-    isArchived: false,
-  }).lean();
+  const [scholarships, aliasIndex] = await Promise.all([
+    Scholarship.find({
+      status: 'Open',
+      isArchived: false,
+    }).lean(),
+    loadAliasIndex()
+  ]);
 
   return scholarships.filter((scholarship) =>
-    passesHardFilters(studentProfile, scholarship)
+    passesHardFilters(studentProfile, scholarship, aliasIndex)
   );
 };
 

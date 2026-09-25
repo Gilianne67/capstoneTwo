@@ -91,7 +91,7 @@ export default function ScholarshipDetails() {
       return 'No maximum income requirement';
     }
 
-    return `₱${Number(income).toLocaleString()}`;
+    return `Household income: ₱${Number(income).toLocaleString()}/month or below`;
   };
 
   const renderList = (items) => {
@@ -451,7 +451,10 @@ export default function ScholarshipDetails() {
                 </p>
 
                 <p className="text-sm font-semibold text-slate-800 mt-1">
-                  {formatIncome(incomeRequirement.maximumIncome)}
+                  {formatIncome(
+                    incomeRequirement.maxMonthlyIncome ??
+                    incomeRequirement.maximumIncome
+                  )}
                 </p>
               </div>
 
