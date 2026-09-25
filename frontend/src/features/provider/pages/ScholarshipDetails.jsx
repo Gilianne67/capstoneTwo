@@ -155,8 +155,13 @@ export default function ScholarshipDetails() {
     );
   }
 
-  const academicRequirement =
-    scholarship.academicRequirement || {};
+  const academicRequirements =
+    Array.isArray(scholarship.academicRequirements) &&
+    scholarship.academicRequirements.length > 0
+      ? scholarship.academicRequirements
+      : scholarship.academicRequirement?.gradingScale
+        ? [scholarship.academicRequirement]
+        : [];
 
   const hardFilters =
     scholarship.hardFilters || {};
@@ -372,25 +377,40 @@ export default function ScholarshipDetails() {
 
             <div className="space-y-4">
 
-              <div>
-                <p className="text-xs text-slate-400">
-                  Minimum GPA / GWA
-                </p>
+              {academicRequirements.length > 0 ? (
+                academicRequirements.map((requirement, index) => {
+                  const scale =
+                    requirement.gradingScale === '1-5'
+                      ? '1.00-5.00'
+                      : requirement.gradingScale;
+                  const isInverseScale = scale === '1.00-5.00';
 
-                <p className="text-sm font-semibold text-slate-800 mt-1">
-                  {academicRequirement.minimumGPA}
-                </p>
-              </div>
+                  return (
+                    <div key={`${scale || 'scale'}-${index}`}>
+                      <p className="text-xs text-slate-400">
+                        {isInverseScale
+                          ? 'Maximum Allowable GWA'
+                          : 'Minimum Required GPA'}
+                      </p>
 
-              <div>
-                <p className="text-xs text-slate-400">
-                  Grading Scale
-                </p>
+                      <p className="text-sm font-semibold text-slate-800 mt-1">
+                        {requirement.minimumGPA}
+                        {scale ? ` (${scale})` : ''}
+                      </p>
+                    </div>
+                  );
+                })
+              ) : (
+                <div>
+                  <p className="text-xs text-slate-400">
+                    Academic Grading Scale
+                  </p>
 
-                <p className="text-sm font-semibold text-slate-800 mt-1">
-                  {academicRequirement.gradingScale}
-                </p>
-              </div>
+                  <p className="text-sm font-semibold text-slate-800 mt-1">
+                    Not specified
+                  </p>
+                </div>
+              )}
 
               <div>
                 <p className="text-xs text-slate-400">
