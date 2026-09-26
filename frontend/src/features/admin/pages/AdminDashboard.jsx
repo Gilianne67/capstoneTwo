@@ -88,9 +88,9 @@ export default function AdminDashboard() {
     setSelectedAction({ id, actionType, targetType });
   };
 
-  // Navigate to detailed verification page
+  // Navigate to Verification Queue Page
   const handleReviewProvider = (providerId) => {
-    navigate(`/admin/providers/${providerId}`);
+    navigate(`/admin/verification-queue${providerId ? `?providerId=${providerId}` : ''}`);
   };
 
   // Process Approval / Rejection Action via API
