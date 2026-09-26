@@ -1,5 +1,5 @@
 const StudentProfile = require('../models/StudentProfile');
-const { getEligibleScholarships } = require('../services/matchingService');
+const { getRankedScholarships } = require('../services/matchingService');
 
 exports.getMatches = async (req, res) => {
   try {
@@ -14,12 +14,12 @@ exports.getMatches = async (req, res) => {
       });
     }
 
-    const scholarships = await getEligibleScholarships(studentProfile);
+    const matches = await getRankedScholarships(studentProfile);
 
     return res.status(200).json({
       success: true,
-      count: scholarships.length,
-      matches: scholarships,
+      count: matches.length,
+      matches,
     });
   } catch (error) {
     console.error('Matching error:', error);

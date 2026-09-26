@@ -79,9 +79,26 @@ exports.getMyScholarships = async (req, res) => {
   }
 };
 
-// Get a specific scholarship belonging to the logged-in provider
+// Get a specific scholarship belonging to the logged-in provider,
+// or any scholarship when the viewer is a student.
 exports.getScholarshipById = async (req, res) => {
   try {
+    if (req.user.role === 'student') {
+      const scholarship = await Scholarship.findById(req.params.id);
+
+      if (!scholarship) {
+        return res.status(404).json({
+          success: false,
+          message: 'Scholarship not found',
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        scholarship,
+      });
+    }
+
     const provider = await Provider.findOne({
       userId: req.user.id,
     });

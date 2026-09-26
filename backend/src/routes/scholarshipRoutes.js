@@ -40,7 +40,7 @@ router.patch(
 router.get(
   '/:id',
   protect,
-  authorize('provider'),
+  authorize('provider', 'student'),
   getScholarshipById
 );
 

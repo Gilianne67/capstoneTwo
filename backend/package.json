@@ -4,7 +4,7 @@
   "description": "",
   "main": "src/server.js",
   "scripts": {
-    "test": "node src/scripts/testCourseCanonical.js",
+    "test": "node src/scripts/testCourseCanonical.js && node src/scripts/testMatchingEngine.js",
     "seed:courses": "node src/scripts/seedCourseAliases.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js"

@@ -137,6 +137,7 @@ export default function App() {
                         <Route path="student" element={<StudentDashboard />} />
                         <Route path="student/search" element={<ScholarshipSearch />} />
                         <Route path="student/matches" element={<MatchFeed />} />
+                        <Route path="student/scholarships/:id" element={<ScholarshipDetails />} />
                         <Route path="student/profile" element={<StudentProfile />} />
                         <Route path="student/saved" element={<SavedScholarships />} />
                         <Route path="student/applications" element={<ApplicationTracker />} />
