@@ -12,28 +12,31 @@ const {
   updateVerificationQueueStatus,
 } = require('../controllers/adminController');
 
-// Import your auth middleware functions
+// Import auth middleware functions
 const authMiddleware = require('../middleware/auth');
 
-// Support both destructured export or default export pattern
 const protect = authMiddleware.protect || authMiddleware;
-const authorize = authMiddleware.authorize || authMiddleware.authorizeRoles || authMiddleware.restrictTo;
 
-// Protect all routes below and restrict access to superadmin/admin roles
+// 1. Authenticate user session
 if (protect) router.use(protect);
 
-if (typeof authorize === 'function') {
-  router.use(authorize('superadmin', 'admin', 'super_admin'));
-} else {
-  // Fallback inline middleware if authorize function name differs in auth.js
-  router.use((req, res, next) => {
-    const allowedRoles = ['superadmin', 'admin', 'super_admin'];
-    if (req.user && allowedRoles.includes(req.user.role)) {
-      return next();
-    }
-    return res.status(403).json({ success: false, error: 'Not authorized to access this route' });
-  });
-}
+// 2. Strict & Safe Role Authorization
+router.use((req, res, next) => {
+  const allowedRoles = ['superadmin', 'admin', 'super_admin'];
+
+  if (!req.user || !req.user.role) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+
+  // Case-insensitive role comparison
+  const userRole = String(req.user.role).toLowerCase();
+
+  if (allowedRoles.includes(userRole)) {
+    return next();
+  }
+
+  return res.status(403).json({ success: false, error: 'Not authorized to access this route' });
+});
 
 // ================================
 // DASHBOARD & QUEUE ACTION ROUTES
@@ -44,6 +47,7 @@ router.get('/dashboard', getAdminDashboard);
 
 // GET /api/v1/admin/verifications - Fetch all verifications queue items
 router.get('/verifications', getVerifications);
+router.get('/verification-queue', getVerifications); // Alias for frontend routing alignment
 
 // PATCH /api/v1/admin/verifications/:id/status - Approve/Reject verification
 router.patch('/verifications/:id/status', updateVerificationQueueStatus);
@@ -62,13 +66,11 @@ router.patch('/parental-consent/:id/status', updateConsentStatus);
 // PROVIDER REVIEW & DETAIL ROUTES
 // ================================
 
-// GET /api/v1/admin/providers/pending - Fetch all applications pending review
+// STATIC ROUTE FIRST: Fetch all applications pending review
 router.get('/providers/pending', getPendingProviders);
 
-// GET /api/v1/admin/providers/:providerId - Fetch details for a specific provider
+// PARAMETERIZED ROUTES SECOND: Fetch/Update specific provider by ID
 router.get('/providers/:providerId', getProviderById);
-
-// PUT /api/v1/admin/providers/:providerId/review - Approve or Reject an application
 router.put('/providers/:providerId/review', reviewProviderApplication);
 
 module.exports = router;
