@@ -12,8 +12,59 @@ import {
   Inbox
 } from 'lucide-react';
 
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
 import ConfirmModal from '../../../components/common/ConfirmModal';
+
+const API_BASE_URL = (
+  import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
+).replace(/\/$/, '');
+
+const getCleanToken = (contextToken) => {
+  const rawToken = contextToken || localStorage.getItem('token');
+
+  if (!rawToken) return null;
+
+  return String(rawToken)
+    .replace(/^"|"$/g, '')
+    .replace(/^Bearer\s+/i, '')
+    .trim();
+};
+
+const mapMatchFromApi = (match) => {
+  if (!match?.scholarship) {
+    return match;
+  }
+
+  const scholarship = match.scholarship;
+  const breakdown = {};
+
+  if (match.gpaScore != null) {
+    breakdown['GPA / GWA'] = match.gpaScore;
+  }
+
+  if (match.incomeScore != null) {
+    breakdown.Income = match.incomeScore;
+  }
+
+  if (match.tagsScore != null) {
+    breakdown['Special Eligibility'] = match.tagsScore;
+  }
+
+  return {
+    _id: scholarship._id,
+    title: scholarship.name,
+    provider: scholarship.scholarshipType,
+    amount: scholarship.grantValue,
+    deadline: scholarship.deadline,
+    score: match.totalScore,
+    classification: match.classification,
+    matchedFlags: match.classification ? [match.classification] : [],
+    url: scholarship.applicationURL,
+    breakdown: Object.keys(breakdown).length > 0 ? breakdown : undefined,
+    scholarship
+  };
+};
 
 // Shared Mock Seed Data (Fallback aligned with StudentDashboard)
 const MOCK_FALLBACK_MATCHES = [
@@ -80,7 +131,8 @@ const MOCK_FALLBACK_MATCHES = [
 ];
 
 export default function MatchFeed() {
-  const { user } = useAuth();
+  const navigate = useNavigate();
+  const { token: contextToken } = useAuth();
 
   // State Management
   const [matches, setMatches] = useState([]);
@@ -102,11 +154,11 @@ export default function MatchFeed() {
       setIsLoading(true);
 
       try {
-        const token = localStorage.getItem('token');
+        const token = getCleanToken(contextToken);
         const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
         const [matchesRes, bookmarksRes] = await Promise.allSettled([
-          fetch('/api/v1/scholarships/recommended', { headers }),
+          fetch(`${API_BASE_URL}/matching`, { headers }),
           fetch('/api/v1/students/bookmarks', { headers })
         ]);
 
@@ -114,9 +166,11 @@ export default function MatchFeed() {
           // Handle Matches Endpoint
           if (matchesRes.status === 'fulfilled' && matchesRes.value.ok) {
             const data = await matchesRes.value.json();
-            const list = Array.isArray(data) ? data : (data.matches || []);
-            setMatches(list.length > 0 ? list : MOCK_FALLBACK_MATCHES);
-            setIsUsingFallback(list.length === 0);
+            const list = Array.isArray(data.matches)
+              ? data.matches.map(mapMatchFromApi)
+              : [];
+            setMatches(list);
+            setIsUsingFallback(false);
           } else {
             setMatches(MOCK_FALLBACK_MATCHES);
             setIsUsingFallback(true);
@@ -147,7 +201,7 @@ export default function MatchFeed() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [contextToken]);
 
   // 2. Toggle Bookmark State
   const toggleBookmark = async (id) => {
@@ -160,7 +214,7 @@ export default function MatchFeed() {
     setBookmarkedIds(updated);
 
     try {
-      const token = localStorage.getItem('token');
+      const token = getCleanToken(contextToken);
       if (token && !isUsingFallback) {
         await fetch(`/api/v1/scholarships/${id}/bookmark`, {
           method: 'POST',
@@ -177,9 +231,22 @@ export default function MatchFeed() {
     }
   };
 
-  const handleApplyClick = (grant) => {
+  const handleApplyClick = (event, grant) => {
+    event.stopPropagation();
     setSelectedGrant(grant);
     setIsModalOpen(true);
+  };
+
+  const openScholarshipDetails = (item) => {
+    const scholarshipId = item?.scholarship?._id || item?._id;
+
+    if (!scholarshipId || !item?.scholarship?._id) {
+      return;
+    }
+
+    navigate(`/dashboard/student/scholarships/${scholarshipId}`, {
+      state: { scholarship: item.scholarship }
+    });
   };
 
   const confirmRedirect = () => {
@@ -231,16 +298,28 @@ export default function MatchFeed() {
       ) : (
         <div className="space-y-3">
           {matches.map((item) => {
-            const id = item._id || item.id;
+            const id = item.scholarship?._id || item._id || item.id;
             const isExpanded = expandedId === id;
             const isBookmarked = bookmarkedIds.includes(id);
             const score = item.score ?? item.weightedScore ?? item.matchScore ?? 80;
             const flags = item.matchedFlags || (item.tag ? [item.tag] : []);
+            const canOpenDetails = Boolean(item.scholarship?._id);
 
             return (
               <div 
                 key={id} 
-                className="bg-card-bg rounded-2xl border border-app-text/10 p-5 hover:border-primary/40 transition-all shadow-xs space-y-3"
+                role={canOpenDetails ? 'link' : undefined}
+                tabIndex={canOpenDetails ? 0 : undefined}
+                onClick={() => openScholarshipDetails(item)}
+                onKeyDown={(event) => {
+                  if (canOpenDetails && (event.key === 'Enter' || event.key === ' ')) {
+                    event.preventDefault();
+                    openScholarshipDetails(item);
+                  }
+                }}
+                className={`bg-card-bg rounded-2xl border border-app-text/10 p-5 hover:border-primary/40 transition-all shadow-xs space-y-3 ${
+                  canOpenDetails ? 'cursor-pointer' : ''
+                }`}
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="space-y-1">
@@ -262,7 +341,10 @@ export default function MatchFeed() {
 
                   <button
                     type="button"
-                    onClick={() => toggleBookmark(id)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      toggleBookmark(id);
+                    }}
                     disabled={savingBookmarkId === id}
                     className={`p-2 rounded-xl border transition-colors cursor-pointer ${
                       isBookmarked 
@@ -308,7 +390,10 @@ export default function MatchFeed() {
                     {(item.breakdown || item.matchBreakdown) && (
                       <button
                         type="button"
-                        onClick={() => setExpandedId(isExpanded ? null : id)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setExpandedId(isExpanded ? null : id);
+                        }}
                         className="text-primary font-bold text-[11px] hover:underline flex items-center gap-1 cursor-pointer"
                       >
                         <Info className="w-3 h-3" />
@@ -319,7 +404,7 @@ export default function MatchFeed() {
 
                   <button
                     type="button"
-                    onClick={() => handleApplyClick(item)}
+                    onClick={(event) => handleApplyClick(event, item)}
                     className="px-3.5 py-1.5 bg-app-text text-card-bg hover:bg-primary hover:text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
                   >
                     <span>Apply Off-Site</span>

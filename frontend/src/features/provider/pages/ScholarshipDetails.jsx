@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '../../../context/AuthContext';
 import {
   ArrowLeft,
   Calendar,
@@ -21,7 +22,14 @@ const API_BASE_URL =
 
 export default function ScholarshipDetails() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { user } = useAuth();
   const { id } = useParams();
+  const backPath =
+    user?.role === 'student'
+      ? '/dashboard/student/matches'
+      : '/dashboard/provider/listings';
+  const passedScholarship = location.state?.scholarship;
 
   const [scholarship, setScholarship] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -51,6 +59,14 @@ export default function ScholarshipDetails() {
         const data = await response.json();
 
         if (!response.ok) {
+          if (
+            passedScholarship &&
+            String(passedScholarship._id) === String(id)
+          ) {
+            setScholarship(passedScholarship);
+            return;
+          }
+
           throw new Error(
             data.message || 'Failed to load scholarship details.'
           );
@@ -58,10 +74,18 @@ export default function ScholarshipDetails() {
 
         setScholarship(data.scholarship);
       } catch (err) {
-        console.error('Failed to fetch scholarship:', err);
-        setError(
-          err.message || 'Failed to load scholarship details.'
-        );
+        if (
+          passedScholarship &&
+          String(passedScholarship._id) === String(id)
+        ) {
+          setScholarship(passedScholarship);
+          setError('');
+        } else {
+          console.error('Failed to fetch scholarship:', err);
+          setError(
+            err.message || 'Failed to load scholarship details.'
+          );
+        }
       } finally {
         setIsLoading(false);
       }
@@ -70,7 +94,7 @@ export default function ScholarshipDetails() {
     if (id) {
       fetchScholarship();
     }
-  }, [id]);
+  }, [id, passedScholarship]);
 
   const formatDate = (date) => {
     if (!date) return 'Not specified';
@@ -133,7 +157,7 @@ export default function ScholarshipDetails() {
       <div className="max-w-4xl mx-auto">
         <button
           type="button"
-          onClick={() => navigate('/dashboard/provider/listings')}
+          onClick={() => navigate(backPath)}
           className="flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900 mb-6"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -181,7 +205,7 @@ export default function ScholarshipDetails() {
       {/* Back Button */}
       <button
         type="button"
-        onClick={() => navigate('/dashboard/provider/listings')}
+        onClick={() => navigate(backPath)}
         className="flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900 transition-colors"
       >
         <ArrowLeft className="w-4 h-4" />
@@ -577,6 +601,7 @@ export default function ScholarshipDetails() {
       {/* RANKING WEIGHTS */}
       {/* ===================================== */}
 
+      {user?.role !== 'student' && (
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
 
         <div className="flex items-center gap-2 mb-5">
@@ -622,6 +647,7 @@ export default function ScholarshipDetails() {
         </div>
 
       </div>
+      )}
 
       {/* ===================================== */}
       {/* APPLICATION */}
