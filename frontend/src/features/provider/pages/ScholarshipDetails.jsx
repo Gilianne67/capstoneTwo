@@ -26,9 +26,10 @@ export default function ScholarshipDetails() {
   const { user } = useAuth();
   const { id } = useParams();
   const backPath =
-    user?.role === 'student'
+    location.state?.backPath ||
+    (user?.role === 'student'
       ? '/dashboard/student/matches'
-      : '/dashboard/provider/listings';
+      : '/dashboard/provider/listings');
   const passedScholarship = location.state?.scholarship;
 
   const [scholarship, setScholarship] = useState(null);
