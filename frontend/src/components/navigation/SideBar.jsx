@@ -7,7 +7,6 @@ import {
   Search, 
   Award, 
   Bookmark, 
-  FileText, 
   Bell, 
   Settings, 
   HelpCircle, 
@@ -128,7 +127,6 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
         { label: 'Student Profile', path: '/dashboard/student/profile', icon: User },
         { label: 'Scholarship Search', path: '/dashboard/student/search', icon: Search },
         { label: 'Saved Scholarships', path: '/dashboard/student/saved', icon: Bookmark },
-        { label: 'Application Tracker', path: '/dashboard/student/applications', icon: FileText },
       ],
       general: [
         { label: 'Deadline Alerts', path: '/dashboard/student/notifications', icon: Bell },

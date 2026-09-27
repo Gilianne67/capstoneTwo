@@ -159,7 +159,7 @@ export default function MatchFeed() {
 
         const [matchesRes, bookmarksRes] = await Promise.allSettled([
           fetch(`${API_BASE_URL}/matching`, { headers }),
-          fetch('/api/v1/students/bookmarks', { headers })
+          fetch(`${API_BASE_URL}/students/saved-scholarships`, { headers })
         ]);
 
         if (isMounted) {
@@ -179,10 +179,14 @@ export default function MatchFeed() {
           // Handle Bookmarks Endpoint
           if (bookmarksRes.status === 'fulfilled' && bookmarksRes.value.ok) {
             const bookmarks = await bookmarksRes.value.json();
-            const ids = Array.isArray(bookmarks)
-              ? bookmarks.map(b => typeof b === 'string' ? b : (b._id || b.id))
+            const list = Array.isArray(bookmarks?.savedScholarships)
+              ? bookmarks.savedScholarships
               : [];
-            setBookmarkedIds(ids);
+            setBookmarkedIds(
+              list
+                .map((item) => String(item?._id || item?.scholarshipId || item?.id || ''))
+                .filter(Boolean)
+            );
           }
         }
       } catch (err) {
@@ -205,27 +209,37 @@ export default function MatchFeed() {
 
   // 2. Toggle Bookmark State
   const toggleBookmark = async (id) => {
-    setSavingBookmarkId(id);
-    const isBookmarked = bookmarkedIds.includes(id);
-    const updated = isBookmarked 
-      ? bookmarkedIds.filter(bId => bId !== id) 
-      : [...bookmarkedIds, id];
+    const scholarshipId = String(id || '');
+    if (!scholarshipId) return;
+
+    setSavingBookmarkId(scholarshipId);
+    const isBookmarked = bookmarkedIds.includes(scholarshipId);
+    const previous = bookmarkedIds;
+    const updated = isBookmarked
+      ? bookmarkedIds.filter((savedId) => savedId !== scholarshipId)
+      : [...bookmarkedIds, scholarshipId];
 
     setBookmarkedIds(updated);
 
     try {
       const token = getCleanToken(contextToken);
-      if (token && !isUsingFallback) {
-        await fetch(`/api/v1/scholarships/${id}/bookmark`, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}) 
-          }
-        });
+      if (!token) throw new Error('Not authenticated');
+
+      const response = await fetch(
+        `${API_BASE_URL}/students/saved-scholarships/${scholarshipId}`,
+        {
+          method: isBookmarked ? 'DELETE' : 'POST',
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      const alreadyRemoved = isBookmarked && response.status === 404;
+
+      if (!response.ok && !alreadyRemoved) {
+        throw new Error('Failed to update saved scholarship');
       }
     } catch (error) {
       console.error('Failed to sync bookmark state:', error);
+      setBookmarkedIds(previous);
     } finally {
       setSavingBookmarkId(null);
     }
@@ -300,7 +314,7 @@ export default function MatchFeed() {
           {matches.map((item) => {
             const id = item.scholarship?._id || item._id || item.id;
             const isExpanded = expandedId === id;
-            const isBookmarked = bookmarkedIds.includes(id);
+            const isBookmarked = bookmarkedIds.includes(String(id));
             const score = item.score ?? item.weightedScore ?? item.matchScore ?? 80;
             const flags = item.matchedFlags || (item.tag ? [item.tag] : []);
             const canOpenDetails = Boolean(item.scholarship?._id);

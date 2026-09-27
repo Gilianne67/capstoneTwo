@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Sparkles, 
   Bookmark, 
-  Send, 
   ExternalLink, 
   MapPin,
   GraduationCap,
@@ -22,7 +21,6 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '../../../context/AuthContext';
-import StatusBadge from '../../../components/common/StatusBadge';
 import ConfirmModal from '../../../components/common/ConfirmModal';
 
 const API_BASE_URL = (
@@ -136,7 +134,6 @@ export default function StudentDashboard() {
 
   const [weightedMatches, setWeightedMatches] = useState([]);
   const [matchCount, setMatchCount] = useState(0);
-  const [trackedApplications] = useState([]);
   const [matchesError, setMatchesError] = useState('');
   
   const [isLoading, setIsLoading] = useState(true);
@@ -156,12 +153,31 @@ export default function StudentDashboard() {
       const token = getCleanToken(contextToken);
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-      const [matchesResult, profileResult] = await Promise.allSettled([
+      const [matchesResult, profileResult, savedResult] = await Promise.allSettled([
         fetch(`${API_BASE_URL}/matching`, { headers }),
-        fetch(`${API_BASE_URL}/students/profile`, { headers })
+        fetch(`${API_BASE_URL}/students/profile`, { headers }),
+        fetch(`${API_BASE_URL}/students/saved-scholarships`, { headers })
       ]);
 
       if (!isMounted) return;
+
+      let savedIds = new Set();
+
+      if (savedResult.status === 'fulfilled' && savedResult.value.ok) {
+        try {
+          const savedData = await savedResult.value.json();
+          const savedList = Array.isArray(savedData.savedScholarships)
+            ? savedData.savedScholarships
+            : [];
+          savedIds = new Set(
+            savedList
+              .map((item) => String(item?._id || item?.scholarshipId || item?.id || ''))
+              .filter(Boolean)
+          );
+        } catch {
+          savedIds = new Set();
+        }
+      }
 
       if (
         matchesResult.status === 'fulfilled' &&
@@ -177,7 +193,15 @@ export default function StudentDashboard() {
               )
             : [];
 
-          setWeightedMatches(list.map(mapMatchFromApi));
+          setWeightedMatches(
+            list.map((match) => {
+              const item = mapMatchFromApi(match);
+              return {
+                ...item,
+                isSaved: savedIds.has(String(item._id || ''))
+              };
+            })
+          );
           setMatchCount(
             typeof data.count === 'number' ? data.count : list.length
           );
@@ -239,15 +263,45 @@ export default function StudentDashboard() {
   };
 
   const handleToggleSave = async (scholarshipId) => {
-    setIsSavingId(scholarshipId);
+    const savedId = String(scholarshipId || '');
+    if (!savedId) return;
 
+    const current = weightedMatches.find((item) => String(item._id) === savedId);
+    const wasSaved = Boolean(current?.isSaved);
+
+    setIsSavingId(savedId);
     setWeightedMatches((prev) =>
       prev.map((item) =>
-        item._id === scholarshipId ? { ...item, isSaved: !item.isSaved } : item
+        String(item._id) === savedId ? { ...item, isSaved: !wasSaved } : item
       )
     );
 
-    setIsSavingId(null);
+    try {
+      const token = getCleanToken(contextToken);
+      if (!token) throw new Error('Not authenticated');
+
+      const response = await fetch(
+        `${API_BASE_URL}/students/saved-scholarships/${savedId}`,
+        {
+          method: wasSaved ? 'DELETE' : 'POST',
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      const alreadyRemoved = wasSaved && response.status === 404;
+
+      if (!response.ok && !alreadyRemoved) {
+        throw new Error('Failed to update saved scholarship');
+      }
+    } catch (error) {
+      console.error('Failed to sync saved scholarship:', error);
+      setWeightedMatches((prev) =>
+        prev.map((item) =>
+          String(item._id) === savedId ? { ...item, isSaved: wasSaved } : item
+        )
+      );
+    } finally {
+      setIsSavingId(null);
+    }
   };
 
   const handleApplyClick = (event, item) => {
@@ -537,37 +591,7 @@ export default function StudentDashboard() {
           )}
         </div>
 
-        {/* Right Side: Tracked Outbound Applications */}
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-extrabold text-app-text flex items-center gap-2">
-              <Send className="h-4 w-4 text-secondary" />
-              <span>Tracked Applications</span>
-            </h2>
-          </div>
-
-          <div className="bg-card-bg border border-app-text/10 rounded-2xl p-4 space-y-3 shadow-xs">
-            {trackedApplications.length === 0 ? (
-              <div className="text-center py-6 space-y-2">
-                <p className="text-xs font-bold text-app-text">No outbound applications yet</p>
-                <p className="text-[11px] text-text-muted">Applied scholarships will show up here automatically.</p>
-              </div>
-            ) : (
-              trackedApplications.map((app) => (
-                <div key={app._id} className="p-3 bg-app-bg rounded-xl border border-app-text/10 space-y-2 hover:border-primary/30 transition-all">
-                  <div className="flex items-start justify-between gap-2">
-                    <h3 className="text-xs font-extrabold text-app-text leading-snug">{app.scholarshipTitle || app.title}</h3>
-                    <StatusBadge status={app.status} />
-                  </div>
-                  <div className="flex justify-between items-center text-[10px] text-text-muted font-medium">
-                    <span>{app.provider}</span>
-                    <span>Applied {formatDate(app.updatedAt || app.submittedAt)}</span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-
           {/* Quick Tip Box with Theme Primary */}
           <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4 space-y-1 text-xs">
             <p className="font-extrabold text-primary flex items-center gap-1.5">

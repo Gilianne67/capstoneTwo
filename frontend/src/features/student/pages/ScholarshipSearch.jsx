@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Search, 
@@ -15,7 +15,6 @@ import {
   MapPin,
   GraduationCap,
   Loader2,
-  AlertCircle,
   Inbox,
   Sparkles,
   Clock,
@@ -26,69 +25,20 @@ import {
 import { useAuth } from '../../../context/AuthContext';
 import ConfirmModal from '../../../components/common/ConfirmModal';
 
-// Mock Seed Data (Aligned with Dashboard Dataset)
-const MOCK_SCHOLARSHIPS = [
-  {
-    _id: '65f1a2b3c4d5e6f7a8b9c0d1',
-    title: 'National STEM Excellence Grant 2026',
-    provider: 'Department of Science and Technology',
-    category: 'STEM Specialty',
-    amount: 80000,
-    amountValue: 80000,
-    amountPeriod: 'yr',
-    deadline: '2026-08-20T00:00:00.000Z',
-    region: 'Region V (Bicol Region)',
-    degreeLevel: 'Undergraduate',
-    matchScore: 96,
-    targetFlags: ['is4PsBeneficiary', 'isWorkingStudent'],
-    matchBreakdown: { 
-      'Academic Record': { score: '40/40', detail: '1.45 meets <= 1.50 requirement' }, 
-      'Location Priority': { score: '30/30', detail: 'Bicol Region priority' }, 
-      'Financial Need': { score: '26/30', detail: 'Tier 1 Income Bracket' } 
-    },
-    externalUrl: 'https://official.dost.gov.ph/apply'
-  },
-  {
-    _id: '65f1a2b3c4d5e6f7a8b9c0d2',
-    title: 'Provincial Youth Tertiary Assistance',
-    provider: 'Provincial Government Office',
-    category: 'LGU Financial Aid',
-    amount: 25000,
-    amountValue: 25000,
-    amountPeriod: 'sem',
-    deadline: '2026-09-05T00:00:00.000Z',
-    region: 'Region V (Bicol Region)',
-    degreeLevel: 'Undergraduate',
-    matchScore: 89,
-    targetFlags: ['isIP', 'isSoloParentDependent'],
-    matchBreakdown: { 
-      'Academic Record': { score: '35/40', detail: '1.45 meets <= 1.75 requirement' }, 
-      'Location Priority': { score: '30/30', detail: 'Pili Local Resident' }, 
-      'Financial Need': { score: '24/30', detail: 'Tier 2 Income Bracket' } 
-    },
-    externalUrl: 'https://pili.gov.ph/scholarships'
-  },
-  {
-    _id: '65f1a2b3c4d5e6f7a8b9c0d3',
-    title: 'Higher Education Development Grant',
-    provider: 'Commission on Higher Education (CHED)',
-    category: 'National Merit',
-    amount: 60000,
-    amountValue: 60000,
-    amountPeriod: 'yr',
-    deadline: '2026-10-15T00:00:00.000Z',
-    region: 'National',
-    degreeLevel: 'Undergraduate',
-    matchScore: 82,
-    targetFlags: ['isPWD', 'isOrphan'],
-    matchBreakdown: { 
-      'Academic Record': { score: '38/40', detail: '1.45 meets <= 1.60 requirement' }, 
-      'Location Priority': { score: '25/30', detail: 'Nationwide coverage' }, 
-      'Financial Need': { score: '19/30', detail: 'General Academic Merit' } 
-    },
-    externalUrl: 'https://ched.gov.ph/grants'
-  }
-];
+const API_BASE_URL = (
+  import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
+).replace(/\/$/, '');
+
+const getCleanToken = (contextToken) => {
+  const rawToken = contextToken || localStorage.getItem('token');
+
+  if (!rawToken) return null;
+
+  return String(rawToken)
+    .replace(/^"|"$/g, '')
+    .replace(/^Bearer\s+/i, '')
+    .trim();
+};
 
 const FLAG_OPTIONS = [
   { key: 'isIP', label: 'Indigenous Peoples' },
@@ -100,6 +50,36 @@ const FLAG_OPTIONS = [
   { key: 'isWorkingStudent', label: 'Working Student' },
   { key: 'is4PsBeneficiary', label: '4Ps Beneficiary' },
 ];
+
+// Existing filter labels compared with the location names stored on scholarships.
+const REGION_FILTER_TARGETS = {
+  'Region V (Bicol Region)': ['bicol region', 'region v', 'region v (bicol region)'],
+  NCR: ['national capital region', 'ncr'],
+  'Region IV-A': ['calabarzon', 'region iv-a', 'region iv-a (calabarzon)']
+};
+
+// Existing degree labels compared with hardFilters.academicLevel values.
+const DEGREE_FILTER_LEVELS = {
+  Undergraduate: ['undergraduate', 'college'],
+  'Senior High School': ['senior high school'],
+  Postgraduate: ['postgraduate', 'graduate studies']
+};
+
+// Checkbox keys compared with scholarship.specialTags.tagName values.
+const FLAG_TAG_NAMES = {
+  isIP: ['indigenous peoples (ip)', 'ip', 'indigenous peoples'],
+  isPWD: ['person with disability (pwd)', 'pwd', 'pwd status'],
+  isSoloParentDependent: ['solo parent dependent', 'solo parent child'],
+  isOrphan: ['orphan status', 'orphan'],
+  isFarmerFisherfolkChild: [
+    'child of farmer / fisherfolk',
+    'farmer / fisherfolk child',
+    'farmer/fisherfolk child'
+  ],
+  isDisasterAffected: ['disaster-affected family', 'disaster affected'],
+  isWorkingStudent: ['working student'],
+  is4PsBeneficiary: ['4ps beneficiary', '4ps']
+};
 
 const formatCurrency = (amount, currency = 'PHP') => {
   if (typeof amount !== 'number' || isNaN(amount)) return '₱0';
@@ -121,9 +101,125 @@ const formatDate = (dateString) => {
   });
 };
 
+const formatGeographicLocation = (location) => {
+  if (!location) return '';
+  if (typeof location === 'string') return location;
+
+  const scope = location.scope || '';
+  const places = [
+    ...(location.municipalities || []),
+    ...(location.provinces || []),
+    ...(location.regions || [])
+  ].map((value) => String(value || '').trim()).filter(Boolean);
+
+  if (scope === 'Nationwide' || places.length === 0) {
+    return scope || 'Nationwide';
+  }
+
+  return places.join(', ');
+};
+
+const parseGrantAmount = (value) => {
+  if (typeof value === 'number' && !Number.isNaN(value)) return value;
+  const match = String(value || '').replace(/,/g, '').match(/\d+(?:\.\d+)?/);
+  return match ? Number(match[0]) : 0;
+};
+
+const locationMatchesRegion = (geographicLocation, selectedRegion) => {
+  if (selectedRegion === 'All') return true;
+  if (!geographicLocation) return false;
+
+  if (typeof geographicLocation === 'string') {
+    const normalized = geographicLocation.trim().toLowerCase();
+    if (normalized === 'nationwide' || normalized === 'national') return true;
+    const targets = REGION_FILTER_TARGETS[selectedRegion] || [selectedRegion.toLowerCase()];
+    return targets.some((target) => normalized === target || normalized.includes(target));
+  }
+
+  if (geographicLocation.scope === 'Nationwide') return true;
+
+  const places = [
+    ...(geographicLocation.regions || []),
+    ...(geographicLocation.provinces || []),
+    ...(geographicLocation.municipalities || [])
+  ].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean);
+
+  const targets = REGION_FILTER_TARGETS[selectedRegion] || [selectedRegion.toLowerCase()];
+  return places.some((place) => targets.some((target) => place === target || place.includes(target)));
+};
+
+const levelMatchesDegree = (academicLevel, selectedDegree) => {
+  if (selectedDegree === 'All') return true;
+  const normalized = String(academicLevel || '').trim().toLowerCase();
+  const accepted = DEGREE_FILTER_LEVELS[selectedDegree] || [selectedDegree.toLowerCase()];
+  return accepted.includes(normalized);
+};
+
+const scholarshipMatchesFlags = (specialTags, selectedFlags) => {
+  if (selectedFlags.length === 0) return true;
+
+  const tagNames = (specialTags || [])
+    .map((tag) => String(tag?.tagName || '').trim().toLowerCase())
+    .filter(Boolean);
+
+  return selectedFlags.some((flag) => {
+    const names = FLAG_TAG_NAMES[flag] || [String(flag).toLowerCase()];
+    return tagNames.some((tagName) => names.includes(tagName));
+  });
+};
+
+const mapMatchFromApi = (match) => {
+  const scholarship = match?.scholarship || {};
+  const hardFilters = scholarship.hardFilters || {};
+  const locationLabel = formatGeographicLocation(hardFilters.geographicLocation);
+  const breakdown = {};
+
+  if (match?.gpaScore != null) {
+    breakdown['GPA / GWA'] = {
+      score: match.gpaScore,
+      detail: 'GPA / GWA compatibility'
+    };
+  }
+
+  if (match?.incomeScore != null) {
+    breakdown.Income = {
+      score: match.incomeScore,
+      detail: 'Income compatibility'
+    };
+  }
+
+  if (match?.tagsScore != null) {
+    breakdown['Special Eligibility'] = {
+      score: match.tagsScore,
+      detail: 'Special eligibility alignment'
+    };
+  }
+
+  return {
+    _id: scholarship._id,
+    title: scholarship.name || '',
+    scholarshipType: scholarship.scholarshipType || '',
+    classification: match?.classification || '',
+    provider: scholarship.scholarshipType || '',
+    amount: scholarship.grantValue,
+    deadline: scholarship.deadline,
+    region: locationLabel,
+    geographicLocation: hardFilters.geographicLocation,
+    degreeLevel: hardFilters.academicLevel || '',
+    totalScore: Number(match?.totalScore) || 0,
+    matchScore: Number(match?.totalScore) || 0,
+    externalUrl: scholarship.applicationURL || '',
+    description: scholarship.description || '',
+    benefits: Array.isArray(scholarship.benefits) ? scholarship.benefits : [],
+    specialTags: Array.isArray(scholarship.specialTags) ? scholarship.specialTags : [],
+    matchBreakdown: Object.keys(breakdown).length > 0 ? breakdown : undefined,
+    scholarship
+  };
+};
+
 export default function ScholarshipSearch() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { token: contextToken } = useAuth();
 
   // Search & Filter State Management
   const [searchQuery, setSearchQuery] = useState('');
@@ -135,81 +231,106 @@ export default function ScholarshipSearch() {
 
   // Data & Dynamic State
   const [scholarships, setScholarships] = useState([]);
+  const [matchCount, setMatchCount] = useState(0);
   const [bookmarkedIds, setBookmarkedIds] = useState([]);
   const [expandedMatchId, setExpandedMatchId] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isUsingFallback, setIsUsingFallback] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [savingBookmarkId, setSavingBookmarkId] = useState(null);
+  const [studentProfile, setStudentProfile] = useState({
+    gwa: 'Not provided',
+    region: 'Not provided',
+    academicLevel: 'Not provided'
+  });
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedScholarship, setSelectedScholarship] = useState(null);
 
-  // Dynamic User Profile Attributes (Synced with Logged-in Student Auth state)
-  const studentProfile = useMemo(() => {
-    const profile = user?.profile || user || {};
-    return {
-      gwa: profile.gwa || profile.academicInfo?.gwa || '1.45',
-      region: profile.region || profile.location || profile.address?.region || 'Region V (Bicol Region)',
-      degreeLevel: profile.degreeLevel || profile.educationLevel || 'Undergraduate',
-      flags: profile.targetFlags || profile.eligibilityFlags || []
-    };
-  }, [user]);
-
-  // Sync profile options into filter states upon profile load
-  useEffect(() => {
-    if (user) {
-      if (studentProfile.region && studentProfile.region !== 'All') {
-        setSelectedRegion(studentProfile.region);
-      }
-      if (studentProfile.degreeLevel && studentProfile.degreeLevel !== 'All') {
-        setSelectedDegree(studentProfile.degreeLevel);
-      }
-      if (Array.isArray(studentProfile.flags) && studentProfile.flags.length > 0) {
-        setSelectedFlags(studentProfile.flags);
-      }
-    }
-  }, [user, studentProfile]);
-
-  // 1. Fetch Data with Dynamic Fallback Handling
+  // 1. Fetch live matching results
   useEffect(() => {
     let isMounted = true;
 
     const loadDiscoveryData = async () => {
       setIsLoading(true);
+      setLoadError('');
 
       try {
-        const token = localStorage.getItem('token');
+        const token = getCleanToken(contextToken);
         const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-        const [scholarshipsRes, bookmarksRes] = await Promise.allSettled([
-          fetch('/api/v1/scholarships', { headers }),
-          fetch('/api/v1/students/bookmarks', { headers })
+        const [matchesRes, bookmarksRes, profileRes] = await Promise.allSettled([
+          fetch(`${API_BASE_URL}/matching`, { headers }),
+          fetch(`${API_BASE_URL}/students/saved-scholarships`, { headers }),
+          fetch(`${API_BASE_URL}/students/profile`, { headers })
         ]);
 
-        if (isMounted) {
-          if (scholarshipsRes.status === 'fulfilled' && scholarshipsRes.value.ok) {
-            const list = await scholarshipsRes.value.json();
-            setScholarships(Array.isArray(list) && list.length > 0 ? list : MOCK_SCHOLARSHIPS);
-            setIsUsingFallback(!Array.isArray(list) || list.length === 0);
-          } else {
-            setScholarships(MOCK_SCHOLARSHIPS);
-            setIsUsingFallback(true);
-          }
+        if (!isMounted) return;
 
-          if (bookmarksRes.status === 'fulfilled' && bookmarksRes.value.ok) {
-            const bookmarks = await bookmarksRes.value.json();
-            const ids = Array.isArray(bookmarks) 
-              ? bookmarks.map(b => typeof b === 'string' ? b : (b._id || b.id))
-              : [];
-            setBookmarkedIds(ids);
+        if (matchesRes.status === 'fulfilled' && matchesRes.value.ok) {
+          const data = await matchesRes.value.json();
+          const list = Array.isArray(data.matches)
+            ? data.matches.map(mapMatchFromApi)
+            : [];
+          setScholarships(list);
+          setMatchCount(typeof data.count === 'number' ? data.count : list.length);
+        } else {
+          setScholarships([]);
+          setMatchCount(0);
+          let message = 'Unable to load scholarship matches right now.';
+          if (matchesRes.status === 'fulfilled') {
+            try {
+              const data = await matchesRes.value.json();
+              if (data?.message) message = data.message;
+            } catch {
+              // Keep the default message when the error body is not JSON.
+            }
           }
+          setLoadError(message);
+        }
+
+        if (bookmarksRes.status === 'fulfilled' && bookmarksRes.value.ok) {
+          const bookmarks = await bookmarksRes.value.json();
+          const list = Array.isArray(bookmarks?.savedScholarships)
+            ? bookmarks.savedScholarships
+            : [];
+          setBookmarkedIds(
+            list
+              .map((item) => String(item?._id || item?.scholarshipId || item?.id || ''))
+              .filter(Boolean)
+          );
+        }
+
+        const emptyProfile = {
+          gwa: 'Not provided',
+          region: 'Not provided',
+          academicLevel: 'Not provided'
+        };
+
+        if (profileRes.status === 'fulfilled' && profileRes.value.ok) {
+          try {
+            const data = await profileRes.value.json();
+            const profile = data.profile || {};
+            const hasValue = (value) =>
+              value !== undefined && value !== null && String(value).trim() !== '';
+
+            setStudentProfile({
+              gwa: hasValue(profile.gwa) ? String(profile.gwa) : 'Not provided',
+              region: hasValue(profile.region) ? String(profile.region) : 'Not provided',
+              academicLevel: hasValue(profile.academicLevel) ? String(profile.academicLevel) : 'Not provided'
+            });
+          } catch {
+            setStudentProfile(emptyProfile);
+          }
+        } else {
+          setStudentProfile(emptyProfile);
         }
       } catch (err) {
         if (isMounted) {
-          console.warn('Backend API connection offline/failed, loading mock preview mode:', err);
-          setScholarships(MOCK_SCHOLARSHIPS);
-          setIsUsingFallback(true);
+          console.warn('Matching API request failed:', err);
+          setScholarships([]);
+          setMatchCount(0);
+          setLoadError('Unable to load scholarship matches right now.');
         }
       } finally {
         if (isMounted) setIsLoading(false);
@@ -221,28 +342,41 @@ export default function ScholarshipSearch() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [contextToken]);
 
   // 2. Bookmark Action Handler
   const toggleBookmark = async (id) => {
-    setSavingBookmarkId(id);
-    const isBookmarked = bookmarkedIds.includes(id);
-    const updated = isBookmarked 
-      ? bookmarkedIds.filter(bId => bId !== id) 
-      : [...bookmarkedIds, id];
+    const scholarshipId = String(id || '');
+    if (!scholarshipId) return;
+
+    setSavingBookmarkId(scholarshipId);
+    const isBookmarked = bookmarkedIds.includes(scholarshipId);
+    const previous = bookmarkedIds;
+    const updated = isBookmarked
+      ? bookmarkedIds.filter((savedId) => savedId !== scholarshipId)
+      : [...bookmarkedIds, scholarshipId];
 
     setBookmarkedIds(updated);
 
     try {
-      const token = localStorage.getItem('token');
-      if (token) {
-        await fetch(`/api/v1/students/bookmarks/${id}`, {
+      const token = getCleanToken(contextToken);
+      if (!token) throw new Error('Not authenticated');
+
+      const response = await fetch(
+        `${API_BASE_URL}/students/saved-scholarships/${scholarshipId}`,
+        {
           method: isBookmarked ? 'DELETE' : 'POST',
           headers: { Authorization: `Bearer ${token}` }
-        });
+        }
+      );
+      const alreadyRemoved = isBookmarked && response.status === 404;
+
+      if (!response.ok && !alreadyRemoved) {
+        throw new Error('Failed to update saved scholarship');
       }
     } catch (error) {
       console.error('Failed to sync bookmark state:', error);
+      setBookmarkedIds(previous);
     } finally {
       setSavingBookmarkId(null);
     }
@@ -267,34 +401,39 @@ export default function ScholarshipSearch() {
   const filteredScholarships = useMemo(() => {
     return scholarships
       .filter(item => {
-        const query = searchQuery.toLowerCase();
-        const matchesQuery = !searchQuery || 
-          item.title?.toLowerCase().includes(query) || 
-          item.provider?.toLowerCase().includes(query) ||
-          item.category?.toLowerCase().includes(query);
+        const query = searchQuery.toLowerCase().trim();
+        const searchableText = [
+          item.title,
+          item.scholarshipType,
+          item.classification,
+          item.description,
+          item.degreeLevel,
+          item.region,
+          item.amount,
+          ...(item.benefits || []),
+          ...(item.specialTags || []).map((tag) => tag?.tagName)
+        ].join(' ').toLowerCase();
+        const matchesQuery = !query || searchableText.includes(query);
 
-        const matchesRegion = selectedRegion === 'All' || 
-          item.region === 'National' || 
-          item.region === selectedRegion;
-
-        const matchesDegree = selectedDegree === 'All' || 
-          item.degreeLevel === selectedDegree;
-
-        const score = item.matchScore ?? item.weightedScore ?? 80;
+        const matchesRegion = locationMatchesRegion(item.geographicLocation, selectedRegion);
+        const matchesDegree = levelMatchesDegree(item.degreeLevel, selectedDegree);
+        const score = Number(item.totalScore ?? item.matchScore ?? 0);
         const matchesScore = score >= minMatchScore;
-
-        const matchesFlags = selectedFlags.length === 0 || 
-          item.targetFlags?.some(flag => selectedFlags.includes(flag));
+        const matchesFlags = scholarshipMatchesFlags(item.specialTags, selectedFlags);
 
         return matchesQuery && matchesRegion && matchesDegree && matchesScore && matchesFlags;
       })
       .sort((a, b) => {
-        const scoreA = a.matchScore ?? a.weightedScore ?? 0;
-        const scoreB = b.matchScore ?? b.weightedScore ?? 0;
+        const scoreA = Number(a.totalScore ?? a.matchScore ?? 0);
+        const scoreB = Number(b.totalScore ?? b.matchScore ?? 0);
 
         if (sortBy === 'match') return scoreB - scoreA;
-        if (sortBy === 'amount') return (b.amountValue || b.amount || 0) - (a.amountValue || a.amount || 0);
-        if (sortBy === 'deadline') return new Date(a.deadline) - new Date(b.deadline);
+        if (sortBy === 'amount') return parseGrantAmount(b.amount) - parseGrantAmount(a.amount);
+        if (sortBy === 'deadline') {
+          const timeA = new Date(a.deadline).getTime();
+          const timeB = new Date(b.deadline).getTime();
+          return (Number.isNaN(timeA) ? Infinity : timeA) - (Number.isNaN(timeB) ? Infinity : timeB);
+        }
         return 0;
       });
   }, [scholarships, searchQuery, selectedRegion, selectedDegree, selectedFlags, minMatchScore, sortBy]);
@@ -310,15 +449,25 @@ export default function ScholarshipSearch() {
     }).length;
 
     return {
-      totalMatched: filteredScholarships.length,
       closingSoonCount,
       activeBookmarksCount: bookmarkedIds.length,
     };
   }, [filteredScholarships, bookmarkedIds]);
 
-  const handleApplyClick = (item) => {
+  const handleApplyClick = (event, item) => {
+    event.stopPropagation();
     setSelectedScholarship(item);
     setIsModalOpen(true);
+  };
+
+  const openScholarshipDetails = (item) => {
+    const scholarshipId = item?.scholarship?._id || item?._id;
+
+    if (!scholarshipId) return;
+
+    navigate(`/dashboard/student/scholarships/${scholarshipId}`, {
+      state: { scholarship: item.scholarship }
+    });
   };
 
   const confirmRedirect = () => {
@@ -339,16 +488,6 @@ export default function ScholarshipSearch() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
-      {/* Test-mode Alert Banner */}
-      {isUsingFallback && (
-        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 p-3 rounded-xl flex items-center justify-between text-xs font-medium">
-          <span className="flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            Backend API offline/unreachable. Showing mock preview mode for testing.
-          </span>
-        </div>
-      )}
-
       {/* Search Header & Dashboard Metrics Bar */}
       <div className="bg-card-bg rounded-2xl border border-app-text/10 p-4 shadow-xs space-y-4">
         {/* Search Controls */}
@@ -403,7 +542,7 @@ export default function ScholarshipSearch() {
             </div>
             <div>
               <p className="text-[10px] font-bold text-text-muted uppercase">Matched Grants</p>
-              <p className="text-xs font-black text-app-text">{dashboardStats.totalMatched} Opportunities</p>
+              <p className="text-xs font-black text-app-text">{matchCount} Opportunities</p>
             </div>
           </div>
 
@@ -439,7 +578,7 @@ export default function ScholarshipSearch() {
               {studentProfile.region}
             </span>
             <span className="bg-primary/10 text-primary px-2.5 py-1 rounded-lg border border-primary/20">
-              {studentProfile.degreeLevel}
+              {studentProfile.academicLevel}
             </span>
           </div>
           <span className="text-app-text font-black">{filteredScholarships.length} Grants Active</span>
@@ -530,8 +669,12 @@ export default function ScholarshipSearch() {
           {filteredScholarships.length === 0 ? (
             <div className="bg-card-bg rounded-2xl border border-app-text/10 p-8 text-center space-y-3 shadow-xs">
               <Inbox className="h-10 w-10 text-text-muted mx-auto" />
-              <p className="text-sm font-bold text-app-text">No matching grants found.</p>
-              <p className="text-xs text-text-muted">Try lowering your minimum match threshold or resetting your applied filters.</p>
+              <p className="text-sm font-bold text-app-text">
+                {loadError ? 'Unable to load scholarship matches.' : 'No matching grants found.'}
+              </p>
+              <p className="text-xs text-text-muted">
+                {loadError || 'Try lowering your minimum match threshold or resetting your applied filters.'}
+              </p>
               <button 
                 type="button"
                 onClick={resetFilters} 
@@ -543,17 +686,32 @@ export default function ScholarshipSearch() {
           ) : (
             filteredScholarships.map(scholarship => {
               const id = scholarship._id || scholarship.id;
-              const isBookmarked = bookmarkedIds.includes(id);
+              const isBookmarked = bookmarkedIds.includes(String(id));
               const isExpanded = expandedMatchId === id;
-              const matchScore = scholarship.matchScore ?? scholarship.weightedScore ?? 80;
+              const matchScore = scholarship.totalScore ?? scholarship.matchScore ?? 0;
+              const canOpenDetails = Boolean(id);
 
               return (
-                <div key={id} className="bg-card-bg rounded-2xl border border-app-text/10 p-5 shadow-xs space-y-4 hover:border-primary/40 transition-all">
+                <div
+                  key={id}
+                  role={canOpenDetails ? 'link' : undefined}
+                  tabIndex={canOpenDetails ? 0 : undefined}
+                  onClick={() => openScholarshipDetails(scholarship)}
+                  onKeyDown={(event) => {
+                    if (canOpenDetails && (event.key === 'Enter' || event.key === ' ')) {
+                      event.preventDefault();
+                      openScholarshipDetails(scholarship);
+                    }
+                  }}
+                  className={`bg-card-bg rounded-2xl border border-app-text/10 p-5 shadow-xs space-y-4 hover:border-primary/40 transition-all ${
+                    canOpenDetails ? 'cursor-pointer' : ''
+                  }`}
+                >
                   <div className="flex items-start justify-between gap-4">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-app-bg text-text-muted border border-app-text/10">
-                          {scholarship.category || 'General Grant'}
+                          {scholarship.classification || 'Match'}
                         </span>
                         <span className="text-xs font-black text-primary bg-primary/10 px-2 py-0.5 rounded-md">
                           {matchScore}% Match
@@ -561,13 +719,16 @@ export default function ScholarshipSearch() {
                       </div>
                       <h2 className="text-base font-extrabold text-app-text">{scholarship.title}</h2>
                       <p className="text-xs font-semibold text-text-muted flex items-center gap-1">
-                        <Building2 className="w-3.5 h-3.5 text-primary" /> {scholarship.provider}
+                        <Building2 className="w-3.5 h-3.5 text-primary" /> {scholarship.scholarshipType || scholarship.provider}
                       </p>
                     </div>
 
                     <button 
                       type="button"
-                      onClick={() => toggleBookmark(id)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleBookmark(id);
+                      }}
                       disabled={savingBookmarkId === id}
                       aria-label="Bookmark scholarship"
                       className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
@@ -600,7 +761,7 @@ export default function ScholarshipSearch() {
                     </div>
                     <div className="flex items-center gap-2">
                       <GraduationCap className="w-4 h-4 text-text-muted shrink-0" />
-                      <span>{scholarship.degreeLevel || 'Undergraduate'}</span>
+                      <span>{scholarship.degreeLevel || 'Not specified'}</span>
                     </div>
                   </div>
 
@@ -609,7 +770,10 @@ export default function ScholarshipSearch() {
                     <div className="pt-2 border-t border-app-text/10">
                       <button 
                         type="button"
-                        onClick={() => setExpandedMatchId(isExpanded ? null : id)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setExpandedMatchId(isExpanded ? null : id);
+                        }}
                         className="text-[11px] font-bold text-primary flex items-center gap-1 hover:underline cursor-pointer"
                       >
                         {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
@@ -636,7 +800,7 @@ export default function ScholarshipSearch() {
                   <div className="flex items-center justify-end gap-2 pt-2 border-t border-app-text/10">
                     <button
                       type="button"
-                      onClick={() => handleApplyClick(scholarship)}
+                      onClick={(event) => handleApplyClick(event, scholarship)}
                       className="px-4 py-2 rounded-xl bg-app-text text-card-bg hover:bg-primary hover:text-white font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
                     >
                       <span>Apply Directly</span>
@@ -656,7 +820,7 @@ export default function ScholarshipSearch() {
         onClose={() => setIsModalOpen(false)}
         onConfirm={confirmRedirect}
         title="Official Portal Redirect"
-        message={`You are leaving IskolarMatch to access the official application portal for ${selectedScholarship?.provider || 'this provider'}. Direct application submission is hosted on their official platform.`}
+        message={`You are leaving IskolarMatch to access the official application portal for ${selectedScholarship?.title || selectedScholarship?.provider || 'this scholarship'}. Direct application submission is hosted on their official platform.`}
         confirmText="Open Official Website"
       />
     </div>

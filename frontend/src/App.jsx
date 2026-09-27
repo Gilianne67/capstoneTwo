@@ -21,7 +21,6 @@ import StudentProfile from './features/student/pages/StudentProfile';
 import ScholarshipSearch from './features/student/pages/ScholarshipSearch';
 import MatchFeed from './features/student/pages/MatchFeed';
 import SavedScholarships from './features/student/pages/SavedScholarships';
-import ApplicationTracker from './features/student/pages/ApplicationTracker';
 import DeadlineAlerts from './features/student/pages/DeadlineAlerts';
 import Settings from './features/student/pages/Settings';
 import HelpCenter from './features/student/pages/HelpCenter';
@@ -140,7 +139,6 @@ export default function App() {
                         <Route path="student/scholarships/:id" element={<ScholarshipDetails />} />
                         <Route path="student/profile" element={<StudentProfile />} />
                         <Route path="student/saved" element={<SavedScholarships />} />
-                        <Route path="student/applications" element={<ApplicationTracker />} />
                         <Route path="student/notifications" element={<DeadlineAlerts />} />
                         <Route path="student/alerts" element={<Settings />} />
                         <Route path="student/settings" element={<Settings />} />
