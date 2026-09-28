@@ -189,7 +189,6 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
       ],
       general: [
         { label: 'Deadline Alerts', path: '/dashboard/student/notifications', icon: Bell, hasUnread: role === 'student' && hasUnreadNotifications },
-        { label: 'Settings', path: '/dashboard/student/settings', icon: Settings },
         { label: 'Help Center', path: '/dashboard/student/help', icon: HelpCircle },
       ]
     };

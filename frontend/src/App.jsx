@@ -1,5 +1,5 @@
 // App.jsx
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
 
 // Context
@@ -22,7 +22,6 @@ import ScholarshipSearch from './features/student/pages/ScholarshipSearch';
 import MatchFeed from './features/student/pages/MatchFeed';
 import SavedScholarships from './features/student/pages/SavedScholarships';
 import DeadlineAlerts from './features/student/pages/DeadlineAlerts';
-import Settings from './features/student/pages/Settings';
 import HelpCenter from './features/student/pages/HelpCenter';
 
 // Provider Module Pages
@@ -140,8 +139,14 @@ export default function App() {
                         <Route path="student/profile" element={<StudentProfile />} />
                         <Route path="student/saved" element={<SavedScholarships />} />
                         <Route path="student/notifications" element={<DeadlineAlerts />} />
-                        <Route path="student/alerts" element={<Settings />} />
-                        <Route path="student/settings" element={<Settings />} />
+                        <Route
+                          path="student/alerts"
+                          element={<Navigate to="/dashboard/student/profile" replace />}
+                        />
+                        <Route
+                          path="student/settings"
+                          element={<Navigate to="/dashboard/student/profile" replace />}
+                        />
                         <Route path="student/help" element={<HelpCenter />} />
                       </Route>
 
