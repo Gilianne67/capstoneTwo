@@ -3,6 +3,7 @@ const SavedMatch = require('../models/SavedMatch');
 const StudentProfile = require('../models/StudentProfile');
 const Scholarship = require('../models/Scholarship');
 const { getRankedScholarships } = require('../services/matchingService');
+const { safeSyncDeadlineNotifications } = require('../services/notificationService');
 
 const isValidObjectId = (value) =>
   mongoose.Types.ObjectId.isValid(value) &&
@@ -74,6 +75,8 @@ exports.getSavedScholarships = async (req, res) => {
       .map((item) => mapSavedScholarship(item, scoreByScholarshipId))
       .filter(Boolean);
 
+    await safeSyncDeadlineNotifications(studentProfile._id, saved);
+
     return res.status(200).json({
       success: true,
       count: savedScholarships.length,
@@ -138,6 +141,8 @@ exports.saveScholarship = async (req, res) => {
         studentProfileId: studentProfile._id,
         scholarshipId: scholarship._id
       });
+
+      await safeSyncDeadlineNotifications(studentProfile._id);
 
       return res.status(201).json({
         success: true,

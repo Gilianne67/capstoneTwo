@@ -11,6 +11,13 @@ const {
   saveScholarship,
   removeSavedScholarship
 } = require('../controllers/savedScholarshipController');
+const {
+  getNotifications,
+  getUnreadCount,
+  getUnreadDeadlineCount,
+  markNotificationRead,
+  markAllNotificationsRead
+} = require('../controllers/notificationController');
 
 router.post('/profile', protect, authorize('student'), createProfile);
 router.get('/profile', protect, authorize('student'), getProfile);
@@ -33,6 +40,37 @@ router.delete(
   protect,
   authorize('student'),
   removeSavedScholarship
+);
+
+router.get(
+  '/notifications',
+  protect,
+  authorize('student'),
+  getNotifications
+);
+router.get(
+  '/notifications/unread-count',
+  protect,
+  authorize('student'),
+  getUnreadCount
+);
+router.get(
+  '/notifications/unread-deadline-count',
+  protect,
+  authorize('student'),
+  getUnreadDeadlineCount
+);
+router.patch(
+  '/notifications/read-all',
+  protect,
+  authorize('student'),
+  markAllNotificationsRead
+);
+router.patch(
+  '/notifications/:id/read',
+  protect,
+  authorize('student'),
+  markNotificationRead
 );
 
 module.exports = router;

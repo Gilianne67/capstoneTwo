@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Bell, 
   Clock, 
@@ -6,102 +7,200 @@ import {
   Search, 
   ExternalLink,
   Sliders,
-  Sparkles,
   Inbox,
   Loader2
 } from 'lucide-react';
+import { useAuth } from '../../../context/AuthContext';
+
+const API_BASE_URL = (
+  import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
+).replace(/\/$/, '');
+
+const DETAILS_BACK_PATH = '/dashboard/student/notifications';
+const DAY_MS = 24 * 60 * 60 * 1000;
+const CLOSING_SOON_DAYS = 20;
+
+const getCleanToken = (contextToken) => {
+  const rawToken = contextToken || localStorage.getItem('token');
+
+  if (!rawToken) return null;
+
+  return String(rawToken)
+    .replace(/^"|"$/g, '')
+    .replace(/^Bearer\s+/i, '')
+    .trim();
+};
+
+const getRemainingMs = (deadlineDateStr) => {
+  if (!deadlineDateStr) return null;
+
+  const deadline = new Date(deadlineDateStr);
+
+  if (Number.isNaN(deadline.getTime())) return null;
+
+  return deadline.getTime() - Date.now();
+};
+
+const isUpcomingDeadline = (remainingMs) =>
+  remainingMs !== null && remainingMs > 0;
 
 export function DeadlineAlerts() {
+  const navigate = useNavigate();
+  const { token: contextToken } = useAuth();
   const [alerts, setAlerts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSavingPrefs, setIsSavingPrefs] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [urgencyFilter, setUrgencyFilter] = useState('All');
-  
-  const [preferences, setPreferences] = useState({
-    notify7Days: true,
-    notify3Days: true,
-    notify1Day: true,
-    emailAlerts: true,
-    pushAlerts: false,
-  });
 
-  // Fetch user alerts & rules on mount
   useEffect(() => {
-    const fetchAlertData = async () => {
+    let isMounted = true;
+
+    const fetchDeadlineAlerts = async () => {
       try {
         setIsLoading(true);
-        const [alertsRes, prefsRes] = await Promise.all([
-          fetch('/api/user/deadline-alerts', {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-          }),
-          fetch('/api/user/alert-preferences', {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-          })
+        const token = getCleanToken(contextToken);
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        const [notificationsRes, savedRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/students/notifications`, { headers }),
+          fetch(`${API_BASE_URL}/students/saved-scholarships`, { headers })
         ]);
 
-        if (alertsRes.ok) setAlerts(await alertsRes.json());
-        if (prefsRes.ok) setPreferences(await prefsRes.json());
+        if (!notificationsRes.ok) {
+          throw new Error('Failed to load notifications');
+        }
+
+        if (!savedRes.ok) {
+          throw new Error('Failed to load saved scholarships');
+        }
+
+        const notificationsData = await notificationsRes.json();
+        const savedData = await savedRes.json();
+        const notifications = Array.isArray(notificationsData?.notifications)
+          ? notificationsData.notifications
+          : [];
+        const savedScholarships = Array.isArray(savedData?.savedScholarships)
+          ? savedData.savedScholarships
+          : [];
+        const savedById = new Map(
+          savedScholarships.map((item) => [String(item._id), item])
+        );
+
+        const list = notifications
+          .filter((item) => item?.type === 'deadline' && item.scholarshipId)
+          .map((item) => {
+            const saved = savedById.get(String(item.scholarshipId));
+
+            if (!saved?.deadline) return null;
+
+            return {
+              notificationId: item._id,
+              scholarshipId: item.scholarshipId,
+              isRead: Boolean(item.isRead),
+              status: item.isRead ? 'Read' : 'Unread',
+              title: saved.title || '',
+              provider: saved.provider || '',
+              amount: saved.amount || '',
+              deadline: saved.deadline,
+              externalUrl: saved.externalUrl || ''
+            };
+          })
+          .filter(Boolean);
+
+        if (isMounted) {
+          setAlerts(list);
+        }
       } catch (err) {
-        console.error('Failed to load deadline alerts', err);
+        if (isMounted) {
+          console.error('Failed to load deadline alerts', err);
+          setAlerts([]);
+        }
       } finally {
-        setIsLoading(false);
+        if (isMounted) setIsLoading(false);
       }
     };
 
-    fetchAlertData();
-  }, []);
+    fetchDeadlineAlerts();
 
-  const handleTogglePref = (key) => {
-    setPreferences(prev => ({ ...prev, [key]: !prev[key] }));
-  };
+    return () => {
+      isMounted = false;
+    };
+  }, [contextToken]);
 
-  const handleSavePreferences = async () => {
-    setIsSavingPrefs(true);
-    try {
-      await fetch('/api/user/alert-preferences', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify(preferences)
-      });
-    } catch (err) {
-      console.error('Failed to save alert preferences', err);
-    } finally {
-      setIsSavingPrefs(false);
-    }
-  };
-
-  // Helper for dynamic day difference calculation
   const getDaysRemaining = (deadlineDateStr) => {
-    const today = new Date();
-    const deadline = new Date(deadlineDateStr);
-    const diffTime = deadline - today;
-    return Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+    const remainingMs = getRemainingMs(deadlineDateStr);
+
+    if (remainingMs === null || remainingMs <= 0) return 0;
+
+    return Math.ceil(remainingMs / DAY_MS);
   };
 
   const filteredAlerts = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+
     return alerts.filter(item => {
-      const matchesSearch = item.scholarshipTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                            item.provider.toLowerCase().includes(searchQuery.toLowerCase());
-      
-      const daysLeft = getDaysRemaining(item.deadline);
+      const remainingMs = getRemainingMs(item.deadline);
+
+      if (!isUpcomingDeadline(remainingMs)) {
+        return false;
+      }
+
+      const title = String(item.title || item.scholarshipTitle || item.name || '').toLowerCase();
+      const provider = String(item.provider || '').toLowerCase();
+      const matchesSearch = !query || title.includes(query) || provider.includes(query);
+
+      if (!matchesSearch) return false;
+
+      const daysLeft = Math.ceil(remainingMs / DAY_MS);
 
       if (urgencyFilter === 'Closing Soon') {
-        return matchesSearch && daysLeft <= 20;
+        return daysLeft <= CLOSING_SOON_DAYS;
       }
+
       if (urgencyFilter === 'High Priority') {
-        return matchesSearch && item.urgency === 'high';
+        return remainingMs <= DAY_MS;
       }
-      return matchesSearch;
+
+      return true;
     });
   }, [alerts, searchQuery, urgencyFilter]);
 
   const formatDate = (dateString) => {
     const d = new Date(dateString);
     return d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
+  };
+
+  const openScholarshipDetails = async (alert) => {
+    const notificationId = alert?.notificationId;
+    const scholarshipId = alert?.scholarshipId;
+
+    if (notificationId && !alert.isRead) {
+      try {
+        const token = getCleanToken(contextToken);
+        const response = await fetch(
+          `${API_BASE_URL}/students/notifications/${notificationId}/read`,
+          {
+            method: 'PATCH',
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+          }
+        );
+
+        if (response.ok) {
+          setAlerts((prev) => prev.map((item) => (
+            item.notificationId === notificationId
+              ? { ...item, isRead: true, status: 'Read' }
+              : item
+          )));
+        }
+      } catch (err) {
+        console.error('Failed to mark notification read', err);
+      }
+    }
+
+    if (!scholarshipId) return;
+
+    navigate(`/dashboard/student/scholarships/${scholarshipId}`, {
+      state: { backPath: DETAILS_BACK_PATH }
+    });
   };
 
   if (isLoading) {
@@ -170,13 +269,29 @@ export function DeadlineAlerts() {
             </div>
           ) : (
             filteredAlerts.map((alert) => {
+              const remainingMs = getRemainingMs(alert.deadline);
               const daysRemaining = getDaysRemaining(alert.deadline);
-              const isUrgent = daysRemaining <= 20;
+              const isUrgent = remainingMs !== null && remainingMs > 0 && remainingMs <= DAY_MS;
+              const scholarshipId = alert.scholarshipId;
+              const title = alert.title || '';
+              const provider = alert.provider || '';
+              const canOpenDetails = Boolean(scholarshipId);
 
               return (
                 <div 
-                  key={alert.id}
+                  key={alert.notificationId || scholarshipId || title}
+                  role={canOpenDetails ? 'link' : undefined}
+                  tabIndex={canOpenDetails ? 0 : undefined}
+                  onClick={() => openScholarshipDetails(alert)}
+                  onKeyDown={(event) => {
+                    if (canOpenDetails && (event.key === 'Enter' || event.key === ' ')) {
+                      event.preventDefault();
+                      openScholarshipDetails(alert);
+                    }
+                  }}
                   className={`bg-card-bg rounded-2xl border p-5 shadow-xs space-y-3 transition-all ${
+                    canOpenDetails ? 'cursor-pointer' : ''
+                  } ${
                     isUrgent ? 'border-amber-500/40 bg-amber-500/5' : 'border-app-text/10 hover:border-primary/40'
                   }`}
                 >
@@ -188,23 +303,28 @@ export function DeadlineAlerts() {
                         }`}>
                           {daysRemaining} Days Left
                         </span>
-                        <span className="text-[10px] font-bold text-text-muted border border-app-text/10 px-2 py-0.5 rounded-md">
-                          Status: {alert.status}
-                        </span>
+                        {alert.status ? (
+                          <span className="text-[10px] font-bold text-text-muted border border-app-text/10 px-2 py-0.5 rounded-md">
+                            Status: {alert.status}
+                          </span>
+                        ) : null}
                       </div>
-                      <h3 className="text-sm font-extrabold text-app-text">{alert.scholarshipTitle}</h3>
-                      <p className="text-xs text-text-muted font-medium">{alert.provider}</p>
+                      <h3 className="text-sm font-extrabold text-app-text">{title}</h3>
+                      <p className="text-xs text-text-muted font-medium">{provider}</p>
                     </div>
 
-                    <a
-                      href={alert.externalUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-2 rounded-xl bg-app-bg hover:bg-primary/10 hover:text-primary border border-app-text/10 text-text-muted transition-colors cursor-pointer shrink-0"
-                      title="Open Official Scholarship Page"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
+                    {alert.externalUrl ? (
+                      <a
+                        href={alert.externalUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(event) => event.stopPropagation()}
+                        className="p-2 rounded-xl bg-app-bg hover:bg-primary/10 hover:text-primary border border-app-text/10 text-text-muted transition-colors cursor-pointer shrink-0"
+                        title="Open Official Scholarship Page"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                      </a>
+                    ) : null}
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 border-t border-app-text/10 text-xs font-semibold text-app-text">
@@ -216,10 +336,6 @@ export function DeadlineAlerts() {
                       <Clock className="w-3.5 h-3.5 text-text-muted" />
                       <span>{alert.amount}</span>
                     </div>
-                    <div className="flex items-center gap-1.5 col-span-2 sm:col-span-1">
-                      <Sparkles className="w-3.5 h-3.5 text-primary" />
-                      <span className="text-text-muted">Via: {alert.alertChannel}</span>
-                    </div>
                   </div>
                 </div>
               );
@@ -227,7 +343,7 @@ export function DeadlineAlerts() {
           )}
         </div>
 
-        {/* Sidebar Preferences Panel */}
+        {/* Sidebar Alert Rules */}
         <div className="space-y-4">
           <div className="bg-card-bg rounded-2xl border border-app-text/10 p-5 shadow-xs space-y-4">
             <div className="flex items-center gap-2 pb-3 border-b border-app-text/10">
@@ -239,72 +355,12 @@ export function DeadlineAlerts() {
 
             <div className="space-y-3">
               <p className="text-xs font-bold text-app-text">Remind Me Before Deadline:</p>
-
-              <label className="flex items-center justify-between text-xs font-medium text-text-muted cursor-pointer">
-                <span>7 Days Before</span>
-                <input
-                  type="checkbox"
-                  checked={preferences.notify7Days}
-                  onChange={() => handleTogglePref('notify7Days')}
-                  className="rounded border-app-text/20 text-primary focus:ring-primary h-4 w-4"
-                />
-              </label>
-
-              <label className="flex items-center justify-between text-xs font-medium text-text-muted cursor-pointer">
-                <span>3 Days Before</span>
-                <input
-                  type="checkbox"
-                  checked={preferences.notify3Days}
-                  onChange={() => handleTogglePref('notify3Days')}
-                  className="rounded border-app-text/20 text-primary focus:ring-primary h-4 w-4"
-                />
-              </label>
-
-              <label className="flex items-center justify-between text-xs font-medium text-text-muted cursor-pointer">
-                <span>24 Hours Before (Urgent)</span>
-                <input
-                  type="checkbox"
-                  checked={preferences.notify1Day}
-                  onChange={() => handleTogglePref('notify1Day')}
-                  className="rounded border-app-text/20 text-primary focus:ring-primary h-4 w-4"
-                />
-              </label>
-            </div>
-
-            <div className="pt-3 border-t border-app-text/10 space-y-3">
-              <p className="text-xs font-bold text-app-text">Channels:</p>
-
-              <label className="flex items-center justify-between text-xs font-medium text-text-muted cursor-pointer">
-                <span>Email Alerts</span>
-                <input
-                  type="checkbox"
-                  checked={preferences.emailAlerts}
-                  onChange={() => handleTogglePref('emailAlerts')}
-                  className="rounded border-app-text/20 text-primary focus:ring-primary h-4 w-4"
-                />
-              </label>
-
-              <label className="flex items-center justify-between text-xs font-medium text-text-muted cursor-pointer">
-                <span>Push Alerts</span>
-                <input
-                  type="checkbox"
-                  checked={preferences.pushAlerts}
-                  onChange={() => handleTogglePref('pushAlerts')}
-                  className="rounded border-app-text/20 text-primary focus:ring-primary h-4 w-4"
-                />
-              </label>
-            </div>
-
-            <div className="pt-2">
-              <button 
-                type="button"
-                disabled={isSavingPrefs}
-                onClick={handleSavePreferences}
-                className="w-full py-2 bg-primary/10 hover:bg-primary/20 text-primary font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {isSavingPrefs && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>Save Preferences</span>
-              </button>
+              <p className="text-xs font-medium text-text-muted">7 Days Before</p>
+              <p className="text-xs font-medium text-text-muted">3 Days Before</p>
+              <p className="text-xs font-medium text-text-muted">24 Hours Before (Urgent)</p>
+              <p className="text-[11px] text-text-muted font-medium leading-relaxed">
+                Deadline reminders are automatically generated for scholarships you have saved.
+              </p>
             </div>
           </div>
         </div>
