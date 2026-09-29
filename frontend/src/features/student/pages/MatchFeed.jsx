@@ -6,12 +6,17 @@ import {
   CheckCircle2,
   Loader2,
   AlertCircle,
-  Inbox
+  Inbox,
+  UserRound
 } from 'lucide-react';
 
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
 import ConfirmModal from '../../../components/common/ConfirmModal';
+import { isProfileComplete } from '../profileCompletion';
+
+const PROFILE_ROUTE = '/dashboard/student/profile';
+const ONBOARDING_ROUTE = '/onboarding';
 
 const API_BASE_URL = (
   import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
@@ -65,14 +70,16 @@ const mapMatchFromApi = (match) => {
 
 export default function MatchFeed() {
   const navigate = useNavigate();
-  const { token: contextToken } = useAuth();
+  const { user, token: contextToken } = useAuth();
 
   // State Management
   const [matches, setMatches] = useState([]);
   const [bookmarkedIds, setBookmarkedIds] = useState([]);
   const [expandedId, setExpandedId] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [feedState, setFeedState] = useState('loading');
   const [loadError, setLoadError] = useState('');
+  const [continuePath, setContinuePath] = useState(PROFILE_ROUTE);
   const [savingBookmarkId, setSavingBookmarkId] = useState(null);
 
   // Modal State
@@ -86,46 +93,96 @@ export default function MatchFeed() {
     const loadMatchFeed = async () => {
       setIsLoading(true);
       setLoadError('');
+      setMatches([]);
 
       try {
         const token = getCleanToken(contextToken);
-        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+        if (!token) {
+          if (!isMounted) return;
+          setFeedState('error');
+          setLoadError('You need to sign in to view scholarship matches.');
+          return;
+        }
+
+        const headers = { Authorization: `Bearer ${token}` };
+        const profileRes = await fetch(`${API_BASE_URL}/students/profile`, { headers });
+
+        if (!isMounted) return;
+
+        if (profileRes.status === 404) {
+          setContinuePath(user?.isOnboarded ? PROFILE_ROUTE : ONBOARDING_ROUTE);
+          setFeedState('incomplete');
+          return;
+        }
+
+        if (!profileRes.ok) {
+          setFeedState('error');
+          setLoadError('Unable to load your student profile right now.');
+          return;
+        }
+
+        const profileData = await profileRes.json();
+        const profile = profileData.profile;
+        const onboardingComplete = user?.isOnboarded === true;
+
+        if (!onboardingComplete || !profile || !isProfileComplete(profile)) {
+          setContinuePath(onboardingComplete ? PROFILE_ROUTE : ONBOARDING_ROUTE);
+          setFeedState('incomplete');
+          return;
+        }
 
         const [matchesRes, bookmarksRes] = await Promise.allSettled([
           fetch(`${API_BASE_URL}/matching`, { headers }),
           fetch(`${API_BASE_URL}/students/saved-scholarships`, { headers })
         ]);
 
-        if (isMounted) {
-          // Handle Matches Endpoint
-          if (matchesRes.status === 'fulfilled' && matchesRes.value.ok) {
-            const data = await matchesRes.value.json();
-            const list = Array.isArray(data.matches)
-              ? data.matches.map(mapMatchFromApi)
-              : [];
-            setMatches(list);
-          } else {
-            setMatches([]);
-            setLoadError('Unable to load scholarship matches right now.');
-          }
+        if (!isMounted) return;
 
-          // Handle Bookmarks Endpoint
-          if (bookmarksRes.status === 'fulfilled' && bookmarksRes.value.ok) {
-            const bookmarks = await bookmarksRes.value.json();
-            const list = Array.isArray(bookmarks?.savedScholarships)
-              ? bookmarks.savedScholarships
-              : [];
-            setBookmarkedIds(
-              list
-                .map((item) => String(item?._id || item?.scholarshipId || item?.id || ''))
-                .filter(Boolean)
-            );
-          }
+        if (matchesRes.status !== 'fulfilled') {
+          setFeedState('error');
+          setLoadError('Unable to load scholarship matches right now.');
+          return;
+        }
+
+        const response = matchesRes.value;
+
+        if (response.status === 404) {
+          setContinuePath(PROFILE_ROUTE);
+          setFeedState('incomplete');
+          return;
+        }
+
+        if (!response.ok) {
+          setFeedState('error');
+          setLoadError('Unable to load scholarship matches right now.');
+          return;
+        }
+
+        const data = await response.json();
+        const list = Array.isArray(data.matches)
+          ? data.matches.map(mapMatchFromApi)
+          : [];
+
+        setMatches(list);
+        setFeedState('ready');
+
+        if (bookmarksRes.status === 'fulfilled' && bookmarksRes.value.ok) {
+          const bookmarks = await bookmarksRes.value.json();
+          const saved = Array.isArray(bookmarks?.savedScholarships)
+            ? bookmarks.savedScholarships
+            : [];
+          setBookmarkedIds(
+            saved
+              .map((item) => String(item?._id || item?.scholarshipId || item?.id || ''))
+              .filter(Boolean)
+          );
         }
       } catch (err) {
         if (isMounted) {
           console.warn('Failed to load match feed:', err);
           setMatches([]);
+          setFeedState('error');
           setLoadError('Unable to load scholarship matches right now.');
         }
       } finally {
@@ -138,7 +195,7 @@ export default function MatchFeed() {
     return () => {
       isMounted = false;
     };
-  }, [contextToken]);
+  }, [contextToken, user?.isOnboarded]);
 
   // 2. Toggle Bookmark State
   const toggleBookmark = async (id) => {
@@ -213,17 +270,39 @@ export default function MatchFeed() {
     );
   }
 
+  if (feedState === 'incomplete') {
+    return (
+      <div className="bg-card-bg rounded-2xl border border-app-text/10 p-8 text-center space-y-3">
+        <UserRound className="h-8 w-8 text-primary mx-auto" />
+        <h2 className="text-sm font-bold text-app-text">Complete Your Student Profile</h2>
+        <p className="text-xs text-text-muted max-w-md mx-auto">
+          Complete your onboarding profile to receive scholarship matches based on your academic background, household income, location, and eligibility.
+        </p>
+        <button
+          type="button"
+          onClick={() => navigate(continuePath)}
+          className="inline-flex items-center justify-center px-4 py-2 bg-primary text-white rounded-xl text-xs font-bold hover:opacity-90 transition-opacity cursor-pointer"
+        >
+          Complete Profile
+        </button>
+      </div>
+    );
+  }
+
+  if (feedState === 'error') {
+    return (
+      <div className="bg-card-bg rounded-2xl border border-rose-200 p-8 text-center space-y-2">
+        <AlertCircle className="h-8 w-8 text-rose-500 mx-auto" />
+        <h2 className="text-sm font-bold text-app-text">Scholarship matches could not be loaded</h2>
+        <p className="text-xs text-text-muted">
+          {loadError || 'Check your connection and open this page again.'}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
-      {loadError && (
-        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 p-3 rounded-xl flex items-center justify-between text-xs font-medium">
-          <span className="flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            {loadError}
-          </span>
-        </div>
-      )}
-
       {/* FEED HEADER */}
       <div className="flex items-center justify-between">
         <div>
@@ -238,13 +317,9 @@ export default function MatchFeed() {
       {matches.length === 0 ? (
         <div className="bg-card-bg rounded-2xl border border-app-text/10 p-8 text-center space-y-2">
           <Inbox className="h-8 w-8 text-text-muted mx-auto" />
-          <p className="text-xs font-bold text-app-text">
-            {loadError ? 'Scholarship matches could not be loaded.' : 'No matches currently found for your profile.'}
-          </p>
+          <p className="text-xs font-bold text-app-text">No Matching Scholarships</p>
           <p className="text-[11px] text-text-muted">
-            {loadError
-              ? 'Check your connection and open this page again.'
-              : 'Update your student profile to re-trigger the matching algorithm.'}
+            Your profile currently does not match any available scholarships.
           </p>
         </div>
       ) : (
@@ -253,7 +328,7 @@ export default function MatchFeed() {
             const id = item.scholarship?._id || item._id || item.id;
             const isExpanded = expandedId === id;
             const isBookmarked = bookmarkedIds.includes(String(id));
-            const score = item.score ?? item.weightedScore ?? item.matchScore ?? 80;
+            const score = item.score ?? item.weightedScore ?? item.matchScore;
             const flags = item.matchedFlags || (item.tag ? [item.tag] : []);
             const canOpenDetails = Boolean(item.scholarship?._id);
 
@@ -276,10 +351,12 @@ export default function MatchFeed() {
                 <div className="flex items-start justify-between gap-4">
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-500/10 text-emerald-600 flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" />
-                        {score}% Match Score
-                      </span>
+                      {score != null && (
+                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-500/10 text-emerald-600 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          {score}% Match Score
+                        </span>
+                      )}
                       {flags.map((flag, idx) => (
                         <span key={idx} className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-primary/10 text-primary">
                           {flag}

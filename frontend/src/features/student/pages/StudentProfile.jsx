@@ -17,6 +17,10 @@ import {
   PROVINCES,
   MUNICIPALITIES
 } from '../../../data/locationData';
+import {
+  getSectionCompletion,
+  isProfileComplete
+} from '../profileCompletion';
 
 const API_BASE_URL = (
   import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
@@ -38,32 +42,6 @@ const getYearLevelOptions = (academicLevel) =>
 const TOUR_STORAGE_KEY = 'studentProfileTourCompleted';
 const COMPLETE_CELEBRATED_KEY = 'studentProfileCompleteCelebrated';
 const DASHBOARD_ROUTE = '/dashboard/student';
-
-const hasProfileValue = (value) =>
-  value !== null &&
-  value !== undefined &&
-  String(value).trim() !== '';
-
-const getSectionCompletion = (data) => ({
-  personal:
-    hasProfileValue(data.dateOfBirth) &&
-    hasProfileValue(data.citizenship) &&
-    hasProfileValue(data.region) &&
-    hasProfileValue(data.province) &&
-    hasProfileValue(data.municipalityCity),
-  academic:
-    hasProfileValue(data.academicLevel) &&
-    hasProfileValue(data.yearLevel) &&
-    hasProfileValue(data.course) &&
-    hasProfileValue(data.gwa) &&
-    hasProfileValue(data.gwaScale),
-  financial: hasProfileValue(data.incomeBracket)
-});
-
-const isProfileComplete = (data) => {
-  const sections = getSectionCompletion(data);
-  return sections.personal && sections.academic && sections.financial;
-};
 
 const PROFILE_TOUR_STEPS = [
   {
