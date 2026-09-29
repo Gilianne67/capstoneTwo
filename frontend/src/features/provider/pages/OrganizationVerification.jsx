@@ -20,9 +20,28 @@ function getAuthToken() {
   return token || null;
 }
 
+function documentLabel(doc) {
+  if (doc?.name || doc?.filename || doc?.originalName) {
+    return doc.name || doc.filename || doc.originalName;
+  }
+  if (doc?.documentType) return doc.documentType;
+  const path = doc?.fileUrl || doc?.url || doc?.path || '';
+  const segment = String(path).split('/').filter(Boolean).pop();
+  return segment || '';
+}
+
 function readDocuments(provider) {
-  if (!Array.isArray(provider?.documents)) return [];
-  return provider.documents.filter((doc) => doc && (doc.name || doc.filename || doc.originalName));
+  const collections = [provider?.documents, provider?.verificationDocuments];
+  const documents = [];
+
+  collections.forEach((collection) => {
+    if (!Array.isArray(collection)) return;
+    collection.forEach((doc) => {
+      if (doc && documentLabel(doc)) documents.push(doc);
+    });
+  });
+
+  return documents;
 }
 
 function mapProviderVerification(provider) {
@@ -30,6 +49,7 @@ function mapProviderVerification(provider) {
     organizationName: provider.institutionName?.trim() || '',
     organizationType: provider.institutionType?.trim() || '',
     verificationStatus: provider.verificationStatus || '',
+    rejectionReason: provider.rejectionReason?.trim() || '',
     documents: readDocuments(provider),
   };
 }
@@ -47,7 +67,7 @@ function errorMessageForStatus(status, serverMessage) {
   return serverMessage || 'Unable to load verification information. Please try again.';
 }
 
-function StatusMessage({ status }) {
+function StatusMessage({ status, rejectionReason }) {
   if (status === 'Verified') {
     return (
       <div className="bg-emerald-50/80 border border-emerald-200/80 rounded-xl p-4 flex items-center gap-3 text-xs text-emerald-900 font-medium">
@@ -88,7 +108,10 @@ function StatusMessage({ status }) {
     return (
       <div className="bg-rose-50/80 border border-rose-200/80 rounded-xl p-4 flex items-center gap-3 text-xs text-rose-900 font-medium">
         <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
-        <span>Your organization verification was rejected. Please contact support.</span>
+        <span>
+          Your organization verification was rejected.
+          {rejectionReason ? ` ${rejectionReason}` : ' Please contact support.'}
+        </span>
       </div>
     );
   }
@@ -223,7 +246,10 @@ export default function OrganizationVerification() {
               ) : null}
             </div>
 
-            <StatusMessage status={verification.verificationStatus} />
+            <StatusMessage
+              status={verification.verificationStatus}
+              rejectionReason={verification.rejectionReason}
+            />
           </div>
 
           <div className="bg-white border border-slate-200/80 rounded-2xl p-5 space-y-3 shadow-xs">
@@ -237,11 +263,11 @@ export default function OrganizationVerification() {
             ) : (
               <div className="space-y-2">
                 {verification.documents.map((doc, idx) => (
-                  <div key={doc._id || doc.id || `${doc.name || doc.filename}-${idx}`} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl text-xs">
+                  <div key={doc._id || doc.id || `${documentLabel(doc)}-${idx}`} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl text-xs">
                     <div className="flex items-center gap-2.5">
                       <FileText className="w-4 h-4 text-emerald-600" />
                       <div>
-                        <p className="font-bold text-slate-800">{doc.name || doc.filename || doc.originalName}</p>
+                        <p className="font-bold text-slate-800">{documentLabel(doc)}</p>
                         {doc.size ? (
                           <p className="text-[11px] text-slate-400 font-medium">{doc.size}</p>
                         ) : null}
