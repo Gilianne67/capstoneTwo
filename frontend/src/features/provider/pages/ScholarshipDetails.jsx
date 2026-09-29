@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
+import { formatDeadlineDate } from '../../../utils/deadline';
 import {
   ArrowLeft,
   Calendar,
@@ -340,7 +341,7 @@ export default function ScholarshipDetails() {
 
               <p className="text-sm font-semibold text-slate-800 mt-1 flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-slate-400" />
-                {formatDate(scholarship.deadline)}
+                {formatDeadlineDate(scholarship.deadline) || 'Not specified'}
               </p>
             </div>
 

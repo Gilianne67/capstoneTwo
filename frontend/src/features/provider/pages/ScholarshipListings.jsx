@@ -21,6 +21,7 @@ import DataTable from '../../../components/common/DataTable';
 import FilterBar from '../../../components/common/FilterBar';
 import Pagination from '../../../components/common/Pagination';
 import CreateListing from './CreateListing';
+import { formatDeadlineDate } from '../../../utils/deadline';
 
 const API_BASE_URL =
   import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
@@ -351,7 +352,11 @@ if (currentView === 'edit') {
       accessor: 'clicks', 
       cell: (row) => (row.clicks ?? 0).toLocaleString() 
     },
-    { header: 'Deadline', accessor: 'deadline' },
+    {
+      header: 'Deadline',
+      accessor: 'deadline',
+      cell: (row) => formatDeadlineDate(row.deadline) || 'No deadline'
+    },
     {
       header: 'Actions',
       accessor: 'actions',
