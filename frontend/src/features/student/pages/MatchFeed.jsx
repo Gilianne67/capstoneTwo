@@ -1,10 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  
-  Bookmark, 
-  ExternalLink, 
-  ChevronDown, 
-  ChevronUp, 
+import { useState, useEffect } from 'react';
+import {
+  Bookmark,
+  ExternalLink,
   Info,
   CheckCircle2,
   Loader2,
@@ -66,70 +63,6 @@ const mapMatchFromApi = (match) => {
   };
 };
 
-// Shared Mock Seed Data (Fallback aligned with StudentDashboard)
-const MOCK_FALLBACK_MATCHES = [
-  {
-    _id: 'm1',
-    title: 'Camarines Sur Academic Excellence Grant',
-    provider: 'Provincial Government of CamSur',
-    amount: '₱25,000 / semester',
-    deadline: 'Aug 30, 2026',
-    score: 96,
-    matchedFlags: ['Local Resident', 'Top Academic Tier'],
-    url: 'https://camsur.gov.ph',
-    breakdown: {
-      'Academic Compatibility': '40/40 (GWA 1.25 qualifies)',
-      'Location Residency': '30/30 (Priority CamSur resident)',
-      'Socioeconomic Need': '26/30 (Low-income tier)'
-    }
-  },
-  {
-    _id: 'm2',
-    title: 'DOST-SEI Merit Scholarship Program',
-    provider: 'Department of Science and Technology',
-    amount: '₱40,000 / year',
-    deadline: 'Aug 10, 2026',
-    score: 92,
-    matchedFlags: ['STEM Priority'],
-    url: 'https://sei.dost.gov.ph',
-    breakdown: {
-      'Academic Rank': '39/40 (Excellent standing)',
-      'Regional Priority': '28/30 (Region V allocation)',
-      'Financial Eligibility': '25/30 (Merit bracket)'
-    }
-  },
-  {
-    _id: 'm3',
-    title: 'CHED Tulong Dunong Program (TDP-TES)',
-    provider: 'Commission on Higher Education (CHED RO5)',
-    amount: '₱15,000 / semester',
-    deadline: 'Sep 15, 2026',
-    score: 89,
-    matchedFlags: ['4Ps Beneficiary', 'Government Backed'],
-    url: 'https://ched.gov.ph',
-    breakdown: {
-      'Academic Fit': '35/40 (Passing GWA qualification)',
-      'Residency': '26/30 (Bicol Region priority)',
-      'Financial Need': '28/30 (High assistance tier)'
-    }
-  },
-  {
-    _id: 'm4',
-    title: 'SM Foundation College Scholarship',
-    provider: 'SM Foundation Inc.',
-    amount: '₱30,000 / semester',
-    deadline: 'Aug 20, 2026',
-    score: 85,
-    matchedFlags: ['Private Partner'],
-    url: 'https://www.sm-foundation.org',
-    breakdown: {
-      'Academic Compatibility': '36/40 (Meets threshold)',
-      'Location Residency': '22/30 (Provincial coverage)',
-      'Socioeconomic Need': '27/30 (Low-income family tier)'
-    }
-  }
-];
-
 export default function MatchFeed() {
   const navigate = useNavigate();
   const { token: contextToken } = useAuth();
@@ -139,7 +72,7 @@ export default function MatchFeed() {
   const [bookmarkedIds, setBookmarkedIds] = useState([]);
   const [expandedId, setExpandedId] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isUsingFallback, setIsUsingFallback] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [savingBookmarkId, setSavingBookmarkId] = useState(null);
 
   // Modal State
@@ -152,6 +85,7 @@ export default function MatchFeed() {
 
     const loadMatchFeed = async () => {
       setIsLoading(true);
+      setLoadError('');
 
       try {
         const token = getCleanToken(contextToken);
@@ -170,10 +104,9 @@ export default function MatchFeed() {
               ? data.matches.map(mapMatchFromApi)
               : [];
             setMatches(list);
-            setIsUsingFallback(false);
           } else {
-            setMatches(MOCK_FALLBACK_MATCHES);
-            setIsUsingFallback(true);
+            setMatches([]);
+            setLoadError('Unable to load scholarship matches right now.');
           }
 
           // Handle Bookmarks Endpoint
@@ -191,9 +124,9 @@ export default function MatchFeed() {
         }
       } catch (err) {
         if (isMounted) {
-          console.warn('Backend connection offline, using fallback match feed:', err);
-          setMatches(MOCK_FALLBACK_MATCHES);
-          setIsUsingFallback(true);
+          console.warn('Failed to load match feed:', err);
+          setMatches([]);
+          setLoadError('Unable to load scholarship matches right now.');
         }
       } finally {
         if (isMounted) setIsLoading(false);
@@ -282,12 +215,11 @@ export default function MatchFeed() {
 
   return (
     <div className="space-y-4">
-      {/* Test-mode Alert Banner */}
-      {isUsingFallback && (
+      {loadError && (
         <div className="bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 p-3 rounded-xl flex items-center justify-between text-xs font-medium">
           <span className="flex items-center gap-2">
             <AlertCircle className="h-4 w-4 shrink-0" />
-            Backend API offline/unreachable. Displaying top fallback matches preview.
+            {loadError}
           </span>
         </div>
       )}
@@ -306,8 +238,14 @@ export default function MatchFeed() {
       {matches.length === 0 ? (
         <div className="bg-card-bg rounded-2xl border border-app-text/10 p-8 text-center space-y-2">
           <Inbox className="h-8 w-8 text-text-muted mx-auto" />
-          <p className="text-xs font-bold text-app-text">No matches currently found for your profile.</p>
-          <p className="text-[11px] text-text-muted">Update your student profile to re-trigger the matching algorithm.</p>
+          <p className="text-xs font-bold text-app-text">
+            {loadError ? 'Scholarship matches could not be loaded.' : 'No matches currently found for your profile.'}
+          </p>
+          <p className="text-[11px] text-text-muted">
+            {loadError
+              ? 'Check your connection and open this page again.'
+              : 'Update your student profile to re-trigger the matching algorithm.'}
+          </p>
         </div>
       ) : (
         <div className="space-y-3">

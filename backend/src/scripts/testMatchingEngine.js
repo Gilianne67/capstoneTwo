@@ -834,4 +834,72 @@ test('legacy annual maximumIncome is not treated as monthly', () => {
   );
 });
 
+const REQUIRED_TAG_CASES = [
+  ['4Ps Beneficiary', 'is4PsBeneficiary'],
+  ['Indigenous Peoples (IP)', 'isIndigenous'],
+  ['Person with Disability (PWD)', 'isPWD'],
+  ['Solo Parent Dependent', 'isSoloParentChild'],
+  ['Orphan Status', 'isOrphan'],
+  ['Child of Farmer / Fisherfolk', 'isFarmerFisherfolkChild'],
+  ['Disaster-Affected Family', 'isDisasterAffected'],
+  ['Working Student', 'isWorkingStudent']
+];
+
+REQUIRED_TAG_CASES.forEach(([tagName, flag]) => {
+  test(`required tag satisfied: ${tagName}`, () => {
+    assert.strictEqual(
+      eligible(
+        baseStudent({
+          specialEligibilityFlags: { [flag]: true }
+        }),
+        baseScholarship({
+          specialTags: [{ tagName, mode: 'Exclusive' }]
+        })
+      ),
+      true
+    );
+  });
+
+  test(`required tag failed: ${tagName}`, () => {
+    assert.strictEqual(
+      eligible(
+        baseStudent(),
+        baseScholarship({
+          specialTags: [{ tagName, mode: 'Exclusive' }]
+        })
+      ),
+      false
+    );
+  });
+});
+
+test('preferred tag ranks a match and still accepts a student without it', () => {
+  const scholarship = baseScholarship({
+    specialTags: [
+      { tagName: 'Working Student', mode: 'Preferred' }
+    ],
+    criteriaWeights: {
+      gwaWeight: 0.4,
+      incomeWeight: 0.4,
+      tagsWeight: 0.2
+    }
+  });
+
+  const matched = ranked(
+    baseStudent({
+      specialEligibilityFlags: { isWorkingStudent: true }
+    }),
+    scholarship
+  );
+  const unmatched = ranked(baseStudent(), scholarship);
+
+  assert.ok(matched);
+  assert.ok(unmatched);
+  assert.strictEqual(matched.tagsScore, 100);
+  assert.strictEqual(unmatched.tagsScore, 0);
+  assert.strictEqual(scholarship.criteriaWeights.gwaWeight, 0.4);
+  assert.strictEqual(scholarship.criteriaWeights.incomeWeight, 0.4);
+  assert.strictEqual(scholarship.criteriaWeights.tagsWeight, 0.2);
+});
+
 console.log(`matching engine tests passed (${passed})`);

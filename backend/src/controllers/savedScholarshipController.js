@@ -43,6 +43,8 @@ const mapSavedScholarship = (saved, scoreByScholarshipId) => {
     provider: scholarship.scholarshipType || '',
     amount: scholarship.grantValue,
     deadline: scholarship.deadline,
+    status: scholarship.status || '',
+    isArchived: scholarship.isArchived === true,
     category: scholarship.scholarshipType || '',
     externalUrl: scholarship.applicationURL || '',
     dateSaved: saved.dateSaved,
@@ -65,7 +67,7 @@ exports.getSavedScholarships = async (req, res) => {
       SavedMatch.find({ studentProfileId: studentProfile._id })
         .populate(
           'scholarshipId',
-          'name scholarshipType grantValue deadline applicationURL'
+          'name scholarshipType grantValue deadline applicationURL status isArchived'
         )
         .sort({ dateSaved: -1 }),
       loadMatchScores(studentProfile)

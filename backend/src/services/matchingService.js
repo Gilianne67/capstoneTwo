@@ -433,22 +433,23 @@ const matchesIncome = (studentProfile, scholarship) => {
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 /**
- * A date-only deadline remains open through the end of that
- * calendar day in Asia/Manila.
+ * End of the deadline's calendar day in Asia/Manila, as a UTC timestamp.
+ * A date-only deadline remains open through 23:59:59.999 that day.
  */
-const isDeadlineOpen = (deadline, now = new Date()) => {
+const manilaDeadlineEnd = (deadline) => {
   if (!deadline) {
-    return false;
+    return null;
   }
 
   const parsed = new Date(deadline);
 
   if (Number.isNaN(parsed.getTime())) {
-    return false;
+    return null;
   }
 
   const manila = new Date(parsed.getTime() + MANILA_OFFSET_MS);
-  const endOfDeadlineDay = Date.UTC(
+
+  return Date.UTC(
     manila.getUTCFullYear(),
     manila.getUTCMonth(),
     manila.getUTCDate(),
@@ -457,6 +458,18 @@ const isDeadlineOpen = (deadline, now = new Date()) => {
     59,
     999
   );
+};
+
+/**
+ * A date-only deadline remains open through the end of that
+ * calendar day in Asia/Manila.
+ */
+const isDeadlineOpen = (deadline, now = new Date()) => {
+  const endOfDeadlineDay = manilaDeadlineEnd(deadline);
+
+  if (endOfDeadlineDay === null) {
+    return false;
+  }
 
   return now.getTime() <= endOfDeadlineDay;
 };
@@ -801,5 +814,7 @@ module.exports = {
   scoreGpa,
   scoreIncome,
   scoreTags,
-  classifyScore
+  classifyScore,
+  isDeadlineOpen,
+  manilaDeadlineEnd
 };

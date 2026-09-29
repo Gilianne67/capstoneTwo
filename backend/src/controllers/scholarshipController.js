@@ -1,5 +1,19 @@
 const Provider = require('../models/Provider');
 const Scholarship = require('../models/Scholarship');
+const {
+  closeExpiredScholarships
+} = require('../services/scholarshipExpirationService');
+
+const normalizeBenefits = (benefits) => {
+  if (!Array.isArray(benefits)) {
+    return benefits;
+  }
+
+  return benefits
+    .filter((benefit) => typeof benefit === 'string')
+    .map((benefit) => benefit.trim())
+    .filter(Boolean);
+};
 
 // Create a scholarship for the logged-in provider
 exports.createScholarship = async (req, res) => {
@@ -25,10 +39,16 @@ exports.createScholarship = async (req, res) => {
     }
 
     // Create scholarship using the authenticated provider's ID
-    const scholarship = await Scholarship.create({
+    const scholarshipData = {
       ...req.body,
       providerId: provider._id,
-    });
+    };
+
+    if (scholarshipData.benefits !== undefined) {
+      scholarshipData.benefits = normalizeBenefits(scholarshipData.benefits);
+    }
+
+    const scholarship = await Scholarship.create(scholarshipData);
 
     res.status(201).json({
       success: true,
@@ -58,6 +78,8 @@ exports.getMyScholarships = async (req, res) => {
         message: 'Provider profile not found',
       });
     }
+
+    await closeExpiredScholarships();
 
     const scholarships = await Scholarship.find({
       providerId: provider._id,
@@ -184,7 +206,10 @@ exports.updateScholarship = async (req, res) => {
     // Update only allowed fields
     allowedFields.forEach((field) => {
       if (req.body[field] !== undefined) {
-        scholarship[field] = req.body[field];
+        scholarship[field] =
+          field === 'benefits'
+            ? normalizeBenefits(req.body[field])
+            : req.body[field];
       }
     });
 
