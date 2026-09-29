@@ -1,71 +1,46 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Bookmark, 
   Trash2, 
   ExternalLink, 
   Sparkles, 
-  AlertCircle,
   Clock,
   Loader2
 } from 'lucide-react';
 
 import PageHeader from '../../../components/common/PageHeader';
 import ConfirmModal from '../../../components/common/ConfirmModal';
+import { useAuth } from '../../../context/AuthContext';
+import { daysUntilDeadline, isDeadlineOpen } from '../../../utils/deadline';
 
-// Mock Seed Data (Fallback Data for Saved Scholarships)
-const MOCK_SAVED_GRANTS = [
-  {
-    _id: 'sch-101',
-    title: 'DA-ACE Agricultural & Educational Grant 2026',
-    provider: 'Department of Agriculture (DA)',
-    amount: '₱50,000 / yr',
-    deadline: '2026-08-20',
-    matchScore: 98,
-    eligibilityStatus: 'Fully Eligible',
-    category: 'Government / Agriculture',
-    externalUrl: 'https://da.gov.ph/scholarships',
-    notes: 'Requires certification of land ownership or agrarian reform beneficiary status from local DAR.'
-  },
-  {
-    _id: 'sch-102',
-    title: 'DOST-SEI Merit Scholarship Program',
-    provider: 'Department of Science and Technology',
-    amount: '₱80,000 / yr',
-    deadline: '2026-09-15',
-    matchScore: 94,
-    eligibilityStatus: 'Fully Eligible',
-    category: 'Government / STEM',
-    externalUrl: 'https://sei.dost.gov.ph',
-    notes: 'Need to secure Form 137 and Principal recommendation letter.'
-  },
-  {
-    _id: 'sch-104',
-    title: 'Provincial Youth Tertiary Assistance Program',
-    provider: 'Provincial Government of Camarines Sur',
-    amount: '₱25,000 / sem',
-    deadline: '2026-10-01',
-    matchScore: 89,
-    eligibilityStatus: 'Needs Document Verification',
-    category: 'Local Government',
-    externalUrl: 'https://camarinessur.gov.ph',
-    notes: 'Certificate of Indigency from Barangay required.'
-  }
-];
+const API_BASE_URL = (
+  import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
+).replace(/\/$/, '');
 
-// Helper: Calculate remaining days dynamically
-const calculateDaysLeft = (deadlineDate) => {
-  if (!deadlineDate) return 0;
-  const target = new Date(deadlineDate);
-  const now = new Date();
-  const diffTime = target - now;
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  return diffDays > 0 ? diffDays : 0;
+const getCleanToken = (contextToken) => {
+  const rawToken = contextToken || localStorage.getItem('token');
+
+  if (!rawToken) return null;
+
+  return String(rawToken)
+    .replace(/^"|"$/g, '')
+    .replace(/^Bearer\s+/i, '')
+    .trim();
+};
+
+const deadlineLabel = (deadline) => {
+  if (!deadline) return 'No deadline';
+  if (!isDeadlineOpen(deadline)) return 'Expired';
+  return `${daysUntilDeadline(deadline)}d left`;
 };
 
 export default function SavedScholarships() {
+  const navigate = useNavigate();
+  const { token: contextToken } = useAuth();
   const [savedGrants, setSavedGrants] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isUsingFallback, setIsUsingFallback] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [deletingId, setDeletingId] = useState(null);
 
   // Modal State
@@ -78,27 +53,28 @@ export default function SavedScholarships() {
 
     const fetchSavedScholarships = async () => {
       setIsLoading(true);
+      setLoadError('');
       try {
-        const token = localStorage.getItem('token');
+        const token = getCleanToken(contextToken);
         const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-        const response = await fetch('/api/v1/students/saved-scholarships', { headers });
+        const response = await fetch(`${API_BASE_URL}/students/saved-scholarships`, { headers });
 
-        if (response.ok) {
-          const data = await response.json();
-          const list = Array.isArray(data) ? data : (data.savedScholarships || []);
-          if (isMounted) {
-            setSavedGrants(list.length > 0 ? list : MOCK_SAVED_GRANTS);
-            setIsUsingFallback(list.length === 0);
-          }
-        } else {
+        if (!response.ok) {
           throw new Error('Failed to load saved scholarships from backend');
+        }
+
+        const data = await response.json();
+        const list = Array.isArray(data?.savedScholarships) ? data.savedScholarships : [];
+
+        if (isMounted) {
+          setSavedGrants(list);
         }
       } catch (err) {
         if (isMounted) {
-          console.warn('Backend connection offline, using mock saved grants feed:', err);
-          setSavedGrants(MOCK_SAVED_GRANTS);
-          setIsUsingFallback(true);
+          console.warn('Failed to load saved scholarships:', err);
+          setSavedGrants([]);
+          setLoadError('Unable to load saved scholarships right now.');
         }
       } finally {
         if (isMounted) setIsLoading(false);
@@ -110,10 +86,21 @@ export default function SavedScholarships() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [contextToken]);
 
   // 2. Remove bookmark handler with dynamic backend sync
-  const handleRemove = async (id) => {
+  const openScholarshipDetails = (grant) => {
+    const scholarshipId = grant?._id || grant?.scholarshipId || grant?.id;
+
+    if (!scholarshipId) return;
+
+    navigate(`/dashboard/student/scholarships/${scholarshipId}`, {
+      state: { backPath: '/dashboard/student/saved' }
+    });
+  };
+
+  const handleRemove = async (event, id) => {
+    event.stopPropagation();
     setDeletingId(id);
     const previousGrants = [...savedGrants];
 
@@ -121,14 +108,14 @@ export default function SavedScholarships() {
     setSavedGrants(prev => prev.filter(item => (item._id || item.id) !== id));
 
     try {
-      const token = localStorage.getItem('token');
-      if (token) {
-        const res = await fetch(`/api/v1/students/bookmarks/${id}`, {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (!res.ok) throw new Error('Delete request failed on server');
-      }
+      const token = getCleanToken(contextToken);
+      if (!token) throw new Error('Not authenticated');
+
+      const res = await fetch(`${API_BASE_URL}/students/saved-scholarships/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok && res.status !== 404) throw new Error('Delete request failed on server');
     } catch (error) {
       console.error('Failed to sync bookmark removal with backend:', error);
       // Revert state if deletion failed
@@ -138,7 +125,8 @@ export default function SavedScholarships() {
     }
   };
 
-  const handleApplyRedirect = (grant) => {
+  const handleApplyRedirect = (event, grant) => {
+    event.stopPropagation();
     setSelectedGrant(grant);
     setIsModalOpen(true);
   };
@@ -173,49 +161,57 @@ export default function SavedScholarships() {
         subtitle="Your bookmarked grant opportunities. Monitor upcoming deadlines and review eligibility requirements before applying on official agency portals."
       />
 
-      {/* Fallback Warning Banner */}
-      {isUsingFallback && (
-        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 p-3 rounded-xl flex items-center justify-between text-xs font-medium">
-          <span className="flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            Backend API offline/unreachable. Displaying fallback saved scholarships for preview.
-          </span>
-        </div>
-      )}
-
       {savedGrants.length === 0 ? (
         <div className="bg-card-bg rounded-2xl border border-app-text/10 p-12 text-center space-y-4">
           <div className="w-12 h-12 rounded-2xl bg-app-bg flex items-center justify-center mx-auto text-text-muted">
             <Bookmark className="w-6 h-6" />
           </div>
           <div className="space-y-1">
-            <h3 className="text-base font-bold text-app-text">No saved scholarships yet</h3>
+            <h3 className="text-base font-bold text-app-text">
+              {loadError ? 'Unable to load saved scholarships' : 'No saved scholarships yet'}
+            </h3>
             <p className="text-xs text-text-muted max-w-sm mx-auto">
-              Explore the discovery engine or match feed and bookmark grants you want to track or apply for later.
+              {loadError || 'Explore the discovery engine or match feed and bookmark grants you want to track or apply for later.'}
             </p>
           </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {savedGrants.map((grant) => {
-            const id = grant._id || grant.id;
-            const daysLeft = grant.daysLeft ?? calculateDaysLeft(grant.deadline);
-            const score = grant.matchScore ?? grant.score ?? 85;
+            const id = String(grant._id || grant.scholarshipId || grant.id || '');
+            const canOpenDetails = Boolean(id);
+            const deadlineText = deadlineLabel(grant.deadline);
+            const rawScore = grant.matchScore ?? grant.score;
+            const score = rawScore === undefined || rawScore === null || rawScore === ''
+              ? null
+              : Number(rawScore);
+            const hasScore = Number.isFinite(score);
 
             return (
               <div 
                 key={id}
-                className="bg-card-bg rounded-2xl border border-app-text/10 p-5 hover:border-primary/40 transition-all shadow-xs flex flex-col justify-between space-y-4"
+                role={canOpenDetails ? 'link' : undefined}
+                tabIndex={canOpenDetails ? 0 : undefined}
+                onClick={() => openScholarshipDetails(grant)}
+                onKeyDown={(event) => {
+                  if (canOpenDetails && (event.key === 'Enter' || event.key === ' ')) {
+                    event.preventDefault();
+                    openScholarshipDetails(grant);
+                  }
+                }}
+                className={`bg-card-bg rounded-2xl border border-app-text/10 p-5 hover:border-primary/40 transition-all shadow-xs flex flex-col justify-between space-y-4 ${
+                  canOpenDetails ? 'cursor-pointer' : ''
+                }`}
               >
                 <div className="space-y-3">
                   {/* Header Badge */}
                   <div className="flex items-center justify-between gap-2">
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-primary/10 text-primary flex items-center gap-1">
-                      <Sparkles className="w-3 h-3" /> {score}% Match
+                      <Sparkles className="w-3 h-3" /> {hasScore ? `${score}% Match` : 'Saved'}
                     </span>
                     <button 
                       type="button"
-                      onClick={() => handleRemove(id)}
+                      onClick={(event) => handleRemove(event, id)}
                       disabled={deletingId === id}
                       className="p-1.5 text-text-muted hover:text-rose-600 hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
                       title="Remove from saved"
@@ -243,7 +239,7 @@ export default function SavedScholarships() {
                     <div>
                       <span className="text-[10px] uppercase font-bold text-text-muted block">Deadline</span>
                       <strong className="text-app-text font-extrabold flex items-center gap-1">
-                        <Clock className="w-3 h-3 text-amber-500" /> {daysLeft}d left
+                        <Clock className="w-3 h-3 text-amber-500" /> {deadlineText}
                       </strong>
                     </div>
                   </div>
@@ -261,7 +257,7 @@ export default function SavedScholarships() {
                 <div className="pt-3 border-t border-app-text/10 flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => handleApplyRedirect(grant)}
+                    onClick={(event) => handleApplyRedirect(event, grant)}
                     className="flex-1 py-2 bg-app-text text-card-bg hover:bg-primary hover:text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
                   >
                     <span>Official Portal</span>

@@ -25,6 +25,7 @@ import StatusBadge from '../../../components/common/StatusBadge';
 
 // Create / Edit Listing View Component
 import CreateListing from './CreateListing';
+import { formatDeadlineDate } from '../../../utils/deadline';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
 
@@ -590,11 +591,7 @@ const recentScholarships = [...listings]
 
                 <span className="text-[11px] text-slate-500">
                   Deadline:{' '}
-                  {deadline.toLocaleDateString('en-PH', {
-                    month: 'short',
-                    day: 'numeric',
-                    year: 'numeric'
-                  })}
+                  {formatDeadlineDate(scholarship.deadline)}
                 </span>
               </div>
             </div>
@@ -671,16 +668,7 @@ const recentScholarships = [...listings]
               <span className="text-[11px] text-slate-500 flex items-center gap-1">
                 <CalendarDays className="h-3 w-3" />
 
-                {listing.deadline
-                  ? new Date(listing.deadline).toLocaleDateString(
-                      'en-PH',
-                      {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric'
-                      }
-                    )
-                  : 'No deadline'}
+                {formatDeadlineDate(listing.deadline) || 'No deadline'}
               </span>
 
               {listing.applicationURL && (

@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   User,
   BookOpen,
@@ -7,18 +8,68 @@ import {
   CheckCircle2,
   AlertCircle,
   Mail,
-  Phone,
   GraduationCap,
   Loader2
 } from 'lucide-react';
+
+import {
+  REGIONS,
+  PROVINCES,
+  MUNICIPALITIES
+} from '../../../data/locationData';
+import {
+  getSectionCompletion,
+  isProfileComplete
+} from '../profileCompletion';
 
 const API_BASE_URL = (
   import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
 ).replace(/\/$/, '');
 
+const YEAR_LEVELS_BY_ACADEMIC_LEVEL = {
+  'Senior High School': ['Grade 11', 'Grade 12'],
+  College: ['1st Year', '2nd Year', '3rd Year', '4th Year'],
+  'Graduate Studies': ['Masteral', 'Doctoral']
+};
+
+const YEAR_LEVEL_LABELS = {
+  Masteral: "Master's"
+};
+
+const getYearLevelOptions = (academicLevel) =>
+  YEAR_LEVELS_BY_ACADEMIC_LEVEL[academicLevel] || [];
+
+const TOUR_STORAGE_KEY = 'studentProfileTourCompleted';
+const COMPLETE_CELEBRATED_KEY = 'studentProfileCompleteCelebrated';
+const DASHBOARD_ROUTE = '/dashboard/student';
+
+const PROFILE_TOUR_STEPS = [
+  {
+    tabId: 'academic',
+    title: 'Academic Details',
+    body: 'Academic information such as your level, year, course, GWA, and GWA scale helps determine scholarship eligibility and matching.'
+  },
+  {
+    tabId: 'financial',
+    title: 'Financial Information',
+    body: 'Household income is used to identify scholarships with financial requirements that you may qualify for.'
+  },
+  {
+    tabId: 'personal',
+    title: 'Location',
+    body: 'Your region, province, and municipality help match scholarships available in your area.'
+  },
+  {
+    tabId: 'financial',
+    title: 'Eligibility',
+    body: 'Special eligibility information can help identify additional scholarship opportunities. These flags are optional, but completing them can improve your matches.'
+  }
+];
+
 const EMPTY_PROFILE = {
   dateOfBirth: '',
   academicLevel: '',
+  yearLevel: '',
   course: '',
   gwa: '',
   gwaScale: '',
@@ -45,7 +96,12 @@ const EMPTY_PROFILE = {
 };
 
 export default function StudentProfile() {
-  const [activeTab, setActiveTab] = useState('personal');
+  const navigate = useNavigate();
+  const tourAlreadyDone =
+    localStorage.getItem(TOUR_STORAGE_KEY) === 'true';
+  const [activeTab, setActiveTab] = useState(
+    tourAlreadyDone ? 'personal' : PROFILE_TOUR_STEPS[0].tabId
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -55,6 +111,9 @@ export default function StudentProfile() {
   const [formData, setFormData] = useState(EMPTY_PROFILE);
 
   const [errorMessage, setErrorMessage] = useState('');
+  const [isTourOpen, setIsTourOpen] = useState(!tourAlreadyDone);
+  const [tourStep, setTourStep] = useState(0);
+  const [showCompletePrompt, setShowCompletePrompt] = useState(false);
 
   /*
    * Get clean JWT token
@@ -259,6 +318,24 @@ export default function StudentProfile() {
     setErrorMessage('');
   };
 
+  const handleAcademicLevelChange = (academicLevel) => {
+    setFormData((prev) => {
+      const validYearLevels = getYearLevelOptions(academicLevel);
+      const yearLevel = validYearLevels.includes(prev.yearLevel)
+        ? prev.yearLevel
+        : '';
+
+      return {
+        ...prev,
+        academicLevel,
+        yearLevel
+      };
+    });
+
+    setSaveSuccess(false);
+    setErrorMessage('');
+  };
+
   /*
    * Handle eligibility flags
    */
@@ -284,9 +361,58 @@ export default function StudentProfile() {
   const handleSave = async (e) => {
     if (e) e.preventDefault();
 
-    setIsSaving(true);
     setSaveSuccess(false);
     setErrorMessage('');
+
+    const gwaValue = Number(formData.gwa);
+
+    if (formData.gwa === '' || Number.isNaN(gwaValue)) {
+      setErrorMessage('Current GWA is required.');
+      return;
+    }
+
+    if (!formData.yearLevel) {
+      setErrorMessage('Please select a year level.');
+      return;
+    }
+
+    if (
+      !getYearLevelOptions(formData.academicLevel).includes(
+        formData.yearLevel
+      )
+    ) {
+      setErrorMessage(
+        'Year level must match the selected academic level.'
+      );
+      return;
+    }
+
+    if (!formData.gwaScale) {
+      setErrorMessage('Please select a GWA scale.');
+      return;
+    }
+
+    if (
+      formData.gwaScale === '1.00-5.00' &&
+      (gwaValue < 1 || gwaValue > 5)
+    ) {
+      setErrorMessage(
+        'GWA must be between 1.00 and 5.00 for the 1.00-5.00 scale.'
+      );
+      return;
+    }
+
+    if (
+      formData.gwaScale === '60-100' &&
+      (gwaValue < 60 || gwaValue > 100)
+    ) {
+      setErrorMessage(
+        'GWA must be between 60 and 100 for the 60-100 scale.'
+      );
+      return;
+    }
+
+    setIsSaving(true);
 
     try {
       const token = getToken();
@@ -302,6 +428,7 @@ export default function StudentProfile() {
       const payload = {
         dateOfBirth: formData.dateOfBirth,
         academicLevel: formData.academicLevel,
+        yearLevel: formData.yearLevel,
         course: formData.course,
         gwa: Number(formData.gwa),
         gwaScale: formData.gwaScale,
@@ -410,6 +537,26 @@ export default function StudentProfile() {
       setProfileExists(true);
       setSaveSuccess(true);
 
+      const savedProfile = result.data.profile
+        ? {
+            ...formData,
+            ...result.data.profile,
+            gwa:
+              result.data.profile.gwa !== undefined &&
+              result.data.profile.gwa !== null
+                ? String(result.data.profile.gwa)
+                : formData.gwa
+          }
+        : formData;
+
+      if (
+        isProfileComplete(savedProfile) &&
+        localStorage.getItem(COMPLETE_CELEBRATED_KEY) !== 'true'
+      ) {
+        localStorage.setItem(COMPLETE_CELEBRATED_KEY, 'true');
+        setShowCompletePrompt(true);
+      }
+
       setTimeout(() => {
         setSaveSuccess(false);
       }, 3500);
@@ -427,6 +574,25 @@ export default function StudentProfile() {
       setIsSaving(false);
     }
   };
+
+  const closeTour = () => {
+    localStorage.setItem(TOUR_STORAGE_KEY, 'true');
+    setIsTourOpen(false);
+  };
+
+  const goToTourStep = (nextStep) => {
+    const step = PROFILE_TOUR_STEPS[nextStep];
+    if (!step) {
+      closeTour();
+      return;
+    }
+
+    setTourStep(nextStep);
+    setActiveTab(step.tabId);
+  };
+
+  const currentTourStep = PROFILE_TOUR_STEPS[tourStep];
+  const sectionCompletion = getSectionCompletion(formData);
 
   const tabs = [
     {
@@ -615,12 +781,20 @@ export default function StudentProfile() {
       )}
 
       {/* TABS */}
-      <div className="flex items-center gap-2 border-b border-slate-200/80 overflow-x-auto pb-1">
+      <div className="relative">
+        {isTourOpen && (
+          <div className="fixed inset-0 z-40 bg-slate-900/40" />
+        )}
+
+        <div className="relative z-50 flex items-center gap-2 border-b border-slate-200/80 overflow-x-auto pb-1">
 
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive =
             activeTab === tab.id;
+          const isComplete = sectionCompletion[tab.id];
+          const isSpotlighted =
+            isTourOpen && currentTourStep?.tabId === tab.id;
 
           return (
             <button
@@ -633,15 +807,84 @@ export default function StudentProfile() {
                 isActive
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              } ${
+                isSpotlighted
+                  ? 'ring-2 ring-offset-2 ring-blue-400'
+                  : ''
               }`}
             >
               <Icon className="w-4 h-4" />
 
               {tab.label}
+
+              {isComplete ? (
+                <CheckCircle2
+                  className={`w-3.5 h-3.5 ${
+                    isActive ? 'text-white' : 'text-emerald-600'
+                  }`}
+                />
+              ) : (
+                <AlertCircle
+                  className={`w-3.5 h-3.5 ${
+                    isActive ? 'text-amber-100' : 'text-amber-500'
+                  }`}
+                />
+              )}
             </button>
           );
         })}
 
+        </div>
+
+        {isTourOpen && currentTourStep && (
+          <div className="relative z-50 mt-3 max-w-lg bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xl space-y-3">
+            <p className="text-[10px] font-extrabold uppercase tracking-wider text-blue-600">
+              Step {tourStep + 1} of {PROFILE_TOUR_STEPS.length}
+            </p>
+            <h3 className="text-sm font-extrabold text-slate-900">
+              {currentTourStep.title}
+            </h3>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              {currentTourStep.body}
+            </p>
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <button
+                type="button"
+                onClick={closeTour}
+                className="text-xs font-bold text-slate-500 hover:text-slate-800 cursor-pointer"
+              >
+                Skip
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={tourStep === 0}
+                  onClick={() => goToTourStep(tourStep - 1)}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
+                >
+                  Back
+                </button>
+                {tourStep < PROFILE_TOUR_STEPS.length - 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => goToTourStep(tourStep + 1)}
+                    className="px-3 py-1.5 rounded-xl text-xs font-extrabold text-white bg-blue-600 hover:bg-blue-700 cursor-pointer"
+                  >
+                    Next
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={closeTour}
+                    className="px-3 py-1.5 rounded-xl text-xs font-extrabold text-white bg-blue-600 hover:bg-blue-700 cursor-pointer"
+                  >
+                    Finish
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* FORM CONTENT */}
@@ -755,20 +998,35 @@ export default function StudentProfile() {
                   Municipality / City
                 </label>
 
-                <input
-                  type="text"
-                  value={
-                    formData.municipalityCity ||
-                    ''
-                  }
-                  onChange={(e) =>
-                    handleInputChange(
-                      'municipalityCity',
-                      e.target.value
-                    )
-                  }
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-hidden focus:border-blue-500"
-                />
+                    <select
+                        value={formData.municipalityCity || ''}
+                        onChange={(e) =>
+                          handleInputChange(
+                            'municipalityCity',
+                            e.target.value
+                          )
+                        }
+                        disabled={!formData.province}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-hidden focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
+                      >
+                        <option value="">
+                          {formData.province
+                            ? 'Select municipality / city'
+                            : 'Select province first'}
+                        </option>
+
+                        {(MUNICIPALITIES[formData.province] || []).map(
+                          (municipality) => (
+                            <option
+                              key={municipality}
+                              value={municipality}
+                            >
+                              {municipality}
+                            </option>
+                          )
+                        )}
+                      </select>
+
               </div>
 
               {/* Province */}
@@ -777,19 +1035,27 @@ export default function StudentProfile() {
                   Province
                 </label>
 
-                <input
-                  type="text"
-                  value={
-                    formData.province || ''
-                  }
-                  onChange={(e) =>
-                    handleInputChange(
-                      'province',
-                      e.target.value
-                    )
-                  }
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-hidden focus:border-blue-500"
-                />
+                    <select
+                        value={formData.province || ''}
+                        onChange={(e) => {
+                          handleInputChange('province', e.target.value);
+                          handleInputChange('municipalityCity', '');
+                        }}
+                        disabled={!formData.region}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-hidden focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
+                      >
+                        <option value="">
+                          {formData.region
+                            ? 'Select province'
+                            : 'Select region first'}
+                        </option>
+
+                        {(PROVINCES[formData.region] || []).map((province) => (
+                          <option key={province} value={province}>
+                            {province}
+                          </option>
+                        ))}
+                      </select>
               </div>
 
               {/* Region */}
@@ -798,19 +1064,23 @@ export default function StudentProfile() {
                   Region
                 </label>
 
-                <input
-                  type="text"
-                  value={
-                    formData.region || ''
-                  }
-                  onChange={(e) =>
-                    handleInputChange(
-                      'region',
-                      e.target.value
-                    )
-                  }
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-hidden focus:border-blue-500"
-                />
+                      <select
+                    value={formData.region || ''}
+                    onChange={(e) => {
+                      handleInputChange('region', e.target.value);
+                      handleInputChange('province', '');
+                      handleInputChange('municipalityCity', '');
+                    }}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-hidden focus:border-blue-500"
+                  >
+                    <option value="">Select region</option>
+
+                    {REGIONS.map((region) => (
+                      <option key={region} value={region}>
+                        {region}
+                      </option>
+                    ))}
+                  </select>
               </div>
 
             </div>
@@ -847,8 +1117,7 @@ export default function StudentProfile() {
                     ''
                   }
                   onChange={(e) =>
-                    handleInputChange(
-                      'academicLevel',
+                    handleAcademicLevelChange(
                       e.target.value
                     )
                   }
@@ -869,6 +1138,42 @@ export default function StudentProfile() {
                   <option value="Graduate Studies">
                     Graduate Studies
                   </option>
+                </select>
+              </div>
+
+              {/* Year Level */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Year Level
+                </label>
+
+                <select
+                  value={
+                    formData.yearLevel || ''
+                  }
+                  onChange={(e) =>
+                    handleInputChange(
+                      'yearLevel',
+                      e.target.value
+                    )
+                  }
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-hidden focus:border-blue-500"
+                >
+                  <option value="">
+                    Select year level
+                  </option>
+
+                  {getYearLevelOptions(
+                    formData.academicLevel
+                  ).map((yearLevel) => (
+                    <option
+                      key={yearLevel}
+                      value={yearLevel}
+                    >
+                      {YEAR_LEVEL_LABELS[yearLevel] ||
+                        yearLevel}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -1120,6 +1425,33 @@ export default function StudentProfile() {
         )}
 
       </form>
+
+      {showCompletePrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white border border-slate-200/80 rounded-3xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-2xl bg-emerald-50 text-emerald-600">
+                <CheckCircle2 className="h-5 w-5" />
+              </div>
+              <h3 className="text-base font-extrabold text-slate-900">
+                Profile Complete! 🎉
+              </h3>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Your profile is now ready to help us find better scholarship matches.
+            </p>
+            <div className="flex justify-end pt-1">
+              <button
+                type="button"
+                onClick={() => navigate(DASHBOARD_ROUTE)}
+                className="px-4 py-2 rounded-xl text-xs font-extrabold text-white bg-blue-600 hover:bg-blue-700 cursor-pointer"
+              >
+                Go to Dashboard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

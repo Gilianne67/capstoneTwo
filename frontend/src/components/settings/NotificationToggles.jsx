@@ -1,7 +1,12 @@
-import React from 'react';
 import { Bell } from 'lucide-react';
 
-export function NotificationToggles({ title = "Notification Preferences", options, onChange }) {
+export function NotificationToggles({
+  title = "Notification Preferences",
+  options,
+  onChange,
+  disabled = false,
+  unavailableMessage
+}) {
   return (
     <div className="bg-card-bg rounded-2xl border border-app-text/10 p-6 shadow-xs space-y-4">
       <div className="flex items-center gap-2 pb-4 border-b border-app-text/10">
@@ -9,6 +14,9 @@ export function NotificationToggles({ title = "Notification Preferences", option
         <div>
           <h3 className="text-sm font-extrabold text-app-text">{title}</h3>
           <p className="text-xs text-text-muted">Configure how and when you receive alerts</p>
+          {disabled && unavailableMessage && (
+            <p className="text-[11px] text-text-muted mt-1">{unavailableMessage}</p>
+          )}
         </div>
       </div>
 
@@ -21,14 +29,18 @@ export function NotificationToggles({ title = "Notification Preferences", option
                 <p className="text-[11px] text-text-muted">{option.description}</p>
               )}
             </div>
-            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+            <label className={`relative inline-flex items-center shrink-0 ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
               <input
                 type="checkbox"
                 checked={option.enabled}
-                onChange={() => onChange(option.id)}
+                disabled={disabled}
+                onChange={() => {
+                  if (disabled || !onChange) return;
+                  onChange(option.id);
+                }}
                 className="sr-only peer"
               />
-              <div className="w-9 h-5 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+              <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary ${disabled ? 'opacity-50' : ''}`}></div>
             </label>
           </div>
         ))}

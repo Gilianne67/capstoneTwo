@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '../../../context/AuthContext';
+import { formatDeadlineDate } from '../../../utils/deadline';
 import {
   ArrowLeft,
   Calendar,
@@ -19,9 +21,28 @@ import {
 const API_BASE_URL =
   import.meta.env.VITE_API_URL || 'https://api.iskolarmatch.ph/v1';
 
+const STANDARD_ELIGIBILITY_TAGS = [
+  '4Ps Beneficiary',
+  'Indigenous Peoples (IP)',
+  'Person with Disability (PWD)',
+  'Solo Parent Dependent',
+  'Orphan Status',
+  'Child of Farmer / Fisherfolk',
+  'Disaster-Affected Family',
+  'Working Student'
+];
+
 export default function ScholarshipDetails() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { user } = useAuth();
   const { id } = useParams();
+  const backPath =
+    location.state?.backPath ||
+    (user?.role === 'student'
+      ? '/dashboard/student/matches'
+      : '/dashboard/provider/listings');
+  const passedScholarship = location.state?.scholarship;
 
   const [scholarship, setScholarship] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -51,6 +72,14 @@ export default function ScholarshipDetails() {
         const data = await response.json();
 
         if (!response.ok) {
+          if (
+            passedScholarship &&
+            String(passedScholarship._id) === String(id)
+          ) {
+            setScholarship(passedScholarship);
+            return;
+          }
+
           throw new Error(
             data.message || 'Failed to load scholarship details.'
           );
@@ -58,10 +87,18 @@ export default function ScholarshipDetails() {
 
         setScholarship(data.scholarship);
       } catch (err) {
-        console.error('Failed to fetch scholarship:', err);
-        setError(
-          err.message || 'Failed to load scholarship details.'
-        );
+        if (
+          passedScholarship &&
+          String(passedScholarship._id) === String(id)
+        ) {
+          setScholarship(passedScholarship);
+          setError('');
+        } else {
+          console.error('Failed to fetch scholarship:', err);
+          setError(
+            err.message || 'Failed to load scholarship details.'
+          );
+        }
       } finally {
         setIsLoading(false);
       }
@@ -70,7 +107,7 @@ export default function ScholarshipDetails() {
     if (id) {
       fetchScholarship();
     }
-  }, [id]);
+  }, [id, passedScholarship]);
 
   const formatDate = (date) => {
     if (!date) return 'Not specified';
@@ -91,7 +128,7 @@ export default function ScholarshipDetails() {
       return 'No maximum income requirement';
     }
 
-    return `₱${Number(income).toLocaleString()}`;
+    return `Household income: ₱${Number(income).toLocaleString()}/month or below`;
   };
 
   const renderList = (items) => {
@@ -133,7 +170,7 @@ export default function ScholarshipDetails() {
       <div className="max-w-4xl mx-auto">
         <button
           type="button"
-          onClick={() => navigate('/dashboard/provider/listings')}
+          onClick={() => navigate(backPath)}
           className="flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900 mb-6"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -155,8 +192,13 @@ export default function ScholarshipDetails() {
     );
   }
 
-  const academicRequirement =
-    scholarship.academicRequirement || {};
+  const academicRequirements =
+    Array.isArray(scholarship.academicRequirements) &&
+    scholarship.academicRequirements.length > 0
+      ? scholarship.academicRequirements
+      : scholarship.academicRequirement?.gradingScale
+        ? [scholarship.academicRequirement]
+        : [];
 
   const hardFilters =
     scholarship.hardFilters || {};
@@ -170,13 +212,20 @@ export default function ScholarshipDetails() {
   const criteriaWeights =
     scholarship.criteriaWeights || {};
 
+  const benefits = Array.isArray(scholarship.benefits)
+    ? scholarship.benefits
+        .filter((benefit) => typeof benefit === 'string')
+        .map((benefit) => benefit.trim())
+        .filter(Boolean)
+    : [];
+
   return (
     <div className="max-w-6xl mx-auto pb-12 space-y-6">
 
       {/* Back Button */}
       <button
         type="button"
-        onClick={() => navigate('/dashboard/provider/listings')}
+        onClick={() => navigate(backPath)}
         className="flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900 transition-colors"
       >
         <ArrowLeft className="w-4 h-4" />
@@ -292,7 +341,7 @@ export default function ScholarshipDetails() {
 
               <p className="text-sm font-semibold text-slate-800 mt-1 flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-slate-400" />
-                {formatDate(scholarship.deadline)}
+                {formatDeadlineDate(scholarship.deadline) || 'Not specified'}
               </p>
             </div>
 
@@ -326,22 +375,22 @@ export default function ScholarshipDetails() {
           </h2>
         </div>
 
-        {scholarship.benefits?.length > 0 ? (
-          <div className="space-y-2">
-            {scholarship.benefits.map((benefit, index) => (
-              <div
-                key={index}
+        {benefits.length > 0 ? (
+          <ul className="space-y-2">
+            {benefits.map((benefit, index) => (
+              <li
+                key={`${benefit}-${index}`}
                 className="flex items-start gap-2 text-sm text-slate-600"
               >
                 <CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
 
                 <span>{benefit}</span>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         ) : (
           <p className="text-sm text-slate-400">
-            No benefits specified.
+            No benefits provided.
           </p>
         )}
 
@@ -372,25 +421,40 @@ export default function ScholarshipDetails() {
 
             <div className="space-y-4">
 
-              <div>
-                <p className="text-xs text-slate-400">
-                  Minimum GPA / GWA
-                </p>
+              {academicRequirements.length > 0 ? (
+                academicRequirements.map((requirement, index) => {
+                  const scale =
+                    requirement.gradingScale === '1-5'
+                      ? '1.00-5.00'
+                      : requirement.gradingScale;
+                  const isInverseScale = scale === '1.00-5.00';
 
-                <p className="text-sm font-semibold text-slate-800 mt-1">
-                  {academicRequirement.minimumGPA}
-                </p>
-              </div>
+                  return (
+                    <div key={`${scale || 'scale'}-${index}`}>
+                      <p className="text-xs text-slate-400">
+                        {isInverseScale
+                          ? 'Maximum Allowable GWA'
+                          : 'Minimum Required GPA'}
+                      </p>
 
-              <div>
-                <p className="text-xs text-slate-400">
-                  Grading Scale
-                </p>
+                      <p className="text-sm font-semibold text-slate-800 mt-1">
+                        {requirement.minimumGPA}
+                        {scale ? ` (${scale})` : ''}
+                      </p>
+                    </div>
+                  );
+                })
+              ) : (
+                <div>
+                  <p className="text-xs text-slate-400">
+                    Academic Grading Scale
+                  </p>
 
-                <p className="text-sm font-semibold text-slate-800 mt-1">
-                  {academicRequirement.gradingScale}
-                </p>
-              </div>
+                  <p className="text-sm font-semibold text-slate-800 mt-1">
+                    Not specified
+                  </p>
+                </div>
+              )}
 
               <div>
                 <p className="text-xs text-slate-400">
@@ -431,7 +495,10 @@ export default function ScholarshipDetails() {
                 </p>
 
                 <p className="text-sm font-semibold text-slate-800 mt-1">
-                  {formatIncome(incomeRequirement.maximumIncome)}
+                  {formatIncome(
+                    incomeRequirement.maxMonthlyIncome ??
+                    incomeRequirement.maximumIncome
+                  )}
                 </p>
               </div>
 
@@ -511,11 +578,19 @@ export default function ScholarshipDetails() {
           </h2>
         </div>
 
-        {scholarship.specialTags?.length > 0 ? (
+        <p className="text-xs text-slate-500 mb-5">
+          Required tags exclude students who do not have them. Preferred tags affect ranking only.
+        </p>
+
+        {(scholarship.specialTags || []).some((tag) =>
+          STANDARD_ELIGIBILITY_TAGS.includes(tag?.tagName)
+        ) ? (
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
 
-            {scholarship.specialTags.map((tag, index) => (
+            {scholarship.specialTags
+              .filter((tag) => STANDARD_ELIGIBILITY_TAGS.includes(tag?.tagName))
+              .map((tag, index) => (
               <div
                 key={index}
                 className="flex items-center justify-between gap-3 border border-slate-100 rounded-xl p-3"
@@ -532,7 +607,7 @@ export default function ScholarshipDetails() {
                       : 'bg-amber-50 text-amber-700'
                   }`}
                 >
-                  {tag.mode}
+                  {tag.mode === 'Exclusive' ? 'Required' : 'Preferred'}
                 </span>
 
               </div>
@@ -554,6 +629,7 @@ export default function ScholarshipDetails() {
       {/* RANKING WEIGHTS */}
       {/* ===================================== */}
 
+      {user?.role !== 'student' && (
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
 
         <div className="flex items-center gap-2 mb-5">
@@ -599,6 +675,7 @@ export default function ScholarshipDetails() {
         </div>
 
       </div>
+      )}
 
       {/* ===================================== */}
       {/* APPLICATION */}

@@ -156,6 +156,7 @@ exports.getMe = asyncHandler(async (req, res, next) => {
     organization: user.organization || '',
     isOnboarded: Boolean(user.isOnboarded),
     status: user.status || 'active',
+    isVerified: Boolean(user.isVerified),
   };
 
   res.status(200).json({

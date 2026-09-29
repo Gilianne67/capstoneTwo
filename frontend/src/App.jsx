@@ -1,5 +1,5 @@
 // App.jsx
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
 
 // Context
@@ -21,9 +21,7 @@ import StudentProfile from './features/student/pages/StudentProfile';
 import ScholarshipSearch from './features/student/pages/ScholarshipSearch';
 import MatchFeed from './features/student/pages/MatchFeed';
 import SavedScholarships from './features/student/pages/SavedScholarships';
-import ApplicationTracker from './features/student/pages/ApplicationTracker';
 import DeadlineAlerts from './features/student/pages/DeadlineAlerts';
-import Settings from './features/student/pages/Settings';
 import HelpCenter from './features/student/pages/HelpCenter';
 
 // Provider Module Pages
@@ -32,7 +30,6 @@ import ScholarshipListings from './features/provider/pages/ScholarshipListings';
 import CreateListing from './features/provider/pages/CreateListing';
 import PerformanceAnalytics from './features/provider/pages/PerformanceAnalytics';
 import OrganizationVerification from './features/provider/pages/OrganizationVerification';
-import ProviderSettings from './features/provider/pages/ProviderSettings';
 import HelpSupport from './features/provider/pages/HelpSupport';
 import ScholarshipDetails from './features/provider/pages/ScholarshipDetails';
 
@@ -137,12 +134,18 @@ export default function App() {
                         <Route path="student" element={<StudentDashboard />} />
                         <Route path="student/search" element={<ScholarshipSearch />} />
                         <Route path="student/matches" element={<MatchFeed />} />
+                        <Route path="student/scholarships/:id" element={<ScholarshipDetails />} />
                         <Route path="student/profile" element={<StudentProfile />} />
                         <Route path="student/saved" element={<SavedScholarships />} />
-                        <Route path="student/applications" element={<ApplicationTracker />} />
                         <Route path="student/notifications" element={<DeadlineAlerts />} />
-                        <Route path="student/alerts" element={<Settings />} />
-                        <Route path="student/settings" element={<Settings />} />
+                        <Route
+                          path="student/alerts"
+                          element={<Navigate to="/dashboard/student/profile" replace />}
+                        />
+                        <Route
+                          path="student/settings"
+                          element={<Navigate to="/dashboard/student/profile" replace />}
+                        />
                         <Route path="student/help" element={<HelpCenter />} />
                       </Route>
 
@@ -168,7 +171,7 @@ export default function App() {
 
             <Route
               path="provider/settings"
-              element={<ProviderSettings />}
+              element={<Navigate to="/dashboard/provider" replace />}
             />
 
             <Route

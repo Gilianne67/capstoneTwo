@@ -1,93 +1,85 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  
-  Bookmark, 
-  ExternalLink, 
-  ChevronDown, 
-  ChevronUp, 
+import { useState, useEffect } from 'react';
+import {
+  Bookmark,
+  ExternalLink,
   Info,
   CheckCircle2,
   Loader2,
   AlertCircle,
-  Inbox
+  Inbox,
+  UserRound
 } from 'lucide-react';
 
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
 import ConfirmModal from '../../../components/common/ConfirmModal';
+import { isProfileComplete } from '../profileCompletion';
 
-// Shared Mock Seed Data (Fallback aligned with StudentDashboard)
-const MOCK_FALLBACK_MATCHES = [
-  {
-    _id: 'm1',
-    title: 'Camarines Sur Academic Excellence Grant',
-    provider: 'Provincial Government of CamSur',
-    amount: '₱25,000 / semester',
-    deadline: 'Aug 30, 2026',
-    score: 96,
-    matchedFlags: ['Local Resident', 'Top Academic Tier'],
-    url: 'https://camsur.gov.ph',
-    breakdown: {
-      'Academic Compatibility': '40/40 (GWA 1.25 qualifies)',
-      'Location Residency': '30/30 (Priority CamSur resident)',
-      'Socioeconomic Need': '26/30 (Low-income tier)'
-    }
-  },
-  {
-    _id: 'm2',
-    title: 'DOST-SEI Merit Scholarship Program',
-    provider: 'Department of Science and Technology',
-    amount: '₱40,000 / year',
-    deadline: 'Aug 10, 2026',
-    score: 92,
-    matchedFlags: ['STEM Priority'],
-    url: 'https://sei.dost.gov.ph',
-    breakdown: {
-      'Academic Rank': '39/40 (Excellent standing)',
-      'Regional Priority': '28/30 (Region V allocation)',
-      'Financial Eligibility': '25/30 (Merit bracket)'
-    }
-  },
-  {
-    _id: 'm3',
-    title: 'CHED Tulong Dunong Program (TDP-TES)',
-    provider: 'Commission on Higher Education (CHED RO5)',
-    amount: '₱15,000 / semester',
-    deadline: 'Sep 15, 2026',
-    score: 89,
-    matchedFlags: ['4Ps Beneficiary', 'Government Backed'],
-    url: 'https://ched.gov.ph',
-    breakdown: {
-      'Academic Fit': '35/40 (Passing GWA qualification)',
-      'Residency': '26/30 (Bicol Region priority)',
-      'Financial Need': '28/30 (High assistance tier)'
-    }
-  },
-  {
-    _id: 'm4',
-    title: 'SM Foundation College Scholarship',
-    provider: 'SM Foundation Inc.',
-    amount: '₱30,000 / semester',
-    deadline: 'Aug 20, 2026',
-    score: 85,
-    matchedFlags: ['Private Partner'],
-    url: 'https://www.sm-foundation.org',
-    breakdown: {
-      'Academic Compatibility': '36/40 (Meets threshold)',
-      'Location Residency': '22/30 (Provincial coverage)',
-      'Socioeconomic Need': '27/30 (Low-income family tier)'
-    }
+const PROFILE_ROUTE = '/dashboard/student/profile';
+const ONBOARDING_ROUTE = '/onboarding';
+
+const API_BASE_URL = (
+  import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
+).replace(/\/$/, '');
+
+const getCleanToken = (contextToken) => {
+  const rawToken = contextToken || localStorage.getItem('token');
+
+  if (!rawToken) return null;
+
+  return String(rawToken)
+    .replace(/^"|"$/g, '')
+    .replace(/^Bearer\s+/i, '')
+    .trim();
+};
+
+const mapMatchFromApi = (match) => {
+  if (!match?.scholarship) {
+    return match;
   }
-];
+
+  const scholarship = match.scholarship;
+  const breakdown = {};
+
+  if (match.gpaScore != null) {
+    breakdown['GPA / GWA'] = match.gpaScore;
+  }
+
+  if (match.incomeScore != null) {
+    breakdown.Income = match.incomeScore;
+  }
+
+  if (match.tagsScore != null) {
+    breakdown['Special Eligibility'] = match.tagsScore;
+  }
+
+  return {
+    _id: scholarship._id,
+    title: scholarship.name,
+    provider: scholarship.scholarshipType,
+    amount: scholarship.grantValue,
+    deadline: scholarship.deadline,
+    score: match.totalScore,
+    classification: match.classification,
+    matchedFlags: match.classification ? [match.classification] : [],
+    url: scholarship.applicationURL,
+    breakdown: Object.keys(breakdown).length > 0 ? breakdown : undefined,
+    scholarship
+  };
+};
 
 export default function MatchFeed() {
-  const { user } = useAuth();
+  const navigate = useNavigate();
+  const { user, token: contextToken } = useAuth();
 
   // State Management
   const [matches, setMatches] = useState([]);
   const [bookmarkedIds, setBookmarkedIds] = useState([]);
   const [expandedId, setExpandedId] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isUsingFallback, setIsUsingFallback] = useState(false);
+  const [feedState, setFeedState] = useState('loading');
+  const [loadError, setLoadError] = useState('');
+  const [continuePath, setContinuePath] = useState(PROFILE_ROUTE);
   const [savingBookmarkId, setSavingBookmarkId] = useState(null);
 
   // Modal State
@@ -100,42 +92,98 @@ export default function MatchFeed() {
 
     const loadMatchFeed = async () => {
       setIsLoading(true);
+      setLoadError('');
+      setMatches([]);
 
       try {
-        const token = localStorage.getItem('token');
-        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        const token = getCleanToken(contextToken);
+
+        if (!token) {
+          if (!isMounted) return;
+          setFeedState('error');
+          setLoadError('You need to sign in to view scholarship matches.');
+          return;
+        }
+
+        const headers = { Authorization: `Bearer ${token}` };
+        const profileRes = await fetch(`${API_BASE_URL}/students/profile`, { headers });
+
+        if (!isMounted) return;
+
+        if (profileRes.status === 404) {
+          setContinuePath(user?.isOnboarded ? PROFILE_ROUTE : ONBOARDING_ROUTE);
+          setFeedState('incomplete');
+          return;
+        }
+
+        if (!profileRes.ok) {
+          setFeedState('error');
+          setLoadError('Unable to load your student profile right now.');
+          return;
+        }
+
+        const profileData = await profileRes.json();
+        const profile = profileData.profile;
+        const onboardingComplete = user?.isOnboarded === true;
+
+        if (!onboardingComplete || !profile || !isProfileComplete(profile)) {
+          setContinuePath(onboardingComplete ? PROFILE_ROUTE : ONBOARDING_ROUTE);
+          setFeedState('incomplete');
+          return;
+        }
 
         const [matchesRes, bookmarksRes] = await Promise.allSettled([
-          fetch('/api/v1/scholarships/recommended', { headers }),
-          fetch('/api/v1/students/bookmarks', { headers })
+          fetch(`${API_BASE_URL}/matching`, { headers }),
+          fetch(`${API_BASE_URL}/students/saved-scholarships`, { headers })
         ]);
 
-        if (isMounted) {
-          // Handle Matches Endpoint
-          if (matchesRes.status === 'fulfilled' && matchesRes.value.ok) {
-            const data = await matchesRes.value.json();
-            const list = Array.isArray(data) ? data : (data.matches || []);
-            setMatches(list.length > 0 ? list : MOCK_FALLBACK_MATCHES);
-            setIsUsingFallback(list.length === 0);
-          } else {
-            setMatches(MOCK_FALLBACK_MATCHES);
-            setIsUsingFallback(true);
-          }
+        if (!isMounted) return;
 
-          // Handle Bookmarks Endpoint
-          if (bookmarksRes.status === 'fulfilled' && bookmarksRes.value.ok) {
-            const bookmarks = await bookmarksRes.value.json();
-            const ids = Array.isArray(bookmarks)
-              ? bookmarks.map(b => typeof b === 'string' ? b : (b._id || b.id))
-              : [];
-            setBookmarkedIds(ids);
-          }
+        if (matchesRes.status !== 'fulfilled') {
+          setFeedState('error');
+          setLoadError('Unable to load scholarship matches right now.');
+          return;
+        }
+
+        const response = matchesRes.value;
+
+        if (response.status === 404) {
+          setContinuePath(PROFILE_ROUTE);
+          setFeedState('incomplete');
+          return;
+        }
+
+        if (!response.ok) {
+          setFeedState('error');
+          setLoadError('Unable to load scholarship matches right now.');
+          return;
+        }
+
+        const data = await response.json();
+        const list = Array.isArray(data.matches)
+          ? data.matches.map(mapMatchFromApi)
+          : [];
+
+        setMatches(list);
+        setFeedState('ready');
+
+        if (bookmarksRes.status === 'fulfilled' && bookmarksRes.value.ok) {
+          const bookmarks = await bookmarksRes.value.json();
+          const saved = Array.isArray(bookmarks?.savedScholarships)
+            ? bookmarks.savedScholarships
+            : [];
+          setBookmarkedIds(
+            saved
+              .map((item) => String(item?._id || item?.scholarshipId || item?.id || ''))
+              .filter(Boolean)
+          );
         }
       } catch (err) {
         if (isMounted) {
-          console.warn('Backend connection offline, using fallback match feed:', err);
-          setMatches(MOCK_FALLBACK_MATCHES);
-          setIsUsingFallback(true);
+          console.warn('Failed to load match feed:', err);
+          setMatches([]);
+          setFeedState('error');
+          setLoadError('Unable to load scholarship matches right now.');
         }
       } finally {
         if (isMounted) setIsLoading(false);
@@ -147,39 +195,62 @@ export default function MatchFeed() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [contextToken, user?.isOnboarded]);
 
   // 2. Toggle Bookmark State
   const toggleBookmark = async (id) => {
-    setSavingBookmarkId(id);
-    const isBookmarked = bookmarkedIds.includes(id);
-    const updated = isBookmarked 
-      ? bookmarkedIds.filter(bId => bId !== id) 
-      : [...bookmarkedIds, id];
+    const scholarshipId = String(id || '');
+    if (!scholarshipId) return;
+
+    setSavingBookmarkId(scholarshipId);
+    const isBookmarked = bookmarkedIds.includes(scholarshipId);
+    const previous = bookmarkedIds;
+    const updated = isBookmarked
+      ? bookmarkedIds.filter((savedId) => savedId !== scholarshipId)
+      : [...bookmarkedIds, scholarshipId];
 
     setBookmarkedIds(updated);
 
     try {
-      const token = localStorage.getItem('token');
-      if (token && !isUsingFallback) {
-        await fetch(`/api/v1/scholarships/${id}/bookmark`, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}) 
-          }
-        });
+      const token = getCleanToken(contextToken);
+      if (!token) throw new Error('Not authenticated');
+
+      const response = await fetch(
+        `${API_BASE_URL}/students/saved-scholarships/${scholarshipId}`,
+        {
+          method: isBookmarked ? 'DELETE' : 'POST',
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      const alreadyRemoved = isBookmarked && response.status === 404;
+
+      if (!response.ok && !alreadyRemoved) {
+        throw new Error('Failed to update saved scholarship');
       }
     } catch (error) {
       console.error('Failed to sync bookmark state:', error);
+      setBookmarkedIds(previous);
     } finally {
       setSavingBookmarkId(null);
     }
   };
 
-  const handleApplyClick = (grant) => {
+  const handleApplyClick = (event, grant) => {
+    event.stopPropagation();
     setSelectedGrant(grant);
     setIsModalOpen(true);
+  };
+
+  const openScholarshipDetails = (item) => {
+    const scholarshipId = item?.scholarship?._id || item?._id;
+
+    if (!scholarshipId || !item?.scholarship?._id) {
+      return;
+    }
+
+    navigate(`/dashboard/student/scholarships/${scholarshipId}`, {
+      state: { scholarship: item.scholarship }
+    });
   };
 
   const confirmRedirect = () => {
@@ -199,18 +270,39 @@ export default function MatchFeed() {
     );
   }
 
+  if (feedState === 'incomplete') {
+    return (
+      <div className="bg-card-bg rounded-2xl border border-app-text/10 p-8 text-center space-y-3">
+        <UserRound className="h-8 w-8 text-primary mx-auto" />
+        <h2 className="text-sm font-bold text-app-text">Complete Your Student Profile</h2>
+        <p className="text-xs text-text-muted max-w-md mx-auto">
+          Complete your onboarding profile to receive scholarship matches based on your academic background, household income, location, and eligibility.
+        </p>
+        <button
+          type="button"
+          onClick={() => navigate(continuePath)}
+          className="inline-flex items-center justify-center px-4 py-2 bg-primary text-white rounded-xl text-xs font-bold hover:opacity-90 transition-opacity cursor-pointer"
+        >
+          Complete Profile
+        </button>
+      </div>
+    );
+  }
+
+  if (feedState === 'error') {
+    return (
+      <div className="bg-card-bg rounded-2xl border border-rose-200 p-8 text-center space-y-2">
+        <AlertCircle className="h-8 w-8 text-rose-500 mx-auto" />
+        <h2 className="text-sm font-bold text-app-text">Scholarship matches could not be loaded</h2>
+        <p className="text-xs text-text-muted">
+          {loadError || 'Check your connection and open this page again.'}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
-      {/* Test-mode Alert Banner */}
-      {isUsingFallback && (
-        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 p-3 rounded-xl flex items-center justify-between text-xs font-medium">
-          <span className="flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            Backend API offline/unreachable. Displaying top fallback matches preview.
-          </span>
-        </div>
-      )}
-
       {/* FEED HEADER */}
       <div className="flex items-center justify-between">
         <div>
@@ -225,30 +317,46 @@ export default function MatchFeed() {
       {matches.length === 0 ? (
         <div className="bg-card-bg rounded-2xl border border-app-text/10 p-8 text-center space-y-2">
           <Inbox className="h-8 w-8 text-text-muted mx-auto" />
-          <p className="text-xs font-bold text-app-text">No matches currently found for your profile.</p>
-          <p className="text-[11px] text-text-muted">Update your student profile to re-trigger the matching algorithm.</p>
+          <p className="text-xs font-bold text-app-text">No Matching Scholarships</p>
+          <p className="text-[11px] text-text-muted">
+            Your profile currently does not match any available scholarships.
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
           {matches.map((item) => {
-            const id = item._id || item.id;
+            const id = item.scholarship?._id || item._id || item.id;
             const isExpanded = expandedId === id;
-            const isBookmarked = bookmarkedIds.includes(id);
-            const score = item.score ?? item.weightedScore ?? item.matchScore ?? 80;
+            const isBookmarked = bookmarkedIds.includes(String(id));
+            const score = item.score ?? item.weightedScore ?? item.matchScore;
             const flags = item.matchedFlags || (item.tag ? [item.tag] : []);
+            const canOpenDetails = Boolean(item.scholarship?._id);
 
             return (
               <div 
                 key={id} 
-                className="bg-card-bg rounded-2xl border border-app-text/10 p-5 hover:border-primary/40 transition-all shadow-xs space-y-3"
+                role={canOpenDetails ? 'link' : undefined}
+                tabIndex={canOpenDetails ? 0 : undefined}
+                onClick={() => openScholarshipDetails(item)}
+                onKeyDown={(event) => {
+                  if (canOpenDetails && (event.key === 'Enter' || event.key === ' ')) {
+                    event.preventDefault();
+                    openScholarshipDetails(item);
+                  }
+                }}
+                className={`bg-card-bg rounded-2xl border border-app-text/10 p-5 hover:border-primary/40 transition-all shadow-xs space-y-3 ${
+                  canOpenDetails ? 'cursor-pointer' : ''
+                }`}
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-500/10 text-emerald-600 flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" />
-                        {score}% Match Score
-                      </span>
+                      {score != null && (
+                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-500/10 text-emerald-600 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          {score}% Match Score
+                        </span>
+                      )}
                       {flags.map((flag, idx) => (
                         <span key={idx} className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-primary/10 text-primary">
                           {flag}
@@ -262,7 +370,10 @@ export default function MatchFeed() {
 
                   <button
                     type="button"
-                    onClick={() => toggleBookmark(id)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      toggleBookmark(id);
+                    }}
                     disabled={savingBookmarkId === id}
                     className={`p-2 rounded-xl border transition-colors cursor-pointer ${
                       isBookmarked 
@@ -308,7 +419,10 @@ export default function MatchFeed() {
                     {(item.breakdown || item.matchBreakdown) && (
                       <button
                         type="button"
-                        onClick={() => setExpandedId(isExpanded ? null : id)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setExpandedId(isExpanded ? null : id);
+                        }}
                         className="text-primary font-bold text-[11px] hover:underline flex items-center gap-1 cursor-pointer"
                       >
                         <Info className="w-3 h-3" />
@@ -319,7 +433,7 @@ export default function MatchFeed() {
 
                   <button
                     type="button"
-                    onClick={() => handleApplyClick(item)}
+                    onClick={(event) => handleApplyClick(event, item)}
                     className="px-3.5 py-1.5 bg-app-text text-card-bg hover:bg-primary hover:text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
                   >
                     <span>Apply Off-Site</span>

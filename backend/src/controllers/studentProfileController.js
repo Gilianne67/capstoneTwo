@@ -1,4 +1,5 @@
 const StudentProfile = require('../models/StudentProfile');
+const { safeNotifyProfileChange } = require('../services/notificationService');
 
 // Create a new student profile for the logged-in user
 exports.createProfile = async (req, res) => {
@@ -12,6 +13,8 @@ exports.createProfile = async (req, res) => {
       ...req.body,
       userId: req.user.id
     });
+
+    await safeNotifyProfileChange(null, profile);
 
     res.status(201).json({ success: true, profile });
   } catch (error) {
@@ -36,6 +39,12 @@ exports.getProfile = async (req, res) => {
 // Update the logged-in user's own profile
 exports.updateProfile = async (req, res) => {
   try {
+    const existingProfile = await StudentProfile.findOne({ userId: req.user.id });
+
+    if (!existingProfile) {
+      return res.status(404).json({ success: false, message: 'Profile not found' });
+    }
+
     const profile = await StudentProfile.findOneAndUpdate(
       { userId: req.user.id },
       req.body,
@@ -45,6 +54,8 @@ exports.updateProfile = async (req, res) => {
     if (!profile) {
       return res.status(404).json({ success: false, message: 'Profile not found' });
     }
+
+    await safeNotifyProfileChange(existingProfile, profile);
 
     res.status(200).json({ success: true, profile });
   } catch (error) {
