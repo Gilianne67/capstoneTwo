@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, 
@@ -35,7 +35,9 @@ const SYSTEM_DEMOGRAPHIC_TAGS = [
   'Disaster-Affected Family',
   'Working Student'
 ];
-;
+
+const isStandardDemographicTag = (tagName) =>
+  SYSTEM_DEMOGRAPHIC_TAGS.includes(tagName);
 
 
 export default function CreateListing({ onBack, onSuccess, initialData = null }) {
@@ -48,6 +50,16 @@ export default function CreateListing({ onBack, onSuccess, initialData = null })
   // Modal State Control
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showCriterionRequestModal, setShowCriterionRequestModal] = useState(false);
+  const [criterionRequests, setCriterionRequests] = useState([]);
+  const [criterionRequestForm, setCriterionRequestForm] = useState({
+    criterionName: '',
+    criterionType: 'Required Eligibility',
+    description: ''
+  });
+  const [criterionRequestError, setCriterionRequestError] = useState(null);
+  const [criterionRequestSuccess, setCriterionRequestSuccess] = useState(null);
+  const [isSubmittingCriterionRequest, setIsSubmittingCriterionRequest] = useState(false);
 
   // ---------------------------------------------------------
   // 1. BASIC PROGRAM METADATA
@@ -58,6 +70,8 @@ export default function CreateListing({ onBack, onSuccess, initialData = null })
   const [deadline, setDeadline] = useState('');
   const [portalUrl, setPortalUrl] = useState('');
   const [description, setDescription] = useState('');
+  const [benefits, setBenefits] = useState([]);
+  const [newBenefit, setNewBenefit] = useState('');
 
   // ---------------------------------------------------------
   // 2. HARD FILTERS (BOOLEAN GATEKEEPERS)
@@ -78,15 +92,8 @@ const [selectedRegion, setSelectedRegion] = useState('');
 const [selectedProvince, setSelectedProvince] = useState('');
 const [selectedMunicipality, setSelectedMunicipality] = useState('');
 
-const [customHardFilters, setCustomHardFilters] = useState([]);
-const [newHardFilterLabel, setNewHardFilterLabel] = useState('');
-const [newHardFilterVal, setNewHardFilterVal] = useState('');
-
 const [requiredTags, setRequiredTags] = useState([]);
-const [newCustomReqTag, setNewCustomReqTag] = useState('');
-
 const [preferredTags, setPreferredTags] = useState([]);
-const [newCustomPrefTag, setNewCustomPrefTag] = useState('');
 
   // ---------------------------------------------------------
   // 3. RANKING & SCORING WEIGHTS (PROVIDER-DEFINED)
@@ -119,6 +126,15 @@ useEffect(() => {
   setGrantValue(initialData.grantValue || '');
   setCategory(initialData.scholarshipType || 'Merit-Based');
   setDescription(initialData.description || '');
+  setBenefits(
+    Array.isArray(initialData.benefits)
+      ? initialData.benefits
+          .filter((benefit) => typeof benefit === 'string')
+          .map((benefit) => benefit.trim())
+          .filter(Boolean)
+      : []
+  );
+  setNewBenefit('');
   setDeadline(
     initialData.deadline
       ? new Date(initialData.deadline).toISOString().split('T')[0]
@@ -225,22 +241,91 @@ useEffect(() => {
   const tags = initialData.specialTags || [];
 
   setRequiredTags(
-  tags
-    .filter(tag => tag.mode === 'Exclusive')
-    .map(tag => tag.tagName)
-);
+    tags
+      .filter(
+        (tag) =>
+          tag.mode === 'Exclusive' &&
+          isStandardDemographicTag(tag.tagName)
+      )
+      .map((tag) => tag.tagName)
+  );
 
   setPreferredTags(
     tags
-      .filter(tag => tag.mode === 'Preferred')
-      .map(tag => tag.tagName)
+      .filter(
+        (tag) =>
+          tag.mode === 'Preferred' &&
+          isStandardDemographicTag(tag.tagName)
+      )
+      .map((tag) => tag.tagName)
   );
 
 }, [initialData]);
 
+  const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+
+  const fetchCriterionRequests = useCallback(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return Promise.resolve(null);
+
+    return fetch(`${apiBaseUrl}/providers/eligibility-criterion-requests`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data) return null;
+        return Array.isArray(data.requests) ? data.requests : [];
+      })
+      .catch((err) => {
+        console.warn('Unable to load eligibility criterion requests:', err);
+        return null;
+      });
+  }, [apiBaseUrl]);
+
+  const loadCriterionRequests = useCallback(
+    () =>
+      fetchCriterionRequests().then((requests) => {
+        if (requests) setCriterionRequests(requests);
+      }),
+    [fetchCriterionRequests]
+  );
+
+  useEffect(() => {
+    let ignore = false;
+
+    fetchCriterionRequests().then((requests) => {
+      if (ignore || !requests) return;
+      setCriterionRequests(requests);
+    });
+
+    return () => {
+      ignore = true;
+    };
+  }, [fetchCriterionRequests]);
+
   // ---------------------------------------------------------
-  // HANDLERS: HARD FILTERS (COURSES, LOCATIONS, CUSTOM)
+  // HANDLERS: HARD FILTERS (COURSES, LOCATIONS)
   // ---------------------------------------------------------
+  const handleAddBenefit = () => {
+    const benefit = newBenefit.trim();
+    if (!benefit) return;
+    setBenefits((prev) => (prev.includes(benefit) ? prev : [...prev, benefit]));
+    setNewBenefit('');
+  };
+
+  const handleRemoveBenefit = (index) => {
+    setBenefits((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const buildBenefits = () => {
+    const pendingBenefit = newBenefit.trim();
+
+    return [...benefits, pendingBenefit]
+      .map((benefit) => benefit.trim())
+      .filter(Boolean)
+      .filter((benefit, index, list) => list.indexOf(benefit) === index);
+  };
+
   const handleAddCourse = () => {
     if (!newCourse.trim()) return;
     if (!allowedCourses.includes(newCourse.trim())) {
@@ -251,24 +336,6 @@ useEffect(() => {
 
   const handleRemoveCourse = (index) => {
     setAllowedCourses(prev => prev.filter((_, idx) => idx !== index));
-  };
-
-  const handleAddCustomHardFilter = () => {
-    if (!newHardFilterLabel.trim() || !newHardFilterVal.trim()) return;
-    setCustomHardFilters(prev => [
-      ...prev,
-      {
-        id: `hf-${Date.now()}`,
-        label: newHardFilterLabel.trim(),
-        value: newHardFilterVal.trim()
-      }
-    ]);
-    setNewHardFilterLabel('');
-    setNewHardFilterVal('');
-  };
-
-  const handleRemoveCustomHardFilter = (id) => {
-    setCustomHardFilters(prev => prev.filter(item => item.id !== id));
   };
 
   // ---------------------------------------------------------
@@ -292,22 +359,81 @@ useEffect(() => {
     }
   };
 
-  const handleAddCustomReqTag = () => {
-    if (!newCustomReqTag.trim()) return;
-    const tag = newCustomReqTag.trim();
-    if (!requiredTags.includes(tag)) {
-      setRequiredTags(prev => [...prev, tag]);
-    }
-    setNewCustomReqTag('');
+  const openCriterionRequestModal = () => {
+    setCriterionRequestForm({
+      criterionName: '',
+      criterionType: 'Required Eligibility',
+      description: ''
+    });
+    setCriterionRequestError(null);
+    setCriterionRequestSuccess(null);
+    setShowCriterionRequestModal(true);
   };
 
-  const handleAddCustomPrefTag = () => {
-    if (!newCustomPrefTag.trim()) return;
-    const tag = newCustomPrefTag.trim();
-    if (!preferredTags.includes(tag)) {
-      setPreferredTags(prev => [...prev, tag]);
+  const closeCriterionRequestModal = () => {
+    if (isSubmittingCriterionRequest) return;
+    setShowCriterionRequestModal(false);
+  };
+
+  const handleSubmitCriterionRequest = async (e) => {
+    e.preventDefault();
+    setCriterionRequestError(null);
+    setCriterionRequestSuccess(null);
+
+    const criterionName = criterionRequestForm.criterionName.trim();
+    const description = criterionRequestForm.description.trim();
+
+    if (!criterionName) {
+      setCriterionRequestError('Criterion name is required.');
+      return;
     }
-    setNewCustomPrefTag('');
+
+    if (!description) {
+      setCriterionRequestError(
+        'Description is required. Explain what the criterion means and why it is needed.'
+      );
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+
+    if (!token) {
+      setCriterionRequestError('Authentication token not found. Please log in again.');
+      return;
+    }
+
+    setIsSubmittingCriterionRequest(true);
+
+    try {
+      const res = await fetch(`${apiBaseUrl}/providers/eligibility-criterion-requests`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          criterionName,
+          criterionType: criterionRequestForm.criterionType,
+          description
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.message || 'Unable to submit eligibility criterion request.');
+      }
+
+      setCriterionRequestSuccess(
+        data.message ||
+          'Eligibility criterion request submitted successfully. An administrator will review this request before it can be used for scholarship matching.'
+      );
+      await loadCriterionRequests();
+    } catch (err) {
+      setCriterionRequestError(err.message);
+    } finally {
+      setIsSubmittingCriterionRequest(false);
+    }
   };
 
   // ---------------------------------------------------------
@@ -490,7 +616,7 @@ const handleExecutePublish = async () => {
     scholarshipType: category,
     description,
 
-    benefits: [],
+    benefits: buildBenefits(),
 
     academicRequirements: buildAcademicRequirements(),
 
@@ -527,14 +653,18 @@ const handleExecutePublish = async () => {
     },
 
     specialTags: [
-      ...requiredTags.map(tag => ({
-        tagName: tag,
-        mode: 'Exclusive'
-      })),
-      ...preferredTags.map(tag => ({
-        tagName: tag,
-        mode: 'Preferred'
-      }))
+      ...requiredTags
+        .filter(isStandardDemographicTag)
+        .map((tag) => ({
+          tagName: tag,
+          mode: 'Exclusive'
+        })),
+      ...preferredTags
+        .filter(isStandardDemographicTag)
+        .map((tag) => ({
+          tagName: tag,
+          mode: 'Preferred'
+        }))
     ],
 
     criteriaWeights: {
@@ -716,6 +846,55 @@ const handleSuccessClose = () => {
                 className="w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden focus:border-emerald-500"
               />
             </div>
+
+            <div className="md:col-span-2 space-y-2">
+              <label className="block text-slate-700 flex items-center justify-between">
+                <span>Scholarship Benefits</span>
+                <span className="text-[10px] text-slate-400 font-normal">Optional</span>
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="e.g. Full tuition coverage"
+                  value={newBenefit}
+                  onChange={(e) => setNewBenefit(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddBenefit();
+                    }
+                  }}
+                  className="flex-1 px-3.5 py-2.5 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden focus:border-emerald-500"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddBenefit}
+                  className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold transition-colors cursor-pointer flex items-center gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add Benefit
+                </button>
+              </div>
+              {benefits.length > 0 && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {benefits.map((benefit, idx) => (
+                    <span
+                      key={`${benefit}-${idx}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 bg-white text-slate-800 border border-slate-200 rounded-xl text-xs font-semibold shadow-2xs"
+                    >
+                      {benefit}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveBenefit(idx)}
+                        className="hover:text-rose-600 transition-colors cursor-pointer"
+                        aria-label={`Remove ${benefit}`}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -727,7 +906,7 @@ const handleSuccessClose = () => {
               Hard Requirements (Boolean Gatekeeper Constraints)
             </h3>
             <p className="text-xs text-slate-500 mt-1">
-              Applicants failing any of these core conditions are instantly excluded from matching (Score = 0%).
+              Applicants who miss any requirement in this section are excluded from matching. Supported requirements are academic level, citizenship, grading scale, maximum household income, course or program, and geographic eligibility.
             </p>
           </div>
 
@@ -874,8 +1053,8 @@ const handleSuccessClose = () => {
             {/* Courses */}
             <div className="space-y-2 text-xs font-semibold pt-1 border-t border-rose-100/80">
               <label className="block text-slate-700 flex items-center justify-between">
-                <span>Eligible Degree Programs / Majors</span>
-                <span className="text-[10px] text-slate-400 font-normal">Custom Dynamic List</span>
+                <span>Course / Program</span>
+                <span className="text-[10px] text-slate-400 font-normal">Leave empty to allow every program</span>
               </label>
               <div className="flex gap-2">
                 <input 
@@ -913,6 +1092,9 @@ const handleSuccessClose = () => {
                   <MapPin className="w-3.5 h-3.5 text-rose-600" />
                   Geographic Eligibility
                 </label>
+                <p className="text-[10px] text-slate-400 font-normal">
+                  Nationwide accepts every region. Region, province, and municipality limits require the student location to match.
+                </p>
 
                 {/* Geographic Scope */}
                 <select
@@ -1011,52 +1193,9 @@ const handleSuccessClose = () => {
                   )}
               </div>
 
-            {/* Custom Hard Filters */}
-            <div className="space-y-2 text-xs font-semibold pt-1 border-t border-rose-100/80">
-              <label className="block text-slate-700">Custom Provider Hard Requirements</label>
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
-                <input 
-                  type="text"
-                  placeholder="Requirement Name"
-                  value={newHardFilterLabel}
-                  onChange={e => setNewHardFilterLabel(e.target.value)}
-                  className="md:col-span-2 px-3.5 py-2 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500"
-                />
-                <input 
-                  type="text"
-                  placeholder="Condition Value"
-                  value={newHardFilterVal}
-                  onChange={e => setNewHardFilterVal(e.target.value)}
-                  className="md:col-span-2 px-3.5 py-2 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500"
-                />
-                <button
-                  type="button"
-                  onClick={handleAddCustomHardFilter}
-                  className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold transition-colors cursor-pointer flex items-center justify-center gap-1"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Add
-                </button>
-              </div>
-
-              {customHardFilters.length > 0 && (
-                <div className="space-y-1.5 pt-2">
-                  {customHardFilters.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between p-2.5 bg-white border border-rose-200/80 rounded-xl">
-                      <div className="text-slate-800">
-                        <span className="font-bold text-rose-900">{item.label}:</span> {item.value}
-                      </div>
-                      <button type="button" onClick={() => handleRemoveCustomHardFilter(item.id)} className="text-slate-400 hover:text-rose-600 transition-colors cursor-pointer">
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
         </div>
 
-        {/* SECTION 3: SPECIAL ELIGIBILITY TAGS */}
         {/* SECTION 3: SPECIAL ELIGIBILITY TAGS */}
 <div className="space-y-4">
   <div className="border-b border-slate-100 pb-2">
@@ -1064,21 +1203,22 @@ const handleSuccessClose = () => {
       <span className="w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs">
         3
       </span>
-      Special Eligibility Tags Configuration (Dynamic Gatekeeping)
+      Special Eligibility Tags
     </h3>
 
     <p className="text-xs text-slate-500 mt-1">
-      Classify demographic attributes as{" "}
-      <strong>Required (Hard Gatekeeper)</strong> or{" "}
-      <strong>Preferred (Ranking Affinity Weight)</strong>.
+      Required tags exclude students who do not have them. Preferred tags are used only to rank students who already pass the hard requirements. Matching uses these eight standard tags.
     </p>
   </div>
 
   {/* SYSTEM STANDARD TAGS */}
   <div className="space-y-2">
     <label className="block text-xs font-bold text-slate-700">
-      System Standard Demographic Tags
+      Standard tags
     </label>
+    <p className="text-[10px] text-slate-400 font-normal">
+      A tag can be required or preferred, not both. Leave a tag unset if it should not affect this listing.
+    </p>
 
     <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
       {SYSTEM_DEMOGRAPHIC_TAGS.map((tag) => {
@@ -1128,135 +1268,53 @@ const handleSuccessClose = () => {
     </div>
   </div>
 
-  {/* CUSTOM TAGS */}
-  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-semibold pt-2">
-
-    {/* ========================================= */}
-    {/* CUSTOM REQUIRED TAGS */}
-    {/* ========================================= */}
-    <div className="space-y-3 p-3 bg-rose-50/50 rounded-xl border border-rose-100">
-
-      <label className="block text-rose-900 font-bold">
-        Add Custom Required Tag (Hard Filter)
-      </label>
-
-      {/* INPUT + BUTTON */}
-      <div className="flex gap-2">
-        <input
-          type="text"
-          placeholder="e.g. Solo Parent First Gen"
-          value={newCustomReqTag}
-          onChange={(e) => setNewCustomReqTag(e.target.value)}
-          className="flex-1 min-w-0 px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-hidden"
-        />
-
-        <button
-          type="button"
-          onClick={handleAddCustomReqTag}
-          className="shrink-0 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold transition-colors cursor-pointer"
-        >
-          Add Required
-        </button>
+  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3.5 space-y-3">
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div>
+        <p className="text-xs font-bold text-slate-800">
+          Don't see the eligibility criterion you need?
+        </p>
+        <p className="text-[11px] text-slate-500 mt-0.5">
+          Request a new criterion for administrator review. Requests stay pending until reviewed and are not used for matching.
+        </p>
       </div>
-
-      {/* CUSTOM REQUIRED TAG LIST */}
-      {requiredTags.filter(
-        (tag) => !SYSTEM_DEMOGRAPHIC_TAGS.includes(tag)
-      ).length > 0 && (
-        <div className="flex flex-wrap gap-2 pt-1">
-          {requiredTags
-            .filter(
-              (tag) => !SYSTEM_DEMOGRAPHIC_TAGS.includes(tag)
-            )
-            .map((tag) => (
-              <span
-                key={tag}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-rose-900 border border-rose-200 rounded-xl text-xs font-semibold"
-              >
-                <span className="truncate max-w-[180px]">
-                  {tag}
-                </span>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setRequiredTags((prev) =>
-                      prev.filter((t) => t !== tag)
-                    )
-                  }
-                  className="shrink-0 text-rose-400 hover:text-rose-600 transition-colors cursor-pointer"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </span>
-            ))}
-        </div>
-      )}
+      <button
+        type="button"
+        onClick={openCriterionRequestModal}
+        className="shrink-0 px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+      >
+        Request New Criterion
+      </button>
     </div>
 
-    {/* ========================================= */}
-    {/* CUSTOM PREFERRED TAGS */}
-    {/* ========================================= */}
-    <div className="space-y-3 p-3 bg-indigo-50/50 rounded-xl border border-indigo-100">
-
-      <label className="block text-indigo-900 font-bold">
-        Add Custom Preferred Tag (Ranking Weight)
-      </label>
-
-      {/* INPUT + BUTTON */}
-      <div className="flex gap-2">
-        <input
-          type="text"
-          placeholder="e.g. Tech Club Leader"
-          value={newCustomPrefTag}
-          onChange={(e) => setNewCustomPrefTag(e.target.value)}
-          className="flex-1 min-w-0 px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-hidden"
-        />
-
-        <button
-          type="button"
-          onClick={handleAddCustomPrefTag}
-          className="shrink-0 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold transition-colors cursor-pointer"
-        >
-          Add Preferred
-        </button>
+    {criterionRequests.length > 0 && (
+      <div className="space-y-1.5">
+        {criterionRequests.map((request) => (
+          <div
+            key={request._id}
+            className="flex items-center justify-between gap-3 rounded-lg bg-white border border-slate-200 px-3 py-2"
+          >
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-slate-800 truncate">
+                {request.criterionName}
+              </p>
+              <p className="text-[10px] text-slate-500">{request.criterionType}</p>
+            </div>
+            <span
+              className={`shrink-0 px-2 py-0.5 rounded-lg border text-[10px] font-bold ${
+                request.status === 'Approved'
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  : request.status === 'Rejected'
+                    ? 'bg-rose-50 text-rose-700 border-rose-200'
+                    : 'bg-amber-50 text-amber-700 border-amber-200'
+              }`}
+            >
+              {request.status}
+            </span>
+          </div>
+        ))}
       </div>
-
-      {/* CUSTOM PREFERRED TAG LIST */}
-      {preferredTags.filter(
-        (tag) => !SYSTEM_DEMOGRAPHIC_TAGS.includes(tag)
-      ).length > 0 && (
-        <div className="flex flex-wrap gap-2 pt-1">
-          {preferredTags
-            .filter(
-              (tag) => !SYSTEM_DEMOGRAPHIC_TAGS.includes(tag)
-            )
-            .map((tag) => (
-              <span
-                key={tag}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-indigo-900 border border-indigo-200 rounded-xl text-xs font-semibold"
-              >
-                <span className="truncate max-w-[180px]">
-                  {tag}
-                </span>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setPreferredTags((prev) =>
-                      prev.filter((t) => t !== tag)
-                    )
-                  }
-                  className="shrink-0 text-indigo-400 hover:text-indigo-600 transition-colors cursor-pointer"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </span>
-            ))}
-        </div>
-      )}
-    </div>
-
+    )}
   </div>
 </div>
         
@@ -1269,7 +1327,7 @@ const handleSuccessClose = () => {
                 Provider-Defined Ranking Weight Distribution
               </h3>
               <p className="text-xs text-slate-500 mt-1">
-                Customize relative evaluation weights for passed candidates (W<sub>GPA</sub> + W<sub>Income</sub> + W<sub>Tags</sub> = 100%).
+                Ranking applies only after a student passes every hard requirement. The default is 40% academic, 40% income, and 20% preferred tags. The three weights must total 100%.
               </p>
             </div>
 
@@ -1563,6 +1621,145 @@ const handleSuccessClose = () => {
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {showCriterionRequestModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-5">
+            <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Request New Criterion</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  An administrator reviews this before it can become an official matching criterion.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeCriterionRequestModal}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {criterionRequestSuccess ? (
+              <div className="space-y-4">
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-start gap-3 text-xs">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                  <p className="text-emerald-800 font-medium">{criterionRequestSuccess}</p>
+                </div>
+                <div className="flex justify-end pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={closeCriterionRequestModal}
+                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmitCriterionRequest} className="space-y-4">
+                <div className="text-xs font-semibold">
+                  <label htmlFor="criterionName" className="block text-slate-700 mb-1">
+                    Criterion Name
+                  </label>
+                  <input
+                    id="criterionName"
+                    type="text"
+                    required
+                    maxLength={120}
+                    value={criterionRequestForm.criterionName}
+                    onChange={(e) =>
+                      setCriterionRequestForm((prev) => ({
+                        ...prev,
+                        criterionName: e.target.value
+                      }))
+                    }
+                    className="w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border border-slate-200 font-semibold focus:outline-hidden focus:border-indigo-500"
+                    placeholder="Name of the eligibility criterion"
+                  />
+                </div>
+
+                <div className="text-xs font-semibold">
+                  <label htmlFor="criterionType" className="block text-slate-700 mb-1">
+                    Criterion Type
+                  </label>
+                  <select
+                    id="criterionType"
+                    required
+                    value={criterionRequestForm.criterionType}
+                    onChange={(e) =>
+                      setCriterionRequestForm((prev) => ({
+                        ...prev,
+                        criterionType: e.target.value
+                      }))
+                    }
+                    className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-indigo-500 cursor-pointer"
+                  >
+                    <option value="Required Eligibility">Required Eligibility</option>
+                    <option value="Preferred Eligibility">Preferred Eligibility</option>
+                    <option value="Hard Requirement">Hard Requirement</option>
+                  </select>
+                </div>
+
+                <div className="text-xs font-semibold">
+                  <label htmlFor="criterionDescription" className="block text-slate-700 mb-1">
+                    Description / Justification
+                  </label>
+                  <textarea
+                    id="criterionDescription"
+                    required
+                    rows={4}
+                    maxLength={2000}
+                    value={criterionRequestForm.description}
+                    onChange={(e) =>
+                      setCriterionRequestForm((prev) => ({
+                        ...prev,
+                        description: e.target.value
+                      }))
+                    }
+                    className="w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border border-slate-200 font-medium focus:outline-hidden focus:border-indigo-500 resize-y"
+                    placeholder="Explain what this criterion means and why it is needed."
+                  />
+                </div>
+
+                {criterionRequestError && (
+                  <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 flex items-start gap-2 text-xs">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <p className="text-rose-700">{criterionRequestError}</p>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={closeCriterionRequestModal}
+                    disabled={isSubmittingCriterionRequest}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingCriterionRequest}
+                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSubmittingCriterionRequest ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Submitting...
+                      </>
+                    ) : (
+                      'Submit Request'
+                    )}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

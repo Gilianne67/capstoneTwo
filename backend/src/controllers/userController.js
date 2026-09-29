@@ -6,6 +6,32 @@ const { sendParentConsentEmail } = require('../utils/emailService');
 // Shared secret for signing & verifying consent tokens across all functions
 const JWT_SECRET = process.env.JWT_SECRET || 'iskolarmatch_fallback_secret_key';
 
+const SUPPORTED_GWA_SCALES = ['1.00-5.00', '60-100'];
+
+// Persist the scale onboarding already calculated. Fall back to the same
+// numeric ranges the form uses when a valid scale was not sent.
+const resolveOnboardingGwaScale = (gwaScale, gwa) => {
+  if (SUPPORTED_GWA_SCALES.includes(gwaScale)) {
+    return gwaScale;
+  }
+
+  const value = Number(gwa);
+
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  if (value >= 1 && value <= 5) {
+    return '1.00-5.00';
+  }
+
+  if (value >= 60 && value <= 100) {
+    return '60-100';
+  }
+
+  return null;
+};
+
 // POST /api/v1/user/onboarding
 exports.handleOnboarding = async (req, res) => {
   try {
@@ -16,6 +42,7 @@ exports.handleOnboarding = async (req, res) => {
       academicLevel,
       yearLevel,
       gpa,
+      gwaScale,
       region,
       householdIncome,
       guardianName,
@@ -72,6 +99,8 @@ exports.handleOnboarding = async (req, res) => {
 
 
 // Create or update the StudentProfile using onboarding data
+      const resolvedGwaScale = resolveOnboardingGwaScale(gwaScale, gpa);
+
       await StudentProfile.findOneAndUpdate(
           { userId: userId },
           {
@@ -81,6 +110,7 @@ exports.handleOnboarding = async (req, res) => {
             yearLevel: yearLevel,
             course: course,
             gwa: gpa,
+            ...(resolvedGwaScale ? { gwaScale: resolvedGwaScale } : {}),
             region: region,
             incomeBracket: householdIncome,
             isMinor: !!isMinor

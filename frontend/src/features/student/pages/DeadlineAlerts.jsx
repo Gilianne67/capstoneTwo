@@ -11,6 +11,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
+import { isDeadlineOpen, manilaDeadlineEnd } from '../../../utils/deadline';
 
 const API_BASE_URL = (
   import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
@@ -32,13 +33,11 @@ const getCleanToken = (contextToken) => {
 };
 
 const getRemainingMs = (deadlineDateStr) => {
-  if (!deadlineDateStr) return null;
+  const end = manilaDeadlineEnd(deadlineDateStr);
 
-  const deadline = new Date(deadlineDateStr);
+  if (end === null) return null;
 
-  if (Number.isNaN(deadline.getTime())) return null;
-
-  return deadline.getTime() - Date.now();
+  return end - Date.now();
 };
 
 const isUpcomingDeadline = (remainingMs) =>
@@ -91,6 +90,8 @@ export function DeadlineAlerts() {
             const saved = savedById.get(String(item.scholarshipId));
 
             if (!saved?.deadline) return null;
+            if (saved.status === 'Closed' || saved.isArchived) return null;
+            if (!isDeadlineOpen(saved.deadline)) return null;
 
             return {
               notificationId: item._id,

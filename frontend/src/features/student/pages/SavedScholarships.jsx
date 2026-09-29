@@ -12,6 +12,7 @@ import {
 import PageHeader from '../../../components/common/PageHeader';
 import ConfirmModal from '../../../components/common/ConfirmModal';
 import { useAuth } from '../../../context/AuthContext';
+import { daysUntilDeadline, isDeadlineOpen } from '../../../utils/deadline';
 
 const API_BASE_URL = (
   import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
@@ -28,14 +29,10 @@ const getCleanToken = (contextToken) => {
     .trim();
 };
 
-// Helper: Calculate remaining days dynamically
-const calculateDaysLeft = (deadlineDate) => {
-  if (!deadlineDate) return 0;
-  const target = new Date(deadlineDate);
-  const now = new Date();
-  const diffTime = target - now;
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  return diffDays > 0 ? diffDays : 0;
+const deadlineLabel = (deadline) => {
+  if (!deadline) return 'No deadline';
+  if (!isDeadlineOpen(deadline)) return 'Expired';
+  return `${daysUntilDeadline(deadline)}d left`;
 };
 
 export default function SavedScholarships() {
@@ -183,7 +180,7 @@ export default function SavedScholarships() {
           {savedGrants.map((grant) => {
             const id = String(grant._id || grant.scholarshipId || grant.id || '');
             const canOpenDetails = Boolean(id);
-            const daysLeft = grant.daysLeft ?? calculateDaysLeft(grant.deadline);
+            const deadlineText = deadlineLabel(grant.deadline);
             const rawScore = grant.matchScore ?? grant.score;
             const score = rawScore === undefined || rawScore === null || rawScore === ''
               ? null
@@ -242,7 +239,7 @@ export default function SavedScholarships() {
                     <div>
                       <span className="text-[10px] uppercase font-bold text-text-muted block">Deadline</span>
                       <strong className="text-app-text font-extrabold flex items-center gap-1">
-                        <Clock className="w-3 h-3 text-amber-500" /> {daysLeft}d left
+                        <Clock className="w-3 h-3 text-amber-500" /> {deadlineText}
                       </strong>
                     </div>
                   </div>

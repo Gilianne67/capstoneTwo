@@ -1,5 +1,9 @@
 const SavedMatch = require('../models/SavedMatch');
 const Notification = require('../models/Notification');
+const {
+  isDeadlineOpen,
+  manilaDeadlineEnd
+} = require('./matchingService');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -47,12 +51,28 @@ const WINDOW_COPY = {
   }
 };
 
+const isActiveDeadlineScholarship = (scholarship, now = new Date()) => {
+  if (!scholarship || typeof scholarship !== 'object' || !scholarship._id) {
+    return false;
+  }
+
+  if (scholarship.status && scholarship.status !== 'Open') {
+    return false;
+  }
+
+  if (scholarship.isArchived === true) {
+    return false;
+  }
+
+  return isDeadlineOpen(scholarship.deadline, now);
+};
+
 const currentAlertWindow = (deadline, now = new Date()) => {
-  const parsed = new Date(deadline);
+  const end = manilaDeadlineEnd(deadline);
 
-  if (Number.isNaN(parsed.getTime())) return null;
+  if (end === null) return null;
 
-  const remaining = parsed.getTime() - now.getTime();
+  const remaining = end - now.getTime();
 
   if (remaining <= 0) return null;
   if (remaining <= DAY_MS) return '24h';
@@ -88,14 +108,14 @@ const createOnce = async (payload) => {
 
 const syncDeadlineNotifications = async (studentProfileId, savedItems) => {
   const saved = savedItems || await SavedMatch.find({ studentProfileId })
-    .populate('scholarshipId', 'name deadline');
+    .populate('scholarshipId', 'name deadline status isArchived');
 
   const now = new Date();
 
   await Promise.all(saved.map(async (item) => {
     const scholarship = item.scholarshipId;
 
-    if (!scholarship || typeof scholarship !== 'object' || !scholarship._id) {
+    if (!isActiveDeadlineScholarship(scholarship, now)) {
       return;
     }
 
@@ -196,10 +216,13 @@ const notifyProfileChange = async (before, after) => {
 };
 
 const countUnreadDeadlineAlerts = async (studentProfileId) => {
-  const saved = await SavedMatch.find({ studentProfileId }).select('scholarshipId');
+  const now = new Date();
+  const saved = await SavedMatch.find({ studentProfileId })
+    .populate('scholarshipId', 'deadline status isArchived');
   const scholarshipIds = saved
     .map((item) => item.scholarshipId)
-    .filter(Boolean);
+    .filter((scholarship) => isActiveDeadlineScholarship(scholarship, now))
+    .map((scholarship) => scholarship._id);
 
   if (!scholarshipIds.length) {
     return 0;
