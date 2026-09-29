@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ShieldAlert, 
@@ -10,9 +10,11 @@ import {
   Send, 
   AlertCircle,
   FileText,
-  Sparkles
+  Sparkles,
+  X
 } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
+import { REGIONS } from "../../../data/locationData";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
@@ -41,6 +43,10 @@ export function OnboardingForm({ onComplete }) {
 
   const [isResending, setIsResending] = useState(false);
   const [resendStatus, setResendStatus] = useState(null);
+  const [showProfilePrompt, setShowProfilePrompt] = useState(false);
+
+  const PROFILE_ROUTE = '/dashboard/student/profile';
+  const DASHBOARD_ROUTE = '/dashboard/student';
 
   const handleDobChange = (e) => {
     const dobValue = e.target.value;
@@ -171,9 +177,8 @@ export function OnboardingForm({ onComplete }) {
       } else {
         if (typeof onComplete === 'function') {
           onComplete(data.user);
-        } else {
-          navigate('/dashboard');
         }
+        setShowProfilePrompt(true);
       }
     } catch (err) {
       console.error('Onboarding Submission Error:', err);
@@ -458,14 +463,21 @@ export function OnboardingForm({ onComplete }) {
 
           <div>
             <label className="block text-xs font-bold text-app-text mb-1">Region</label>
-            <input
-              type="text"
-              name="region"
-              value={formData.region}
-              onChange={handleChange}
-              required
-              className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none"
-            />
+              <select
+                  name="region"
+                  value={formData.region}
+                  onChange={handleChange}
+                  required
+                  className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none cursor-pointer"
+                >
+                  <option value="">Select region</option>
+
+                  {REGIONS.map((region) => (
+                    <option key={region} value={region}>
+                      {region}
+                    </option>
+                  ))}
+                </select>
           </div>
 
           <div className="sm:col-span-2">
@@ -520,6 +532,54 @@ export function OnboardingForm({ onComplete }) {
           )}
         </button>
       </form>
+
+      {showProfilePrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-card-bg border border-slate-200/80 rounded-3xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-blue-50 text-primary">
+                  <GraduationCap className="h-5 w-5" />
+                </div>
+                <h3 className="text-base font-extrabold text-app-text">
+                  Get Better Scholarship Matches
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate(DASHBOARD_ROUTE)}
+                className="p-1 rounded-lg text-text-muted hover:text-app-text"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-text-muted leading-relaxed">
+              <p>
+                Your basic profile is ready! To help us find the most relevant scholarship opportunities for you, please complete your student profile accurately.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => navigate(DASHBOARD_ROUTE)}
+                className="px-4 py-2 rounded-xl text-xs font-bold border border-slate-200 text-app-text hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                Maybe Later
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate(PROFILE_ROUTE)}
+                className="px-4 py-2 rounded-xl text-xs font-extrabold text-white shadow-sm transition-all active:scale-95 bg-primary hover:bg-blue-700 cursor-pointer"
+              >
+                Complete My Profile
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

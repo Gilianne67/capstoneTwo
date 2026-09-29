@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { 
   GraduationCap, 
@@ -7,7 +7,6 @@ import {
   Search, 
   Award, 
   Bookmark, 
-  FileText, 
   Bell, 
   Settings, 
   HelpCircle, 
@@ -25,17 +24,76 @@ import {
   X
 } from 'lucide-react';
 
+const API_BASE_URL = (
+  import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
+).replace(/\/$/, '');
+
+const getCleanToken = () => {
+  const rawToken = localStorage.getItem('token');
+
+  if (!rawToken) return null;
+
+  return String(rawToken)
+    .replace(/^"|"$/g, '')
+    .replace(/^Bearer\s+/i, '')
+    .trim();
+};
+
 export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) {
   const navigate = useNavigate();
   const location = useLocation();
 
   // Mobile drawer state
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
 
   // Close mobile drawer when route changes
   useEffect(() => {
     setIsMobileOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (role !== 'student') return undefined;
+
+    let isMounted = true;
+
+    const fetchUnreadCount = async () => {
+      const token = getCleanToken();
+
+      if (!token) {
+        if (isMounted) setHasUnreadNotifications(false);
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/students/notifications/unread-deadline-count`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to load unread deadline notification count');
+        }
+
+        const data = await response.json();
+        const count = Number(data?.count ?? 0);
+
+        if (isMounted) {
+          setHasUnreadNotifications(Number.isFinite(count) && count > 0);
+        }
+      } catch (err) {
+        if (isMounted) {
+          console.error('Failed to load unread deadline notification count', err);
+          setHasUnreadNotifications(false);
+        }
+      }
+    };
+
+    fetchUnreadCount();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [role, session, location.pathname]);
 
   // Lock body scroll when mobile drawer is open
   useEffect(() => {
@@ -97,7 +155,6 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
           { label: 'Organization Verification', path: '/dashboard/provider/verification', icon: Building2 },
         ],
         general: [
-          { label: 'Settings & RBAC', path: '/dashboard/provider/settings', icon: Settings },
           { label: 'Help & Support', path: '/dashboard/provider/help', icon: HelpCircle },
         ]
       };
@@ -128,11 +185,9 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
         { label: 'Student Profile', path: '/dashboard/student/profile', icon: User },
         { label: 'Scholarship Search', path: '/dashboard/student/search', icon: Search },
         { label: 'Saved Scholarships', path: '/dashboard/student/saved', icon: Bookmark },
-        { label: 'Application Tracker', path: '/dashboard/student/applications', icon: FileText },
       ],
       general: [
-        { label: 'Deadline Alerts', path: '/dashboard/student/notifications', icon: Bell },
-        { label: 'Settings', path: '/dashboard/student/settings', icon: Settings },
+        { label: 'Deadline Alerts', path: '/dashboard/student/notifications', icon: Bell, hasUnread: role === 'student' && hasUnreadNotifications },
         { label: 'Help Center', path: '/dashboard/student/help', icon: HelpCircle },
       ]
     };
@@ -169,7 +224,15 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
         )}
 
         <div className="flex items-center gap-3">
-          <Icon className={`h-4 w-4 shrink-0 ${isActive ? currentTheme.roleAccent : ''}`} />
+          <span className="relative shrink-0">
+            <Icon className={`h-4 w-4 ${isActive ? currentTheme.roleAccent : ''}`} />
+            {item.hasUnread && (
+              <span
+                className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-rose-500"
+                aria-label="Unread notifications"
+              />
+            )}
+          </span>
           <span className={`truncate ${isCollapsed ? 'md:hidden' : 'block'}`}>{item.label}</span>
         </div>
 

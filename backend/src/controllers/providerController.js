@@ -1,5 +1,8 @@
 const Provider = require('../models/Provider');
 const Scholarship = require('../models/Scholarship');
+const {
+  closeExpiredScholarships
+} = require('../services/scholarshipExpirationService');
 
 // Get the logged-in provider's profile
 exports.getProfile = async (req, res) => {
@@ -84,6 +87,8 @@ exports.getDashboard = async (req, res) => {
         message: 'Provider profile not found',
       });
     }
+
+    await closeExpiredScholarships();
 
     const [totalScholarships, openScholarships, closedScholarships, archivedScholarships] =
       await Promise.all([
