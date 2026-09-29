@@ -1,182 +1,182 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Building2, 
-  CheckCircle2, 
-  UploadCloud, 
-  FileText, 
-  Clock, 
-  ShieldCheck, 
-  AlertCircle, 
-  Loader2, 
-  X 
+import { useState, useEffect } from 'react';
+import {
+  CheckCircle2,
+  FileText,
+  Clock,
+  ShieldCheck,
+  AlertCircle,
+  Loader2,
 } from 'lucide-react';
 
 import PageHeader from '../../../components/common/PageHeader';
 import StatusBadge from '../../../components/common/StatusBadge';
 
-// Mock States for testing
-const MOCK_STATES = {
-  unverified: {
-    status: 'Unverified',
-    organizationName: '',
-    taxId: '',
-    submittedAt: null,
-    documents: []
-  },
-  pending: {
-    status: 'Pending Review',
-    organizationName: 'Department of Science and Technology (DOST-SEI)',
-    taxId: '000-123-456-000',
-    submittedAt: '2026-02-10',
-    documents: [
-      { name: 'SEC_Certificate_Registration.pdf', size: '2.4 MB', status: 'Under Review' },
-      { name: 'Government_Issuance_Mandate.pdf', size: '1.8 MB', status: 'Under Review' }
-    ]
-  },
-  verified: {
-    status: 'Verified',
-    organizationName: 'Department of Science and Technology (DOST-SEI)',
-    taxId: '000-123-456-000',
-    submittedAt: '2026-02-10',
-    documents: [
-      { name: 'SEC_Certificate_Registration.pdf', size: '2.4 MB', status: 'Approved' },
-      { name: 'Government_Issuance_Mandate.pdf', size: '1.8 MB', status: 'Approved' }
-    ]
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+
+function getAuthToken() {
+  const raw = localStorage.getItem('token');
+  if (!raw) return null;
+  const token = raw.replace(/^"|"$/g, '').replace(/^Bearer\s+/i, '').trim();
+  return token || null;
+}
+
+function readDocuments(provider) {
+  if (!Array.isArray(provider?.documents)) return [];
+  return provider.documents.filter((doc) => doc && (doc.name || doc.filename || doc.originalName));
+}
+
+function mapProviderVerification(provider) {
+  return {
+    organizationName: provider.institutionName?.trim() || '',
+    organizationType: provider.institutionType?.trim() || '',
+    verificationStatus: provider.verificationStatus || '',
+    documents: readDocuments(provider),
+  };
+}
+
+function errorMessageForStatus(status, serverMessage) {
+  if (status === 401) {
+    return 'You need to sign in to view organization verification.';
   }
-};
+  if (status === 403) {
+    return 'This account is not authorized to view provider verification.';
+  }
+  if (status === 404) {
+    return serverMessage || 'No provider record was found for this account.';
+  }
+  return serverMessage || 'Unable to load verification information. Please try again.';
+}
+
+function StatusMessage({ status }) {
+  if (status === 'Verified') {
+    return (
+      <div className="bg-emerald-50/80 border border-emerald-200/80 rounded-xl p-4 flex items-center gap-3 text-xs text-emerald-900 font-medium">
+        <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+        <span>Your organization is verified.</span>
+      </div>
+    );
+  }
+
+  if (status === 'Approved') {
+    return (
+      <div className="bg-emerald-50/80 border border-emerald-200/80 rounded-xl p-4 flex items-center gap-3 text-xs text-emerald-900 font-medium">
+        <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+        <span>Your organization verification is approved.</span>
+      </div>
+    );
+  }
+
+  if (status === 'Pending' || status === 'Pending Review') {
+    return (
+      <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl p-4 flex items-center gap-3 text-xs text-amber-900 font-medium">
+        <Clock className="w-5 h-5 text-amber-600 shrink-0" />
+        <span>Your organization verification is currently under review.</span>
+      </div>
+    );
+  }
+
+  if (status === 'Submitted') {
+    return (
+      <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl p-4 flex items-center gap-3 text-xs text-amber-900 font-medium">
+        <Clock className="w-5 h-5 text-amber-600 shrink-0" />
+        <span>Your organization verification has been submitted.</span>
+      </div>
+    );
+  }
+
+  if (status === 'Rejected') {
+    return (
+      <div className="bg-rose-50/80 border border-rose-200/80 rounded-xl p-4 flex items-center gap-3 text-xs text-rose-900 font-medium">
+        <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+        <span>Your organization verification was rejected. Please contact support.</span>
+      </div>
+    );
+  }
+
+  if (!status) {
+    return (
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-center gap-3 text-xs text-slate-700 font-medium">
+        <AlertCircle className="w-5 h-5 text-slate-500 shrink-0" />
+        <span>Verification status is not available for this account.</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-center gap-3 text-xs text-slate-700 font-medium">
+      <AlertCircle className="w-5 h-5 text-slate-500 shrink-0" />
+      <span>Your organization verification status is {status}.</span>
+    </div>
+  );
+}
 
 export default function OrganizationVerification() {
   const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isUsingFallback, setIsUsingFallback] = useState(false);
-  const [verData, setVerData] = useState(MOCK_STATES.verified);
-
-  // Form inputs
-  const [orgName, setOrgName] = useState('');
-  const [taxId, setTaxId] = useState('');
-  
-  // Store actual File objects for binary upload
-  const [selectedFiles, setSelectedFiles] = useState([]);
-
-  // Helper to switch mock states from testing buttons
-  const applyMockState = (stateKey) => {
-    const targetState = MOCK_STATES[stateKey];
-    setVerData(targetState);
-    setOrgName(targetState.organizationName || '');
-    setTaxId(targetState.taxId || '');
-    setSelectedFiles([]);
-  };
+  const [error, setError] = useState(null);
+  const [verification, setVerification] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
 
-    const fetchVerificationStatus = async () => {
+    const fetchVerification = async () => {
       setIsLoading(true);
+      setError(null);
+
       try {
-        const token = localStorage.getItem('token');
-        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        const token = getAuthToken();
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) headers.Authorization = `Bearer ${token}`;
 
-        const res = await fetch('/api/v1/provider/verification', { headers });
+        const res = await fetch(`${API_BASE_URL}/providers/profile`, {
+          method: 'GET',
+          headers,
+          credentials: 'include',
+        });
 
-        if (res.ok) {
-          const data = await res.json();
-          if (isMounted) {
-            setVerData(data);
-            setOrgName(data.organizationName || '');
-            setTaxId(data.taxId || '');
-            setIsUsingFallback(false);
-          }
-        } else {
-          throw new Error('Verification API error');
+        let data = null;
+        try {
+          data = await res.json();
+        } catch {
+          data = null;
+        }
+
+        if (!res.ok || data?.success === false) {
+          throw Object.assign(new Error(errorMessageForStatus(res.status, data?.message)), {
+            status: res.status,
+          });
+        }
+
+        if (!data?.provider) {
+          throw Object.assign(new Error('Provider record is missing from the verification response.'), {
+            status: 404,
+          });
+        }
+
+        if (isMounted) {
+          setVerification(mapProviderVerification(data.provider));
         }
       } catch (err) {
         if (isMounted) {
-          console.warn('Backend server offline. Displaying verification mock state:', err);
-          applyMockState('verified'); // Default fallback state
-          setIsUsingFallback(true);
+          setVerification(null);
+          setError(err.message || 'Unable to load verification information. Please try again.');
         }
-      } finally { 
+      } finally {
         if (isMounted) setIsLoading(false);
       }
     };
 
-    fetchVerificationStatus();
+    fetchVerification();
 
     return () => {
       isMounted = false;
     };
   }, []);
 
-  const handleFileSelect = (e) => {
-    if (e.target.files) {
-      const newFiles = Array.from(e.target.files);
-      setSelectedFiles(prev => [...prev, ...newFiles]);
-    }
-  };
-
-  const handleRemoveFile = (index) => {
-    setSelectedFiles(prev => prev.filter((_, idx) => idx !== index));
-  };
-
-  const handleSubmitVerification = async (e) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-
-    const formData = new FormData();
-    formData.append('organizationName', orgName);
-    formData.append('taxId', taxId);
-
-    selectedFiles.forEach((file) => {
-      formData.append('documents', file);
-    });
-
-    try {
-      const token = localStorage.getItem('token');
-      const headers = {
-        ...(token && { Authorization: `Bearer ${token}` })
-      };
-
-      const res = await fetch('/api/v1/provider/verification', {
-        method: 'POST',
-        headers,
-        body: formData
-      });
-
-      if (res.ok) {
-        const updated = await res.json();
-        setVerData(updated);
-        setSelectedFiles([]);
-      } else {
-        throw new Error('Verification submission failed');
-      }
-    } catch (err) {
-      console.warn('Backend server offline. Simulating pending verification state:', err);
-
-      const mockDocs = selectedFiles.map(f => ({
-        name: f.name,
-        size: `${(f.size / (1024 * 1024)).toFixed(1)} MB`,
-        status: 'Under Review'
-      }));
-
-      setVerData({
-        status: 'Pending Review',
-        organizationName: orgName,
-        taxId,
-        submittedAt: new Date().toISOString().split('T')[0],
-        documents: mockDocs.length > 0 ? mockDocs : MOCK_STATES.verified.documents
-      });
-
-      setSelectedFiles([]);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   if (isLoading) {
     return (
       <div className="space-y-6 max-w-4xl mx-auto pb-12">
-        <PageHeader 
-          title="Organization Verification" 
+        <PageHeader
+          title="Organization Verification"
           subtitle="Submit official credentials to earn verified partner status and boost student trust."
         />
         <div className="min-h-[300px] flex flex-col items-center justify-center gap-3 bg-white rounded-2xl border border-slate-200/80 p-6">
@@ -189,202 +189,71 @@ export default function OrganizationVerification() {
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto pb-12">
-      <PageHeader 
-        title="Organization Verification" 
+      <PageHeader
+        title="Organization Verification"
         subtitle="Submit official credentials to earn verified partner status and boost student trust."
       />
 
-      {/* Fallback Banner with Mock Switcher Buttons */}
-      {isUsingFallback && (
-        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-800 p-3.5 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs font-medium">
-          <span className="flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
-            Backend API unreachable. Test local mock states:
-          </span>
-
-          <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0">
-            <button
-              type="button"
-              onClick={() => applyMockState('unverified')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
-                verData.status === 'Unverified'
-                  ? 'bg-amber-600 text-white'
-                  : 'bg-white/80 hover:bg-white text-amber-900 border border-amber-300/60'
-              }`}
-            >
-              Unverified Form
-            </button>
-            <button
-              type="button"
-              onClick={() => applyMockState('pending')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
-                verData.status === 'Pending Review'
-                  ? 'bg-amber-600 text-white'
-                  : 'bg-white/80 hover:bg-white text-amber-900 border border-amber-300/60'
-              }`}
-            >
-              Pending Review
-            </button>
-            <button
-              type="button"
-              onClick={() => applyMockState('verified')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
-                verData.status === 'Verified'
-                  ? 'bg-amber-600 text-white'
-                  : 'bg-white/80 hover:bg-white text-amber-900 border border-amber-300/60'
-              }`}
-            >
-              Verified
-            </button>
-          </div>
+      {error && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 p-3.5 rounded-xl flex items-center gap-2 text-xs font-medium">
+          <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
+          <span>{error}</span>
         </div>
       )}
 
-      {/* Verification Status Overview Banner */}
-      <div className="bg-white border border-slate-200/80 rounded-2xl p-6 space-y-4 shadow-xs">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-100 pb-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-emerald-50 rounded-xl text-emerald-600">
-              <ShieldCheck className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-slate-900">{verData.organizationName || 'Unregistered Provider'}</h3>
-              <p className="text-xs text-slate-500 font-medium">TIN / Reg No: {verData.taxId || 'Not specified'}</p>
-            </div>
-          </div>
-          <StatusBadge status={verData.status} />
-        </div>
-
-        {verData.status === 'Verified' && (
-          <div className="bg-emerald-50/80 border border-emerald-200/80 rounded-xl p-4 flex items-center gap-3 text-xs text-emerald-900 font-medium">
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-            <span>
-              Your organization is a <strong>Verified Scholarship Partner</strong>. Your posted offerings receive priority student algorithm matching and verified badges.
-            </span>
-          </div>
-        )}
-
-        {verData.status === 'Pending Review' && (
-          <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl p-4 flex items-center gap-3 text-xs text-amber-900 font-medium">
-            <Clock className="w-5 h-5 text-amber-600 shrink-0" />
-            <span>
-              Your verification documents submitted on <strong>{verData.submittedAt}</strong> are currently under manual review. This usually takes 1-2 business days.
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Upload & Form Section */}
-      {(verData.status === 'Unverified' || verData.status === 'Rejected') && (
-        <form onSubmit={handleSubmitVerification} className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-xs space-y-6">
-          <div className="space-y-4">
-            <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-2">1. Organization Credentials</h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-semibold">
-              <div>
-                <label className="block text-slate-700 mb-1">Official Organization Name *</label>
-                <input 
-                  type="text"
-                  required
-                  placeholder="e.g. Commission on Higher Education"
-                  value={orgName}
-                  onChange={e => setOrgName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden focus:border-emerald-500"
-                />
+      {verification && (
+        <>
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-6 space-y-4 shadow-xs">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-emerald-50 rounded-xl text-emerald-600">
+                  <ShieldCheck className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    {verification.organizationName || 'Organization name is not on file'}
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Organization type: {verification.organizationType || 'Not on file'}
+                  </p>
+                </div>
               </div>
-
-              <div>
-                <label className="block text-slate-700 mb-1">Tax Identification Number (TIN) / SEC Reg *</label>
-                <input 
-                  type="text"
-                  required
-                  placeholder="000-000-000-000"
-                  value={taxId}
-                  onChange={e => setTaxId(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden focus:border-emerald-500"
-                />
-              </div>
+              {verification.verificationStatus ? (
+                <StatusBadge status={verification.verificationStatus} />
+              ) : null}
             </div>
+
+            <StatusMessage status={verification.verificationStatus} />
           </div>
 
-          <div className="space-y-3">
-            <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-2">2. Upload Proof of Mandate</h3>
-            <p className="text-xs text-slate-500">Please upload SEC Registration, CHED/TESDA Accreditation, or Official Government Issuance (PDF/PNG).</p>
-
-            <label className="border-2 border-dashed border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center gap-2 hover:bg-slate-50 transition-colors cursor-pointer block text-center">
-              <UploadCloud className="w-8 h-8 text-slate-400" />
-              <p className="text-xs font-bold text-slate-700">Click to upload verification files</p>
-              <p className="text-[11px] text-slate-400">PDF, PNG, JPG up to 10MB</p>
-              <input 
-                type="file" 
-                multiple 
-                accept=".pdf,.png,.jpg,.jpeg"
-                onChange={handleFileSelect}
-                className="hidden" 
-              />
-            </label>
-
-            {/* Selected File List */}
-            {selectedFiles.length > 0 && (
-              <div className="space-y-2 pt-2">
-                {selectedFiles.map((file, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium">
-                    <div className="flex items-center gap-2">
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-5 space-y-3 shadow-xs">
+            <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-2">
+              Verification Documents on File
+            </h3>
+            {verification.documents.length === 0 ? (
+              <p className="text-xs text-slate-500 font-medium py-2">
+                No verification documents submitted.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {verification.documents.map((doc, idx) => (
+                  <div key={doc._id || doc.id || `${doc.name || doc.filename}-${idx}`} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl text-xs">
+                    <div className="flex items-center gap-2.5">
                       <FileText className="w-4 h-4 text-emerald-600" />
-                      <span className="text-slate-800 font-bold">{file.name}</span>
-                      <span className="text-slate-400">({(file.size / (1024 * 1024)).toFixed(1)} MB)</span>
+                      <div>
+                        <p className="font-bold text-slate-800">{doc.name || doc.filename || doc.originalName}</p>
+                        {doc.size ? (
+                          <p className="text-[11px] text-slate-400 font-medium">{doc.size}</p>
+                        ) : null}
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveFile(idx)}
-                      className="text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
+                    {doc.status ? <StatusBadge status={doc.status} /> : null}
                   </div>
                 ))}
               </div>
             )}
           </div>
-
-          <div className="pt-4 border-t border-slate-100 flex justify-end">
-            <button
-              type="submit"
-              disabled={isSubmitting || selectedFiles.length === 0}
-              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Submitting Documents...</span>
-                </>
-              ) : (
-                <span>Submit for Verification</span>
-              )}
-            </button>
-          </div>
-        </form>
-      )}
-
-      {/* Submitted Documents History */}
-      {verData.documents && verData.documents.length > 0 && (
-        <div className="bg-white border border-slate-200/80 rounded-2xl p-5 space-y-3 shadow-xs">
-          <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-2">Verification Documents on File</h3>
-          <div className="space-y-2">
-            {verData.documents.map((doc, idx) => (
-              <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl text-xs">
-                <div className="flex items-center gap-2.5">
-                  <FileText className="w-4 h-4 text-emerald-600" />
-                  <div>
-                    <p className="font-bold text-slate-800">{doc.name}</p>
-                    <p className="text-[11px] text-slate-400 font-medium">{doc.size}</p>
-                  </div>
-                </div>
-                <StatusBadge status={doc.status || 'Under Review'} />
-              </div>
-            ))}
-          </div>
-        </div>
+        </>
       )}
     </div>
   );

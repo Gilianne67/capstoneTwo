@@ -155,7 +155,6 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
           { label: 'Organization Verification', path: '/dashboard/provider/verification', icon: Building2 },
         ],
         general: [
-          { label: 'Settings & RBAC', path: '/dashboard/provider/settings', icon: Settings },
           { label: 'Help & Support', path: '/dashboard/provider/help', icon: HelpCircle },
         ]
       };
