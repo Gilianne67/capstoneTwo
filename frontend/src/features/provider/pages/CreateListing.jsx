@@ -737,9 +737,15 @@ const handleExecutePublish = async () => {
 };
 
 
-// Navigate to the actual Scholarship Listings page
+// Navigate to Scholarship Listings only after a successful save.
+// Edit is rendered inside the listings page, so a same-route navigate
+// does not leave the form. onSuccess clears that embedded view.
 const handleSuccessClose = () => {
   setShowSuccessModal(false);
+
+  if (isEditMode && typeof onSuccess === 'function') {
+    onSuccess();
+  }
 
   navigate('/dashboard/provider/listings');
 };

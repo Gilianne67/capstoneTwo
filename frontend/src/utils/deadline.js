@@ -45,3 +45,35 @@ export const daysUntilDeadline = (deadline, now = new Date()) => {
 
   return Math.ceil(remaining / DAY_MS);
 };
+
+const DEADLINE_MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December'
+];
+
+/**
+ * Display-only calendar date in Asia/Manila.
+ * Uses the same offset as manilaDeadlineEnd so the shown day
+ * matches the deadline's Manila date.
+ */
+export const formatDeadlineDate = (deadline) => {
+  if (!deadline) return '';
+
+  const parsed = new Date(deadline);
+
+  if (Number.isNaN(parsed.getTime())) return '';
+
+  const manila = new Date(parsed.getTime() + MANILA_OFFSET_MS);
+
+  return `${DEADLINE_MONTHS[manila.getUTCMonth()]} ${manila.getUTCDate()}, ${manila.getUTCFullYear()}`;
+};
