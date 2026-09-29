@@ -64,8 +64,6 @@ const {
   createEligibilityCriterionRequest,
 } = require('../controllers/eligibilityCriterionRequestController');
 
-const { protect, authorize } = require('../middleware/auth');
-
 // Global Router Authentication Guard
 router.use(protect);
 
