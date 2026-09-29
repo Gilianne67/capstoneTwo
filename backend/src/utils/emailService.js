@@ -1,4 +1,7 @@
-const sendEmail = require('./sendEmail');
+// utils/emailService.js
+
+// ✅ FIX: Destructure sendEmail from the exported object
+const { sendEmail } = require('./sendEmail');
 
 /**
  * Sends parental consent email to guardian
