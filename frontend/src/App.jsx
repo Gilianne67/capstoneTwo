@@ -30,7 +30,6 @@ import ScholarshipListings from './features/provider/pages/ScholarshipListings';
 import CreateListing from './features/provider/pages/CreateListing';
 import PerformanceAnalytics from './features/provider/pages/PerformanceAnalytics';
 import OrganizationVerification from './features/provider/pages/OrganizationVerification';
-import ProviderSettings from './features/provider/pages/ProviderSettings';
 import HelpSupport from './features/provider/pages/HelpSupport';
 import ScholarshipDetails from './features/provider/pages/ScholarshipDetails';
 
@@ -172,7 +171,7 @@ export default function App() {
 
             <Route
               path="provider/settings"
-              element={<ProviderSettings />}
+              element={<Navigate to="/dashboard/provider" replace />}
             />
 
             <Route
