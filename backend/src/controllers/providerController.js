@@ -3,13 +3,20 @@ const Scholarship = require('../models/Scholarship');
 const {
   closeExpiredScholarships
 } = require('../services/scholarshipExpirationService');
+const User = require('../models/User');
+const {
+  sendProviderAdminNotification,
+  sendProviderConfirmation
+} = require('../utils/sendEmail');
+
+// Helper to safely resolve user ID from Passport / JWT middleware
+const getUserId = (user) => user?._id || user?.id;
 
 // Get the logged-in provider's profile
 exports.getProfile = async (req, res) => {
   try {
-    const provider = await Provider.findOne({
-      userId: req.user.id,
-    });
+    const userId = getUserId(req.user);
+    const provider = await Provider.findOne({ userId });
 
     if (!provider) {
       return res.status(404).json({
@@ -24,7 +31,6 @@ exports.getProfile = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Get Provider Profile Error:', error);
-
     res.status(500).json({
       success: false,
       message: error.message,
@@ -35,11 +41,10 @@ exports.getProfile = async (req, res) => {
 // Update the logged-in provider's profile
 exports.updateProfile = async (req, res) => {
   try {
-    const { institutionName, institutionType } = req.body;
+    const userId = getUserId(req.user);
+    const { institutionName, institutionType, website, contactNumber, address, representative } = req.body;
 
-    const provider = await Provider.findOne({
-      userId: req.user.id,
-    });
+    const provider = await Provider.findOne({ userId });
 
     if (!provider) {
       return res.status(404).json({
@@ -48,13 +53,37 @@ exports.updateProfile = async (req, res) => {
       });
     }
 
-    // Update only allowed profile fields
-    if (institutionName !== undefined) {
-      provider.institutionName = institutionName;
+    const verificationFields = ['verificationStatus', 'rejectionReason', 'verifiedAt', 'submittedAt', 'verificationDocuments'];
+    const attemptedVerificationChange = verificationFields.some((field) =>
+      Object.prototype.hasOwnProperty.call(req.body, field)
+    );
+    if (attemptedVerificationChange) {
+      return res.status(403).json({
+        success: false,
+        message: 'Providers cannot change their own verification status.',
+      });
     }
 
-    if (institutionType !== undefined) {
-      provider.institutionType = institutionType;
+    // Update root profile fields
+    if (institutionName !== undefined) provider.institutionName = institutionName;
+    if (institutionType !== undefined) provider.institutionType = institutionType;
+    if (website !== undefined) provider.website = website;
+    if (contactNumber !== undefined) provider.contactNumber = contactNumber;
+
+    // Update nested address object safely
+    if (address && typeof address === 'object') {
+      provider.address = {
+        ...provider.address?.toObject?.() || provider.address,
+        ...address,
+      };
+    }
+
+    // Update nested representative object safely
+    if (representative && typeof representative === 'object') {
+      provider.representative = {
+        ...provider.representative?.toObject?.() || provider.representative,
+        ...representative,
+      };
     }
 
     await provider.save();
@@ -66,7 +95,6 @@ exports.updateProfile = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Update Provider Profile Error:', error);
-
     res.status(500).json({
       success: false,
       message: error.message,
@@ -77,9 +105,8 @@ exports.updateProfile = async (req, res) => {
 // Get the logged-in provider's dashboard
 exports.getDashboard = async (req, res) => {
   try {
-    const provider = await Provider.findOne({
-      userId: req.user.id,
-    });
+    const userId = getUserId(req.user);
+    const provider = await Provider.findOne({ userId });
 
     if (!provider) {
       return res.status(404).json({
@@ -133,11 +160,140 @@ exports.getDashboard = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Get Provider Dashboard Error:', error);
-
+    console.error('❌ Get Provider Dashboard Error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
+    });
+  }
+};
+
+// POST /api/v1/provider/onboarding
+exports.handleOnboarding = async (req, res) => {
+  try {
+    const userId = getUserId(req.user);
+    const {
+      institutionName,
+      institutionType,
+      website,
+      contactNumber,
+      street,
+      city,
+      province,
+      region,
+      repName,
+      fullName, // Fallback key if frontend sends fullName
+      repTitle,
+      jobTitle, // Fallback key if frontend sends jobTitle
+      repEmail,
+      workEmail, // Fallback key if frontend sends workEmail
+      documentType,
+    } = req.body;
+
+    // 1. Verify file upload
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please upload a valid verification document (PDF, PNG, JPG).',
+      });
+    }
+
+    // 2. Find or initialize Provider record
+    let provider = await Provider.findOne({ userId });
+
+    if (!provider) {
+      provider = new Provider({ userId });
+    }
+
+    // 3. Normalize field values
+    const finalRepName = repName || fullName || provider.representative?.name;
+    const finalRepTitle = repTitle || jobTitle || provider.representative?.title;
+    const finalRepEmail = repEmail || workEmail || provider.representative?.workEmail;
+
+    // 4. Update Profile Fields
+    provider.institutionName = institutionName || provider.institutionName;
+    provider.institutionType = institutionType || provider.institutionType;
+    provider.website = website || provider.website;
+    provider.contactNumber = contactNumber || provider.contactNumber;
+
+    provider.address = {
+      street: street || provider.address?.street,
+      city: city || provider.address?.city,
+      province: province || provider.address?.province,
+      region: region || provider.address?.region,
+    };
+
+    provider.representative = {
+      name: finalRepName,
+      title: finalRepTitle,
+      workEmail: finalRepEmail,
+    };
+
+    provider.verificationStatus = 'Pending Review';
+    provider.submittedAt = new Date();
+
+    if (!Array.isArray(provider.verificationDocuments)) {
+      provider.verificationDocuments = [];
+    }
+
+    // Reference GridFS file endpoint or fallback to disk upload path
+    const fileUrl = req.file.filename 
+      ? `/api/v1/documents/${req.file.filename}` 
+      : `/uploads/${req.file.originalname}`;
+
+    provider.verificationDocuments.push({
+      documentType: documentType || 'SEC / DTI Registration',
+      fileUrl,
+      fileId: req.file.id,
+      originalName: req.file.originalname,
+      uploadedAt: new Date(),
+    });
+
+    await provider.save();
+
+    // 5. Update User onboarding state
+    await User.findByIdAndUpdate(userId, { isOnboarded: true });
+
+    // 6. Send Email Notifications
+    const providerData = {
+      institutionName: provider.institutionName,
+      institutionType: provider.institutionType,
+      website: provider.website,
+      contactNumber: provider.contactNumber,
+      repName: provider.representative.name,
+      repTitle: provider.representative.title,
+      repEmail: provider.representative.workEmail,
+      documentType: documentType || 'SEC / DTI Registration',
+    };
+
+    try {
+      await sendProviderAdminNotification(providerData, req.file);
+    } catch (emailErr) {
+      console.warn('⚠️ Admin email failed:', emailErr.message);
+    }
+
+    if (provider.representative.workEmail) {
+      try {
+        await sendProviderConfirmation(
+          provider.representative.workEmail,
+          provider.representative.name,
+          provider.institutionName
+        );
+      } catch (emailErr) {
+        console.warn('⚠️ Provider confirmation email failed:', emailErr.message);
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Verification documents submitted successfully. Account pending admin review.',
+      provider,
+    });
+  } catch (error) {
+    console.error('❌ Provider Onboarding Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Server error during provider onboarding.',
     });
   }
 };

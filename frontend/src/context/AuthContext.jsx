@@ -1,14 +1,8 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { resolveRedirectPath } from './redirectPath';
+import { API_BASE_URL } from '../config/api';
 
 const AuthContext = createContext(null);
-
-// Base backend URL resolution (e.g., http://localhost:5000)
-const RAW_BASE =
-  import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
-
-const API_BASE_URL = RAW_BASE.endsWith('/')
-  ? RAW_BASE.slice(0, -1)
-  : RAW_BASE;
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -19,10 +13,21 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   // Utility to retrieve a clean Bearer token
-  const getCleanToken = () => {
+  const getCleanToken = useCallback(() => {
     const rawToken = localStorage.getItem('token') || token;
     return rawToken ? rawToken.replace(/^"|"$/g, '').replace('Bearer ', '').trim() : null;
-  };
+  }, [token]);
+
+  /**
+   * Helper function to determine post-login or session redirect target
+   * Handles camelCase & snake_case properties seamlessly.
+   * @param {Object} userData - User object returned from auth endpoints
+   * @returns {string} Route path to navigate to
+   */
+  const getRedirectPath = useCallback(
+    (userData) => resolveRedirectPath(userData),
+    []
+  );
 
   // Single initialization effect to verify MongoDB JWT session
   useEffect(() => {
@@ -65,7 +70,7 @@ export function AuthProvider({ children }) {
     };
 
     initializeAuth();
-  }, []);
+  }, [getCleanToken]);
 
   // Update User state locally (critical after Onboarding/Profile updates)
   const updateUser = (updatedUserData) => {
@@ -98,8 +103,9 @@ export function AuthProvider({ children }) {
       setToken(jwtToken);
     }
     
-    setUser(data.user || data.data);
-    return data.user || data.data;
+    const loggedInUser = data.user || data.data;
+    setUser(loggedInUser);
+    return loggedInUser;
   };
 
   // Register Handler
@@ -120,8 +126,9 @@ export function AuthProvider({ children }) {
       setToken(jwtToken);
     }
 
-    setUser(data.user || data.data);
-    return data.user || data.data;
+    const registeredUser = data.user || data.data;
+    setUser(registeredUser);
+    return registeredUser;
   };
 
   // Password Reset Request
@@ -137,16 +144,29 @@ export function AuthProvider({ children }) {
     return data;
   };
 
-  // Logout Handler
-  const logout = () => {
-    localStorage.removeItem('token');
-    setUser(null);
-    setToken(null);
+  // Logout Handler — revoke the current token, then drop local session state.
+  const logout = async () => {
+    const activeToken = getCleanToken();
+
+    try {
+      await fetch(`${API_BASE_URL}/auth/logout`, {
+        method: 'GET',
+        headers: activeToken ? { Authorization: `Bearer ${activeToken}` } : {},
+        credentials: 'include',
+      });
+    } catch (err) {
+      console.warn('Logout API unreachable.', err);
+    } finally {
+      localStorage.removeItem('token');
+      localStorage.removeItem('iskolar_session');
+      setUser(null);
+      setToken(null);
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout, updateUser }}>
-      {!loading && children}
+    <AuthContext.Provider value={{ user, token, loading, login, register, logout, resetPassword, updateUser, getRedirectPath }}>
+      {children}
     </AuthContext.Provider>
   );
 }

@@ -18,16 +18,18 @@ import {
   Inbox,
   Sparkles,
   Clock,
-  Award
+  Award,
+  UserRound
 } from 'lucide-react';
 
 // Context & Common Components
 import { useAuth } from '../../../context/AuthContext';
 import ConfirmModal from '../../../components/common/ConfirmModal';
+import { isProfileComplete } from '../profileCompletion';
+import { API_BASE_URL } from '../../../config/api';
 
-const API_BASE_URL = (
-  import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
-).replace(/\/$/, '');
+const PROFILE_ROUTE = '/dashboard/student/profile';
+const ONBOARDING_ROUTE = '/onboarding';
 
 const getCleanToken = (contextToken) => {
   const rawToken = contextToken || localStorage.getItem('token');
@@ -219,7 +221,7 @@ const mapMatchFromApi = (match) => {
 
 export default function ScholarshipSearch() {
   const navigate = useNavigate();
-  const { token: contextToken } = useAuth();
+  const { user, token: contextToken } = useAuth();
 
   // Search & Filter State Management
   const [searchQuery, setSearchQuery] = useState('');
@@ -236,6 +238,8 @@ export default function ScholarshipSearch() {
   const [expandedMatchId, setExpandedMatchId] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [searchState, setSearchState] = useState('loading');
+  const [continuePath, setContinuePath] = useState(PROFILE_ROUTE);
   const [savingBookmarkId, setSavingBookmarkId] = useState(null);
   const [studentProfile, setStudentProfile] = useState({
     gwa: 'Not provided',
@@ -254,29 +258,68 @@ export default function ScholarshipSearch() {
     const loadDiscoveryData = async () => {
       setIsLoading(true);
       setLoadError('');
+      setScholarships([]);
+      setMatchCount(0);
 
       try {
         const token = getCleanToken(contextToken);
         const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        const profileRes = await fetch(`${API_BASE_URL}/students/profile`, { headers });
 
-        const [matchesRes, bookmarksRes, profileRes] = await Promise.allSettled([
+        if (!isMounted) return;
+
+        if (profileRes.status === 404) {
+          setContinuePath(user?.isOnboarded ? PROFILE_ROUTE : ONBOARDING_ROUTE);
+          setSearchState('incomplete');
+          return;
+        }
+
+        if (!profileRes.ok) {
+          setSearchState('error');
+          setLoadError('Unable to load your student profile right now.');
+          return;
+        }
+
+        const profileData = await profileRes.json();
+        const profile = profileData.profile || {};
+        const hasValue = (value) =>
+          value !== undefined && value !== null && String(value).trim() !== '';
+
+        setStudentProfile({
+          gwa: hasValue(profile.gwa) ? String(profile.gwa) : 'Not provided',
+          region: hasValue(profile.region) ? String(profile.region) : 'Not provided',
+          academicLevel: hasValue(profile.academicLevel) ? String(profile.academicLevel) : 'Not provided'
+        });
+
+        if (!isProfileComplete(profile)) {
+          setContinuePath(user?.isOnboarded ? PROFILE_ROUTE : ONBOARDING_ROUTE);
+          setSearchState('incomplete');
+          return;
+        }
+
+        const [matchesRes, bookmarksRes] = await Promise.allSettled([
           fetch(`${API_BASE_URL}/matching`, { headers }),
-          fetch(`${API_BASE_URL}/students/saved-scholarships`, { headers }),
-          fetch(`${API_BASE_URL}/students/profile`, { headers })
+          fetch(`${API_BASE_URL}/students/saved-scholarships`, { headers })
         ]);
 
         if (!isMounted) return;
 
         if (matchesRes.status === 'fulfilled' && matchesRes.value.ok) {
           const data = await matchesRes.value.json();
+
+          if (data.profileComplete === false) {
+            setContinuePath(PROFILE_ROUTE);
+            setSearchState('incomplete');
+            return;
+          }
+
           const list = Array.isArray(data.matches)
             ? data.matches.map(mapMatchFromApi)
             : [];
           setScholarships(list);
           setMatchCount(typeof data.count === 'number' ? data.count : list.length);
+          setSearchState('ready');
         } else {
-          setScholarships([]);
-          setMatchCount(0);
           let message = 'Unable to load scholarship matches right now.';
           if (matchesRes.status === 'fulfilled') {
             try {
@@ -287,6 +330,7 @@ export default function ScholarshipSearch() {
             }
           }
           setLoadError(message);
+          setSearchState('error');
         }
 
         if (bookmarksRes.status === 'fulfilled' && bookmarksRes.value.ok) {
@@ -300,37 +344,13 @@ export default function ScholarshipSearch() {
               .filter(Boolean)
           );
         }
-
-        const emptyProfile = {
-          gwa: 'Not provided',
-          region: 'Not provided',
-          academicLevel: 'Not provided'
-        };
-
-        if (profileRes.status === 'fulfilled' && profileRes.value.ok) {
-          try {
-            const data = await profileRes.value.json();
-            const profile = data.profile || {};
-            const hasValue = (value) =>
-              value !== undefined && value !== null && String(value).trim() !== '';
-
-            setStudentProfile({
-              gwa: hasValue(profile.gwa) ? String(profile.gwa) : 'Not provided',
-              region: hasValue(profile.region) ? String(profile.region) : 'Not provided',
-              academicLevel: hasValue(profile.academicLevel) ? String(profile.academicLevel) : 'Not provided'
-            });
-          } catch {
-            setStudentProfile(emptyProfile);
-          }
-        } else {
-          setStudentProfile(emptyProfile);
-        }
       } catch (err) {
         if (isMounted) {
           console.warn('Matching API request failed:', err);
           setScholarships([]);
           setMatchCount(0);
           setLoadError('Unable to load scholarship matches right now.');
+          setSearchState('error');
         }
       } finally {
         if (isMounted) setIsLoading(false);
@@ -342,7 +362,7 @@ export default function ScholarshipSearch() {
     return () => {
       isMounted = false;
     };
-  }, [contextToken]);
+  }, [contextToken, user?.isOnboarded]);
 
   // 2. Bookmark Action Handler
   const toggleBookmark = async (id) => {
@@ -482,6 +502,25 @@ export default function ScholarshipSearch() {
       <div className="min-h-[400px] flex flex-col items-center justify-center gap-3">
         <Loader2 className="h-8 w-8 text-primary animate-spin" />
         <p className="text-xs text-text-muted font-medium">Scanning matched scholarship opportunities...</p>
+      </div>
+    );
+  }
+
+  if (searchState === 'incomplete') {
+    return (
+      <div className="bg-card-bg rounded-2xl border border-app-text/10 p-8 text-center space-y-3">
+        <UserRound className="h-8 w-8 text-primary mx-auto" />
+        <h2 className="text-sm font-bold text-app-text">Complete Your Student Profile</h2>
+        <p className="text-xs text-text-muted max-w-md mx-auto">
+          Complete your onboarding profile to receive scholarship matches based on your academic background, household income, location, and eligibility.
+        </p>
+        <button
+          type="button"
+          onClick={() => navigate(continuePath)}
+          className="inline-flex items-center justify-center px-4 py-2 bg-primary text-white rounded-xl text-xs font-bold hover:opacity-90 transition-opacity cursor-pointer"
+        >
+          Complete Profile
+        </button>
       </div>
     );
   }

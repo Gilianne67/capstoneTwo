@@ -12,50 +12,7 @@ import {
 } from 'lucide-react';
 
 import PageHeader from '../../../components/common/PageHeader';
-
-// Fallback Mock Audit Logs
-const MOCK_AUDIT_LOGS = [
-  {
-    _id: 'log-101',
-    actor: 'Admin User',
-    role: 'System Administrator',
-    action: 'APPROVED_PROVIDER',
-    details: 'Verified SEC documentation for Innovate Tech Foundation',
-    ipAddress: '112.198.102.14',
-    timestamp: '2026-07-29 13:42:10',
-    severity: 'Info'
-  },
-  {
-    _id: 'log-102',
-    actor: 'Admin User',
-    role: 'System Administrator',
-    action: 'REMOVED_FLAGGED_LISTING',
-    details: 'Took down listing "Guaranteed Overseas Student Grant" for fraud report',
-    ipAddress: '112.198.102.14',
-    timestamp: '2026-07-28 16:15:02',
-    severity: 'Warning'
-  },
-  {
-    _id: 'log-103',
-    actor: 'System Automated Guard',
-    role: 'Automated Bot',
-    action: 'DATA_ENCRYPTION_CHECK',
-    details: 'Completed scheduled platform privacy and SSL audit',
-    ipAddress: '127.0.0.1',
-    timestamp: '2026-07-28 00:00:00',
-    severity: 'Info'
-  },
-  {
-    _id: 'log-104',
-    actor: 'Provider Admin',
-    role: 'Provider Representative',
-    action: 'UPDATED_SCHOLARSHIP_DEADLINE',
-    details: 'Extended deadline for STEM Leaders Grant 2026',
-    ipAddress: '202.175.88.91',
-    timestamp: '2026-07-27 10:20:44',
-    severity: 'Info'
-  }
-];
+import PrototypeNotice from '../components/PrototypeNotice';
 
 export default function AuditCompliance() {
   const [logs, setLogs] = useState([]);
@@ -77,17 +34,18 @@ export default function AuditCompliance() {
 
         if (res.ok) {
           const data = await res.json();
+          const list = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
           if (isMounted) {
-            setLogs(Array.isArray(data) ? data : MOCK_AUDIT_LOGS);
+            setLogs(list);
             setIsUsingFallback(false);
           }
         } else {
-          throw new Error('Audit Log API error');
+          throw new Error('Audit log is not connected to the database.');
         }
       } catch (err) {
         if (isMounted) {
-          console.warn('Backend server offline. Displaying fallback compliance logs:', err);
-          setLogs(MOCK_AUDIT_LOGS);
+          console.warn('Audit log is prototype-only:', err);
+          setLogs([]);
           setIsUsingFallback(true);
         }
       } finally {
@@ -135,9 +93,9 @@ export default function AuditCompliance() {
   };
 
   const filteredLogs = logs.filter((l) => {
-    const matchesSearch = l.actor.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          l.action.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          l.details.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = (l.actor || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          (l.action || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          (l.details || '').toLowerCase().includes(searchQuery.toLowerCase());
     const matchesSev = severityFilter === 'All' || l.severity === severityFilter;
     return matchesSearch && matchesSev;
   });
@@ -175,11 +133,15 @@ export default function AuditCompliance() {
         </button>
       </div>
 
+      <PrototypeNotice>
+        Audit and compliance logs are not stored. The export button only downloads rows that were loaded from the database.
+      </PrototypeNotice>
+
       {isUsingFallback && (
         <div className="bg-amber-500/10 border border-amber-500/20 text-amber-800 p-3.5 rounded-xl flex items-center justify-between text-xs font-medium">
           <span className="flex items-center gap-2">
             <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
-            Backend API unreachable. Displaying local fallback audit logs.
+            No audit log is connected in this prototype.
           </span>
         </div>
       )}
@@ -192,7 +154,7 @@ export default function AuditCompliance() {
           </div>
           <div>
             <p className="text-[11px] text-slate-400 font-semibold">Data Protection Standard</p>
-            <p className="text-xs font-bold text-slate-900">RA 10173 (DPA 2012) Compliant</p>
+            <p className="text-xs font-bold text-slate-900">Not evaluated in this prototype</p>
           </div>
         </div>
 
@@ -202,7 +164,7 @@ export default function AuditCompliance() {
           </div>
           <div>
             <p className="text-[11px] text-slate-400 font-semibold">Audit Retention</p>
-            <p className="text-xs font-bold text-slate-900">365 Days Rolling Logs</p>
+            <p className="text-xs font-bold text-slate-900">No audit log is stored yet</p>
           </div>
         </div>
 
@@ -212,7 +174,7 @@ export default function AuditCompliance() {
           </div>
           <div>
             <p className="text-[11px] text-slate-400 font-semibold">Log Integrity</p>
-            <p className="text-xs font-bold text-slate-900">Immutable Cryptographic Trail</p>
+            <p className="text-xs font-bold text-slate-900">Not connected to the database</p>
           </div>
         </div>
       </div>

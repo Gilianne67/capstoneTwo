@@ -10,6 +10,7 @@ import {
   AlertOctagon,
   Download
 } from 'lucide-react';
+import PrototypeNotice from '../components/PrototypeNotice';
 
 const ADMIN_DOCS = [
   {
@@ -97,6 +98,10 @@ export function AdminHelp() {
         </div>
       </div>
 
+      <PrototypeNotice>
+        These notes describe planned admin tools. They are not live procedures, and this page does not change the database.
+      </PrototypeNotice>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* Accordion Documentation List */}
@@ -160,7 +165,7 @@ export function AdminHelp() {
                   API SLA Target
                 </p>
                 <p className="text-text-muted text-[11px]">
-                  Engine latency target is &lt;150ms for query matches.
+                  Not measured in this prototype.
                 </p>
               </div>
 
@@ -170,7 +175,7 @@ export function AdminHelp() {
                   Escalation Hotline
                 </p>
                 <p className="text-text-muted text-[11px]">
-                  DevOps Lead: <span className="font-mono font-bold text-app-text">ops@iskolarmatch.ph</span>
+                  No live support hotline is connected in this prototype.
                 </p>
               </div>
             </div>
@@ -178,11 +183,11 @@ export function AdminHelp() {
             <div className="pt-2 border-t border-app-text/10">
               <button
                 type="button"
-                onClick={() => alert("Downloading System SOP Manual PDF...")}
-                className="w-full py-2 bg-primary/10 hover:bg-primary/20 text-primary font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                disabled
+                className="w-full py-2 bg-slate-100 text-slate-500 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-not-allowed"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Download Full Admin Manual (PDF)</span>
+                <span>Admin manual download is not available</span>
               </button>
             </div>
           </div>
