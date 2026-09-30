@@ -32,32 +32,26 @@ const UserSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending_consent', 'active', 'suspended'],
+      enum: ['pending_consent', 'active', 'suspended', 'pending_approval'],
       default: 'active',
     },
     isOnboarded: {
       type: Boolean,
       default: false,
     },
-    organization: {
-      type: String,
-      default: '',
-    },
     isVerified: {
       type: Boolean,
       default: false,
     },
-    // Onboarding & Parental Consent fields
-    dob: { type: Date },
-    course: { type: String, trim: true },
-    yearLevel: { type: String, trim: true },
-    gpa: { type: Number },
-    region: { type: String, trim: true },
-    householdIncome: { type: String },
-    guardianName: { type: String, trim: true },
-    guardianEmail: { type: String, lowercase: true, trim: true },
-    consentToken: { type: String },
-    consentApprovedAt: { type: Date },
+    // Dynamic reference to profile in studentprofiles or providers collections
+    profileRef: {
+      type: mongoose.Schema.Types.ObjectId,
+      refPath: 'roleRefModel',
+    },
+    roleRefModel: {
+      type: String,
+      enum: ['StudentProfile', 'Provider'],
+    },
   },
   { timestamps: true }
 );
@@ -65,6 +59,11 @@ const UserSchema = new mongoose.Schema(
 // Encrypt password using bcrypt before saving
 UserSchema.pre('save', async function () {
   if (!this.isModified('password')) return;
+
+  // Prevent double-hashing if the password is already a valid bcrypt hash
+  const isBcryptHash = /^\$2[ayb]\$.{56}$/.test(this.password);
+  if (isBcryptHash) return;
+
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
 });

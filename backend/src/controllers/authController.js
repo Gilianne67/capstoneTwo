@@ -1,9 +1,11 @@
 const crypto = require('crypto');
 const User = require('../models/User');
 const Provider = require('../models/Provider');
+const StudentProfile = require('../models/StudentProfile');
 const asyncHandler = require('../utils/asyncHandler');
 const ErrorResponse = require('../utils/errorResponse');
 const { blacklistToken } = require('../services/tokenService');
+const ParentalConsent = require('../models/ParentalConsent');
 
 // Helper function to send JWT via HttpOnly Cookie + JSON Payload
 const sendTokenResponse = async (user, statusCode, res, message) => {
@@ -28,15 +30,19 @@ const sendTokenResponse = async (user, statusCode, res, message) => {
     }
   }
 
+  const displayName = user.fullName || user.name || '';
+
   const userData = {
     id: user._id,
-    name: user.name,
+    name: displayName,
+    fullName: displayName,
     email: user.email,
     role: user.role,
     organization: user.organization || '',
     isOnboarded: Boolean(user.isOnboarded),
     status: user.status || 'active',
     verificationStatus,
+    profileRef: user.profileRef || null,
   };
 
   res
@@ -55,43 +61,123 @@ const sendTokenResponse = async (user, statusCode, res, message) => {
 // @route   POST /api/v1/auth/register
 // @access  Public
 exports.register = asyncHandler(async (req, res, next) => {
-  const { name, email, password, role, organization } = req.body;
+  const { 
+    name, 
+    fullName, 
+    email, 
+    password, 
+    role, 
+    organization,
+    age,
+    guardianName,
+    guardianEmail,
+    guardianPhone,
+    relationship,
+    documentUrl 
+  } = req.body;
 
-  // 1. Role Security Check (Prevent self-registration as admin or superadmin)
+  const userFullName = (fullName || name || '').trim();
+  const normalizedEmail = email ? email.toLowerCase().trim() : '';
+
+  if (!userFullName || !normalizedEmail || !password) {
+    return next(new ErrorResponse('Please provide full name, email, and password.', 400));
+  }
+
   if (role && ['admin', 'superadmin', 'super_admin'].includes(role)) {
     return next(new ErrorResponse('You cannot register directly as an admin role.', 403));
   }
 
-  // 2. Validate Provider Organization requirement
   if (role === 'provider' && !organization) {
     return next(new ErrorResponse('Organization name is required for scholarship providers.', 400));
   }
 
-  // 3. Check for existing user
-  const userExists = await User.findOne({ email: email.toLowerCase() });
+  const userExists = await User.findOne({ email: normalizedEmail });
   if (userExists) {
     return next(new ErrorResponse('Email already registered', 400));
   }
 
-  // 4. Create User Record
+  // Calculate or evaluate minor status
+  const parsedAge = age !== undefined && age !== null ? Number(age) : null;
+  const hasGuardianEmail = Boolean(guardianEmail && guardianEmail.trim());
+  const isStudentRole = !role || role === 'student';
+  
+  // Determine if parental consent applies
+  const isMinor = isStudentRole && ((parsedAge !== null && parsedAge < 18) || hasGuardianEmail);
+  const initialStatus = isMinor ? 'pending_consent' : 'active';
+
+  console.log('--- REGISTRATION DIAGNOSTICS ---');
+  console.log(`User: ${normalizedEmail} | Role: ${role || 'student'}`);
+  console.log(`Parsed Age: ${parsedAge} | Guardian Email: ${guardianEmail} | isMinor: ${isMinor}`);
+
+  // 1. Create Base User
   const user = await User.create({
-    name,
-    email: email.toLowerCase(),
+    name: userFullName,
+    fullName: userFullName,
+    email: normalizedEmail,
     password,
     role: role || 'student',
     organization: role === 'provider' ? organization : '',
     isOnboarded: false,
-    status: 'active',
+    status: initialStatus,
   });
 
-  // 5. Create Provider Document for provider accounts
-  if (user.role === 'provider') {
-    await Provider.create({
-      userId: user._id,
-      institutionName: organization || name,
-      institutionType: 'Other',
-      verificationStatus: 'Pending',
-    });
+  // 2. Link Role Profile / Parental Consent
+  try {
+    if (user.role === 'provider') {
+      const providerDoc = await Provider.create({
+        userId: user._id,
+        institutionName: organization || userFullName,
+        institutionType: 'Other',
+        verificationStatus: 'Pending',
+      });
+      user.profileRef = providerDoc._id;
+      await user.save({ validateBeforeSave: false });
+
+    } else if (user.role === 'student') {
+      // Always create StudentProfile record
+      const studentDoc = await StudentProfile.create({
+        userId: user._id,
+        fullName: userFullName,
+        email: normalizedEmail,
+        isMinor: Boolean(isMinor),
+      });
+      
+      user.profileRef = studentDoc._id;
+      await user.save({ validateBeforeSave: false });
+
+      if (isMinor) {
+        // Create entry in 'parentalconsents' collection
+        const consentDoc = await ParentalConsent.create({
+          studentId: user._id,
+          studentName: userFullName,
+          age: parsedAge || 17,
+          guardianName: guardianName ? guardianName.trim() : 'Parent/Guardian',
+          guardianEmail: guardianEmail ? guardianEmail.toLowerCase().trim() : '',
+          guardianPhone: guardianPhone ? guardianPhone.trim() : '',
+          relationship: relationship || 'Parent/Legal Guardian',
+          documentUrl: documentUrl || 'pending_upload',
+          status: 'Pending',
+        });
+
+        console.log(`[SUCCESS] Created ParentalConsent Record ID: ${consentDoc._id} in 'parentalconsents'`);
+
+        return res.status(201).json({
+          success: true,
+          requiresConsent: true,
+          message: 'Account created. Parental consent request sent to guardian email.',
+          data: {
+            userId: user._id,
+            consentId: consentDoc._id
+          }
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Registration profile initialization error:', error);
+    await User.findByIdAndDelete(user._id);
+    return next(
+      new ErrorResponse(`Registration failed while initializing profile: ${error.message}`, 500)
+    );
   }
 
   await sendTokenResponse(user, 201, res, 'User registered successfully');
@@ -108,8 +194,10 @@ exports.login = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse('Please provide email and password', 400));
   }
 
+  const normalizedEmail = email.toLowerCase().trim();
+
   // 2. Check for user
-  const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
+  const user = await User.findOne({ email: normalizedEmail }).select('+password');
   if (!user || !(await user.matchPassword(password))) {
     return next(new ErrorResponse('Invalid credentials', 401));
   }
@@ -119,7 +207,8 @@ exports.login = asyncHandler(async (req, res, next) => {
     return res.status(403).json({
       success: false,
       requiresConsent: true,
-      message: 'Your account is pending parental consent. Please ask your parent/guardian to approve the request sent to their email.',
+      message:
+        'Your account is pending parental consent. Please ask your parent/guardian to approve the request sent to their email.',
     });
   }
 
@@ -133,7 +222,9 @@ exports.login = asyncHandler(async (req, res, next) => {
     if (providerDoc && providerDoc.verificationStatus === 'Rejected') {
       return next(
         new ErrorResponse(
-          `Your provider application was rejected. Reason: ${providerDoc.rejectionReason || 'Contact support for details.'}`,
+          `Your provider application was rejected. Reason: ${
+            providerDoc.rejectionReason || 'Contact support for details.'
+          }`,
           403
         )
       );
@@ -162,15 +253,19 @@ exports.getMe = asyncHandler(async (req, res, next) => {
     }
   }
 
+  const displayName = user.fullName || user.name || '';
+
   const userData = {
     id: user._id,
-    name: user.name,
+    name: displayName,
+    fullName: displayName,
     email: user.email,
     role: user.role,
     organization: user.organization || '',
     isOnboarded: Boolean(user.isOnboarded),
     status: user.status || 'active',
     verificationStatus,
+    profileRef: user.profileRef || null,
   };
 
   res.status(200).json({
@@ -210,7 +305,11 @@ exports.logout = asyncHandler(async (req, res, next) => {
 exports.forgotPassword = asyncHandler(async (req, res, next) => {
   const { email } = req.body;
 
-  const user = await User.findOne({ email: email.toLowerCase() });
+  if (!email) {
+    return next(new ErrorResponse('Please provide an email address.', 400));
+  }
+
+  const user = await User.findOne({ email: email.toLowerCase().trim() });
   if (!user) {
     return next(new ErrorResponse('There is no user with that email', 404));
   }

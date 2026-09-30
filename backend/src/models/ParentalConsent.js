@@ -36,7 +36,7 @@ const ParentalConsentSchema = new mongoose.Schema(
     },
     documentUrl: {
       type: String,
-      required: [true, 'Signed consent document URL is required']
+      default: '' // Made optional during initial registration if uploaded later
     },
     status: {
       type: String,
@@ -51,7 +51,8 @@ const ParentalConsentSchema = new mongoose.Schema(
     }
   },
   {
-    timestamps: true
+    timestamps: true,
+    collection: 'parentalconsents'
   }
 );
 

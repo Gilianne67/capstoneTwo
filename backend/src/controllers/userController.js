@@ -1,10 +1,20 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const StudentProfile = require('../models/StudentProfile');
+const ParentalConsent = require('../models/ParentalConsent'); // Explicitly targets 'parentalconsents' collection
 const { sendParentConsentEmail } = require('../utils/emailService');
 
 // Shared secret for signing & verifying consent tokens across all functions
 const JWT_SECRET = process.env.JWT_SECRET || 'iskolarmatch_fallback_secret_key';
+
+// Helper function to calculate age from Date of Birth string/date
+const calculateAge = (dobString) => {
+  if (!dobString) return 17;
+  const birthDate = new Date(dobString);
+  const diff = Date.now() - birthDate.getTime();
+  const ageDate = new Date(diff);
+  return Math.abs(ageDate.getUTCFullYear() - 1970);
+};
 
 // POST /api/v1/user/onboarding
 exports.handleOnboarding = async (req, res) => {
@@ -20,6 +30,9 @@ exports.handleOnboarding = async (req, res) => {
       householdIncome,
       guardianName,
       guardianEmail,
+      guardianPhone,
+      relationship,
+      documentUrl,
       isMinor
     } = req.body;
 
@@ -57,10 +70,16 @@ exports.handleOnboarding = async (req, res) => {
       );
     }
 
+    // Update User record with onboarding state & consent info
     const updatedUser = await User.findByIdAndUpdate(
       userId,
       {
-        dob, course, yearLevel, gpa, region, householdIncome,
+        dob, 
+        course, 
+        yearLevel, 
+        gpa, 
+        region, 
+        householdIncome,
         guardianName: isMinor ? guardianName.trim() : null,
         guardianEmail: isMinor ? guardianEmail.trim().toLowerCase() : null,
         status: isMinor ? 'pending_consent' : 'active',
@@ -70,29 +89,54 @@ exports.handleOnboarding = async (req, res) => {
       { new: true, runValidators: true }
     );
 
+    // Create or update the StudentProfile using onboarding data
+    const studentProfile = await StudentProfile.findOneAndUpdate(
+      { userId: userId },
+      {
+        userId: userId,
+        fullName: studentUser.fullName || studentUser.name,
+        email: studentUser.email,
+        dateOfBirth: dob,
+        academicLevel: academicLevel,
+        yearLevel: yearLevel,
+        course: course,
+        gwa: gpa,
+        region: region,
+        incomeBracket: householdIncome,
+        isMinor: !!isMinor
+      },
+      {
+        returnDocument: 'after',
+        upsert: true,
+        runValidators: true,
+        setDefaultsOnInsert: true
+      }
+    );
 
-// Create or update the StudentProfile using onboarding data
-      await StudentProfile.findOneAndUpdate(
-          { userId: userId },
-          {
-            userId: userId,
-            dateOfBirth: dob,
-            academicLevel: academicLevel,
-            yearLevel: yearLevel,
-            course: course,
-            gwa: gpa,
-            region: region,
-            incomeBracket: householdIncome,
-            isMinor: !!isMinor
-          },
-          {
-            returnDocument: 'after',
-            upsert: true,
-            runValidators: true,
-            setDefaultsOnInsert: true
-          }
-);
+    // Link profile reference to user
+    updatedUser.profileRef = studentProfile._id;
+    await updatedUser.save({ validateBeforeSave: false });
+
+    // Handle ParentalConsent collection entry if minor
     if (isMinor) {
+      const studentAge = calculateAge(dob);
+
+      await ParentalConsent.findOneAndUpdate(
+        { studentId: userId },
+        {
+          studentId: userId,
+          studentName: updatedUser.fullName || updatedUser.name || 'Student',
+          age: studentAge,
+          guardianName: guardianName ? guardianName.trim() : 'Parent/Guardian',
+          guardianEmail: guardianEmail.trim().toLowerCase(),
+          guardianPhone: guardianPhone || '',
+          relationship: relationship || 'Parent/Legal Guardian',
+          documentUrl: documentUrl || 'pending_verification',
+          status: 'Pending'
+        },
+        { upsert: true, new: true, runValidators: true }
+      );
+
       const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
       const consentLink = `${clientUrl}/consent/verify?token=${consentToken}`;
 
@@ -102,7 +146,7 @@ exports.handleOnboarding = async (req, res) => {
         await sendParentConsentEmail({
           guardianEmail: updatedUser.guardianEmail,
           guardianName: updatedUser.guardianName || 'Parent/Guardian',
-          studentName: updatedUser.name || 'Student',
+          studentName: updatedUser.name || updatedUser.fullName || 'Student',
           consentLink
         });
         console.log(`[MAILER SUCCESS] Consent email dispatched to ${updatedUser.guardianEmail}`);
@@ -144,15 +188,19 @@ exports.verifyConsent = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid token purpose' });
     }
 
-    const studentUser = await User.findById(decoded.userId).select('name email course yearLevel region status');
+    const studentUser = await User.findById(decoded.userId).select('name fullName email course yearLevel region status');
 
     if (!studentUser) {
       return res.status(404).json({ success: false, message: 'Student account not found.' });
     }
 
+    // Check corresponding ParentalConsent record
+    const consentDoc = await ParentalConsent.findOne({ studentId: decoded.userId });
+
     return res.status(200).json({
       success: true,
-      student: studentUser
+      student: studentUser,
+      consentStatus: consentDoc ? consentDoc.status : 'Pending'
     });
 
   } catch (error) {
@@ -184,6 +232,7 @@ exports.approveConsent = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid token purpose' });
     }
 
+    // 1. Update User Status to active
     const updatedUser = await User.findByIdAndUpdate(
       decoded.userId,
       {
@@ -198,9 +247,40 @@ exports.approveConsent = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
+    // 2. Update record in ParentalConsent (parentalconsents collection)
+    const consentDoc = await ParentalConsent.findOneAndUpdate(
+      { studentId: decoded.userId },
+      {
+        status: 'Verified',
+        verifiedAt: new Date()
+      },
+      { new: true }
+    );
+
+    // 3. Ensure StudentProfile is created/active
+    let studentProfile = await StudentProfile.findOne({ userId: decoded.userId });
+    if (!studentProfile) {
+      studentProfile = await StudentProfile.create({
+        userId: updatedUser._id,
+        fullName: updatedUser.fullName || updatedUser.name,
+        email: updatedUser.email,
+        isMinor: true
+      });
+    }
+
+    // Maintain profile link on user document
+    if (!updatedUser.profileRef) {
+      updatedUser.profileRef = studentProfile._id;
+      await updatedUser.save({ validateBeforeSave: false });
+    }
+
     return res.status(200).json({
       success: true,
-      message: 'Account verified successfully.'
+      message: 'Parental consent approved and account verified successfully.',
+      data: {
+        consent: consentDoc,
+        studentProfileId: studentProfile._id
+      }
     });
   } catch (error) {
     console.error('Consent Approval Error:', error);
@@ -234,7 +314,14 @@ exports.resendConsentEmail = async (req, res) => {
     );
 
     user.consentToken = consentToken;
+    user.guardianEmail = targetEmail;
     await user.save();
+
+    // Update ParentalConsent document guardian email if modified
+    await ParentalConsent.findOneAndUpdate(
+      { studentId: user._id },
+      { guardianEmail: targetEmail, status: 'Pending' }
+    );
 
     const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
     const consentLink = `${clientUrl}/consent/verify?token=${consentToken}`;
@@ -245,7 +332,7 @@ exports.resendConsentEmail = async (req, res) => {
       await sendParentConsentEmail({
         guardianEmail: targetEmail,
         guardianName: user.guardianName || 'Parent/Guardian',
-        studentName: user.name || 'Student',
+        studentName: user.fullName || user.name || 'Student',
         consentLink
       });
       console.log(`[MAILER SUCCESS] Consent email successfully resent to ${targetEmail}`);

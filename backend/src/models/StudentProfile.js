@@ -1,3 +1,4 @@
+
 const mongoose = require('mongoose');
 
 const studentProfileSchema = new mongoose.Schema(
@@ -10,51 +11,71 @@ const studentProfileSchema = new mongoose.Schema(
     },
 
     // =========================
+    // STUDENT IDENTITY
+    // =========================
+
+    fullName: {
+      type: String,
+      trim: true,
+      required: [true, 'Full name is required'],
+    },
+
+    email: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      required: [true, 'Email is required'],
+      match: [
+        /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/,
+        'Please provide a valid email address',
+      ],
+    },
+
+    // =========================
     // ONBOARDING INFORMATION
     // =========================
 
     dateOfBirth: {
       type: Date,
-      required: true,
     },
 
     academicLevel: {
       type: String,
       enum: ['Senior High School', 'College', 'Graduate Studies'],
-      required: true,
     },
 
     yearLevel: {
-  type: String,
-  enum: [
-    'Grade 11',
-    'Grade 12',
-    '1st Year',
-    '2nd Year',
-    '3rd Year',
-    '4th Year', 'Masteral', 'Doctoral'
-  ],
-  required: true
-},
+      type: String,
+      enum: [
+        'Grade 11',
+        'Grade 12',
+        '1st Year',
+        '2nd Year',
+        '3rd Year',
+        '4th Year',
+        'Masteral',
+        'Doctoral',
+      ],
+    },
 
     course: {
       type: String,
-      required: true,
       trim: true,
+      default: '',
     },
 
     gwa: {
       type: Number,
-      required: true,
+      default: null,
     },
 
     gwaScale: {
       type: String,
-      enum: ['1.00-5.00', '60-100'],
+      enum: ['1.00-5.00', '60-100', null],
       default: null,
     },
 
-          incomeBracket: {
+    incomeBracket: {
       type: String,
       enum: [
         'Below ₱10,000 / month',
@@ -62,31 +83,16 @@ const studentProfileSchema = new mongoose.Schema(
         '₱21,191 – ₱43,828 / month',
         '₱43,829 – ₱76,669 / month',
         '₱76,670 – ₱131,484 / month',
-        'Above ₱131,484 / month'
+        'Above ₱131,484 / month',
+        null,
       ],
-      required: true
+      default: null,
     },
 
     region: {
       type: String,
-      required: true,
-      trim: true,
-    },
-
-    // =========================
-    // STUDENT PROFILE INFORMATION
-    // =========================
-
-    schoolName: {
-      type: String,
       trim: true,
       default: '',
-    },
-
-    schoolType: {
-      type: String,
-      enum: ['Public', 'Private'],
-      default: null,
     },
 
     province: {
@@ -101,6 +107,22 @@ const studentProfileSchema = new mongoose.Schema(
       default: '',
     },
 
+    // =========================
+    // STUDENT PROFILE INFORMATION
+    // =========================
+
+    schoolName: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+
+    schoolType: {
+      type: String,
+      enum: ['Public', 'Private', null],
+      default: null,
+    },
+
     citizenship: {
       type: String,
       enum: ['Filipino', 'Non-Filipino'],
@@ -112,45 +134,13 @@ const studentProfileSchema = new mongoose.Schema(
     // =========================
 
     specialEligibilityFlags: {
-      isIndigenous: {
-        type: Boolean,
-        default: false,
-      },
-
-      isPWD: {
-        type: Boolean,
-        default: false,
-      },
-
-      isSoloParentChild: {
-        type: Boolean,
-        default: false,
-      },
-
-      isOrphan: {
-        type: Boolean,
-        default: false,
-      },
-
-      isFarmerFisherfolkChild: {
-        type: Boolean,
-        default: false,
-      },
-
-      isDisasterAffected: {
-        type: Boolean,
-        default: false,
-      },
-
-      isWorkingStudent: {
-        type: Boolean,
-        default: false,
-      },
-
-      is4PsBeneficiary: {
-        type: Boolean,
-        default: false,
-      },
+      isIndigenous: { type: Boolean, default: false },
+      isPWD: { type: Boolean, default: false },
+      isSoloParentChild: { type: Boolean, default: false },
+      isFarmerFisherfolkChild: { type: Boolean, default: false },
+      isWorkingStudent: { type: Boolean, default: false },
+      isOFWChild: { type: Boolean, default: false },
+      is4PsBeneficiary: { type: Boolean, default: false },
     },
 
     // =========================
@@ -164,6 +154,7 @@ const studentProfileSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
+    collection: 'studentprofiles',
   }
 );
 

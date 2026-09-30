@@ -49,13 +49,19 @@ const protect = async (req, res, next) => {
       process.env.JWT_SECRET || 'fallback_secret'
     );
 
-    req.user = await User.findById(decoded.id).select('-password');
+    const user = await User.findById(decoded.id).select('-password');
 
-    if (!req.user) {
+    if (!user) {
       return res.status(401).json({
         success: false,
         message: 'User belonging to this token no longer exists',
       });
+    }
+
+    // Attach user object ensuring both name and fullName field aliases exist
+    req.user = user;
+    if (!req.user.fullName && req.user.name) {
+      req.user.fullName = req.user.name;
     }
 
     req.token = token;
