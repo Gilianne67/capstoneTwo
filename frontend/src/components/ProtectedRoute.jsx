@@ -49,13 +49,14 @@ export default function ProtectedRoute({
 
   // 4. Provider verification status check
   if (userRole === 'provider' && requireApprovedProvider) {
-    const status = user?.verificationStatus?.toLowerCase() || user?.verification_status?.toLowerCase();
+    const status = user?.verificationStatus?.toLowerCase() || user?.verification_status?.toLowerCase() || '';
+    const isPending = status === 'pending' || status === 'pending review' || status === 'submitted' || status.startsWith('pending ');
 
-    if (status === 'pending' && location.pathname !== '/provider/pending-approval') {
+    if (isPending && location.pathname !== '/provider/pending-approval') {
       return <Navigate to="/provider/pending-approval" replace />;
     }
-    if (status === 'rejected' && location.pathname !== '/provider/rejected') {
-      return <Navigate to="/provider/rejected" replace />;
+    if (status === 'rejected' && !location.pathname.startsWith('/auth')) {
+      return <Navigate to="/auth?mode=signin" replace />;
     }
   }
 

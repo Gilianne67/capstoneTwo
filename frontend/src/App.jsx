@@ -108,9 +108,15 @@ function OnboardingGuard({ children }) {
   if (!user) return <Navigate to="/auth?mode=signin" replace />;
 
   const targetPath = getRedirectPath(user);
+  const onDashboard = location.pathname.startsWith('/dashboard');
+  const targetIsDashboard = targetPath.startsWith('/dashboard');
+  const awaitingReview = targetPath.includes('/pending-approval');
+  const viewingOwnVerification = location.pathname === '/dashboard/provider/verification';
 
-  // If user belongs on an onboarding route, redirect them away from dashboard routes
-  if (targetPath.includes('/onboarding') || targetPath.includes('/pending-approval')) {
+  if (onDashboard && !targetIsDashboard) {
+    if (awaitingReview && viewingOwnVerification) {
+      return children ? children : <Outlet />;
+    }
     if (location.pathname !== targetPath) {
       return <Navigate to={targetPath} replace />;
     }
@@ -203,7 +209,7 @@ export default function App() {
             </Route>
 
             {/* ADMIN SECTION */}
-            <Route element={<ProtectedRouteGuard allowedRoles={['admin']} />}>
+            <Route element={<ProtectedRouteGuard allowedRoles={['admin', 'superadmin', 'super_admin']} />}>
               <Route path="admin" element={<AdminDashboard />} />
               <Route path="admin/verification" element={<VerificationQueue />} />
               <Route path="admin/moderation" element={<ContentModeration />} />

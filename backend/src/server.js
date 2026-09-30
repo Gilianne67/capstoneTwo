@@ -10,8 +10,6 @@ const morgan = require('morgan');
 const mongoose = require('mongoose');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
-const path = require('path');
-
 // Load Environment Variables
 dotenv.config();
 
@@ -27,6 +25,7 @@ const providerRoutes = require('./routes/providerRoutes');
 const scholarshipRoutes = require('./routes/scholarshipRoutes');
 const studentRoutes = require('./routes/studentRoutes');
 const matchingRoutes = require('./routes/matchingRoutes');
+const documentRoutes = require('./routes/documentRoutes');
 const errorHandler = require('./middleware/error');
 
 // Security Middlewares
@@ -35,9 +34,6 @@ app.use(
     crossOriginResourcePolicy: { policy: 'cross-origin' }, // Allows frontend access to uploaded files
   })
 );
-
-// Serve local uploaded static files
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // CORS Configuration
 const allowedOrigins = [
@@ -78,42 +74,6 @@ app.get('/api/v1/health', (req, res) => {
   res.status(200).json({ status: 'success', message: 'IskolarMatch API Online' });
 });
 
-// GridFS Mongo Document Streaming Route
-app.get('/api/v1/documents/:filename', async (req, res) => {
-  try {
-    if (!mongoose.connection.db) {
-      return res.status(500).json({ message: 'Database connection not initialized' });
-    }
-
-    const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
-      bucketName: 'uploads', // Maps to uploads.files and uploads.chunks
-    });
-
-    const files = await bucket.find({ filename: req.params.filename }).toArray();
-    if (!files || files.length === 0) {
-      return res.status(404).json({ message: 'Document file not found in database' });
-    }
-
-    const file = files[0];
-    res.set('Content-Type', file.contentType || 'image/jpeg');
-    res.set('Content-Length', file.length);
-
-    const downloadStream = bucket.openDownloadStreamByName(req.params.filename);
-
-    downloadStream.on('error', (err) => {
-      console.error('GridFS Stream Error:', err);
-      if (!res.headersSent) {
-        res.status(500).json({ message: 'Error streaming document file' });
-      }
-    });
-
-    downloadStream.pipe(res);
-  } catch (error) {
-    console.error('GridFS streaming error:', error);
-    res.status(500).json({ message: 'Error retrieving document from database' });
-  }
-});
-
 // Mount Application Routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/user', userRoutes);
@@ -124,6 +84,7 @@ app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/scholarships', scholarshipRoutes);
 app.use('/api/v1/students', studentRoutes);
 app.use('/api/v1/matching', matchingRoutes);
+app.use('/api/v1/documents', documentRoutes);
 
 // Centralized Error Handling Middleware (must be registered after routes)
 app.use(errorHandler);

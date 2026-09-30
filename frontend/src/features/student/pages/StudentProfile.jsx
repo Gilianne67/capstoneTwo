@@ -22,9 +22,7 @@ import {
   isProfileComplete
 } from '../profileCompletion';
 
-const API_BASE_URL = (
-  import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
-).replace(/\/$/, '');
+import { API_BASE_URL } from '../../../config/api';
 
 const YEAR_LEVELS_BY_ACADEMIC_LEVEL = {
   'Senior High School': ['Grade 11', 'Grade 12'],

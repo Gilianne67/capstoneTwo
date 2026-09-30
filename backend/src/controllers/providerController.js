@@ -53,6 +53,17 @@ exports.updateProfile = async (req, res) => {
       });
     }
 
+    const verificationFields = ['verificationStatus', 'rejectionReason', 'verifiedAt', 'submittedAt', 'verificationDocuments'];
+    const attemptedVerificationChange = verificationFields.some((field) =>
+      Object.prototype.hasOwnProperty.call(req.body, field)
+    );
+    if (attemptedVerificationChange) {
+      return res.status(403).json({
+        success: false,
+        message: 'Providers cannot change their own verification status.',
+      });
+    }
+
     // Update root profile fields
     if (institutionName !== undefined) provider.institutionName = institutionName;
     if (institutionType !== undefined) provider.institutionType = institutionType;

@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
+import { API_BASE_URL } from '../../config/api';
 import { 
   GraduationCap, 
   LayoutDashboard, 
@@ -25,10 +27,6 @@ import {
   BarChart3
 } from 'lucide-react';
 
-const API_BASE_URL = (
-  import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
-).replace(/\/$/, '');
-
 const getCleanToken = () => {
   const rawToken = localStorage.getItem('token');
 
@@ -43,6 +41,7 @@ const getCleanToken = () => {
 export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { logout } = useAuth();
 
   // Mobile drawer state
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -144,10 +143,11 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
     }
   };
 
-  const currentTheme = themes[role] || themes.student;
+  const navRole = ['superadmin', 'super_admin', 'super-admin'].includes(role) ? 'admin' : role;
+  const currentTheme = themes[navRole] || themes.student;
 
   const getNavSections = () => {
-    if (role === 'provider') {
+    if (navRole === 'provider') {
       return {
         menu: [
           { label: 'Dashboard', path: '/dashboard/provider', icon: LayoutDashboard },
@@ -162,7 +162,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
       };
     }
 
-    if (role === 'admin') {
+    if (navRole === 'admin') {
       return {
         menu: [
           { label: 'Operations Dashboard', path: '/dashboard/admin', icon: LayoutDashboard },
@@ -197,11 +197,10 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
 
   const { menu, general } = getNavSections();
 
-  const handleLogout = () => {
-    localStorage.removeItem('iskolar_session');
-    localStorage.removeItem('token');
+  const handleLogout = async () => {
     setIsMobileOpen(false);
-    navigate('/auth?mode=signin');
+    await logout();
+    navigate('/auth?mode=signin', { replace: true });
   };
 
   const renderNavItem = (item) => {
@@ -212,6 +211,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
       <NavLink
         key={item.path}
         to={item.path}
+        end
         onClick={() => setIsMobileOpen(false)}
         className={`relative flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
           isActive 

@@ -10,8 +10,8 @@ import {
 
 import PageHeader from '../../../components/common/PageHeader';
 import StatusBadge from '../../../components/common/StatusBadge';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+import ProtectedDocumentViewer from '../../../components/common/ProtectedDocumentViewer';
+import { API_BASE_URL, API_ORIGIN } from '../../../config/api';
 
 function getAuthToken() {
   const raw = localStorage.getItem('token');
@@ -42,6 +42,13 @@ function readDocuments(provider) {
   });
 
   return documents;
+}
+
+function documentUrl(doc) {
+  const raw = typeof doc === 'string' ? doc : (doc?.fileUrl || doc?.url || doc?.path || '');
+  if (!raw || raw === '#') return '';
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+  return `${API_ORIGIN}${raw.startsWith('/') ? raw : `/${raw}`}`;
 }
 
 function mapProviderVerification(provider) {
@@ -137,6 +144,7 @@ export default function OrganizationVerification() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [verification, setVerification] = useState(null);
+  const [selectedDocument, setSelectedDocument] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -262,24 +270,42 @@ export default function OrganizationVerification() {
               </p>
             ) : (
               <div className="space-y-2">
-                {verification.documents.map((doc, idx) => (
-                  <div key={doc._id || doc.id || `${documentLabel(doc)}-${idx}`} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl text-xs">
-                    <div className="flex items-center gap-2.5">
-                      <FileText className="w-4 h-4 text-emerald-600" />
-                      <div>
-                        <p className="font-bold text-slate-800">{documentLabel(doc)}</p>
-                        {doc.size ? (
-                          <p className="text-[11px] text-slate-400 font-medium">{doc.size}</p>
+                {verification.documents.map((doc, idx) => {
+                  const url = documentUrl(doc);
+                  return (
+                  <div key={doc._id || doc.id || `${documentLabel(doc)}-${idx}`} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl text-xs gap-3">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="font-bold text-slate-800 truncate">{documentLabel(doc)}</p>
+                        {doc.documentType && documentLabel(doc) !== doc.documentType ? (
+                          <p className="text-[11px] text-slate-400 font-medium">{doc.documentType}</p>
                         ) : null}
                       </div>
                     </div>
-                    {doc.status ? <StatusBadge status={doc.status} /> : null}
+                    {url ? (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDocument({ ...doc, fileUrl: url, name: documentLabel(doc) })}
+                        className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-[11px] font-bold text-emerald-800 hover:border-emerald-300 cursor-pointer shrink-0"
+                      >
+                        View
+                      </button>
+                    ) : null}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
         </>
+      )}
+
+      {selectedDocument && (
+        <ProtectedDocumentViewer
+          document={selectedDocument}
+          onClose={() => setSelectedDocument(null)}
+        />
       )}
     </div>
   );

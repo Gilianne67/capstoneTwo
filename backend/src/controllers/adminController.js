@@ -89,15 +89,8 @@ exports.getAdminDashboard = asyncHandler(async (req, res, next) => {
       id: 'metric-3',
       label: 'Active Providers',
       value: String(activeProvidersCount),
-      iconKey: 'Emerald',
+      iconKey: 'Building2',
       color: 'emerald'
-    },
-    {
-      id: 'metric-4',
-      label: 'System Uptime',
-      value: '99.9%',
-      iconKey: 'Activity',
-      color: 'blue'
     }
   ];
 
@@ -107,9 +100,9 @@ exports.getAdminDashboard = asyncHandler(async (req, res, next) => {
     pendingProviders: pendingProviders.map((p) => ({
       id: p._id,
       name: p.institutionName || getUserField(p.userId, 'name') || 'Unassigned Provider',
-      email: p.representative?.workEmail || p.contactEmail || getUserField(p.userId, 'email') || 'N/A',
-      taxId: p.taxId || p.secRegistrationNumber || 'N/A',
-      submitted: formatDateAgo(p.createdAt)
+      email: p.representative?.workEmail || p.contactEmail || getUserField(p.userId, 'email') || null,
+      taxId: p.taxId || p.secRegistrationNumber || null,
+      submitted: formatDateAgo(p.submittedAt || p.createdAt)
     })),
     pendingListings: pendingListings.map((s) => ({
       id: s._id,
@@ -158,17 +151,17 @@ exports.updateProviderVerification = asyncHandler(async (req, res, next) => {
 
   if (isApproved) {
     provider.verifiedAt = new Date();
-    provider.rejectionReason = undefined;
+    provider.rejectionReason = null;
   } else {
     provider.rejectionReason = finalReason;
+    provider.verifiedAt = null;
   }
-  
+
   await provider.save();
 
-  // Mark associated User model as verified if approved
-  if (isApproved && provider.userId) {
+  if (provider.userId) {
     const targetUserId = provider.userId._id || provider.userId;
-    await User.findByIdAndUpdate(targetUserId, { isVerified: true });
+    await User.findByIdAndUpdate(targetUserId, { isVerified: isApproved });
   }
 
   // Safe recipient email resolution across schema options
@@ -345,12 +338,14 @@ exports.getVerifications = asyncHandler(async (req, res, next) => {
     return {
       _id: p._id,
       organizationName: p.institutionName || p.organizationName || getUserField(p.userId, 'name') || 'Unnamed Provider',
-      institutionType: p.institutionType || p.organizationType || 'Educational Institution',
-      taxId: p.taxId || p.secRegistrationNumber || 'N/A',
+      institutionType: p.institutionType || p.organizationType || null,
+      taxId: p.taxId || p.secRegistrationNumber || null,
       website: p.website || p.officialWebsite || null,
       contactNumber: p.contactNumber || p.phone || p.representative?.phone || null,
       contactEmail: repEmail,
-      submittedAt: p.createdAt ? new Date(p.createdAt).toLocaleDateString() : 'N/A',
+      submittedAt: (p.submittedAt || p.createdAt)
+        ? new Date(p.submittedAt || p.createdAt).toLocaleDateString()
+        : null,
       status: statusLabel,
       verificationStatus: statusLabel,
       rejectionReason: p.rejectionReason || null,
@@ -360,21 +355,27 @@ exports.getVerifications = asyncHandler(async (req, res, next) => {
         workEmail: repEmail
       },
       documents: rawDocs.map((doc) => {
-        const rawPath = typeof doc === 'string' ? doc : (doc.fileUrl || doc.path || doc.url || '#');
-        const formattedUrl = rawPath !== '#' && !rawPath.startsWith('http') && !rawPath.startsWith('/')
+        const rawPath = typeof doc === 'string' ? doc : (doc.fileUrl || doc.path || doc.url || '');
+        if (!rawPath || rawPath === '#') return null;
+
+        const formattedUrl = !rawPath.startsWith('http') && !rawPath.startsWith('/')
           ? `/${rawPath}`
           : rawPath;
+        const storedName = typeof doc === 'object'
+          ? (doc.originalName || doc.fileName || doc.filename || doc.name || null)
+          : null;
 
         return {
-          _id: doc._id || doc.fileId || null,
-          name: doc.documentType || doc.fileName || doc.originalName || doc.name || 'Verification Document',
-          documentType: doc.documentType || 'Verification Document',
+          _id: typeof doc === 'object' ? (doc._id || doc.fileId || null) : null,
+          name: storedName || (typeof doc === 'object' ? doc.documentType : null) || 'Verification document',
+          documentType: typeof doc === 'object' ? (doc.documentType || null) : null,
           fileUrl: formattedUrl,
           url: formattedUrl,
           path: formattedUrl,
-          filename: doc.originalName || doc.fileName || doc.filename || 'Document.pdf',
+          filename: storedName,
+          uploadedAt: typeof doc === 'object' ? (doc.uploadedAt || null) : null,
         };
-      }),
+      }).filter(Boolean),
     };
   });
 

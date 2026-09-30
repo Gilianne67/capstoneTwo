@@ -63,7 +63,7 @@ export default function AdminDashboard() {
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.message || `Server responded with status ${res.status}`);
+        throw new Error(errorData.message || errorData.error || `Server responded with status ${res.status}`);
       }
 
       const data = await res.json();
@@ -90,7 +90,7 @@ export default function AdminDashboard() {
 
   // Navigate to Verification Queue Page
   const handleReviewProvider = (providerId) => {
-    navigate(`/admin/verification-queue${providerId ? `?providerId=${providerId}` : ''}`);
+    navigate(`/dashboard/admin/verification${providerId ? `?providerId=${providerId}` : ''}`);
   };
 
   // Process Approval / Rejection Action via API
@@ -121,7 +121,7 @@ export default function AdminDashboard() {
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Action failed on server.');
+        throw new Error(errorData.message || errorData.error || 'Action failed on server.');
       }
 
       // Optimistically clear item locally
@@ -231,8 +231,8 @@ export default function AdminDashboard() {
                 <div key={prov.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-slate-50 border border-slate-200/60 rounded-xl gap-4">
                   <div>
                     <h4 className="text-sm font-bold text-slate-900">{prov.name}</h4>
-                    <div className="flex items-center gap-4 text-xs text-slate-500 mt-1 flex-wrap">
-                      <span>Email: <strong>{prov.email}</strong></span>
+                      <div className="flex items-center gap-4 text-xs text-slate-500 mt-1 flex-wrap">
+                      {prov.email && <span>Email: <strong>{prov.email}</strong></span>}
                       {prov.taxId && <span>Registration ID: <strong>{prov.taxId}</strong></span>}
                       {prov.submitted && <span>Submitted: {prov.submitted}</span>}
                     </div>

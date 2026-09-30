@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
 import { formatDeadlineDate } from '../../../utils/deadline';
+import { API_BASE_URL } from '../../../config/api';
 import {
   ArrowLeft,
   Calendar,
@@ -17,9 +18,6 @@ import {
   Users,
   Scale
 } from 'lucide-react';
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL || 'https://api.iskolarmatch.ph/v1';
 
 const STANDARD_ELIGIBILITY_TAGS = [
   '4Ps Beneficiary',
