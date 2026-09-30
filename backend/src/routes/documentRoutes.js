@@ -2,10 +2,42 @@ const express = require('express');
 const mongoose = require('mongoose');
 const router = express.Router();
 const path = require('path');
+const Provider = require('../models/Provider');
 
 // Import authentication middleware
 const authMiddleware = require('../middleware/auth');
 const protect = authMiddleware.protect || authMiddleware;
+
+const ADMIN_ROLES = new Set(['admin', 'superadmin', 'super_admin', 'super-admin']);
+
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const userCanAccessFile = async (user, file) => {
+  if (!user || !file) return false;
+
+  const role = String(user.role || '').toLowerCase();
+  if (ADMIN_ROLES.has(role)) return true;
+
+  const currentUserId = String(user._id || user.id || '');
+  const uploaderId = file.metadata?.uploadedBy ? String(file.metadata.uploadedBy) : '';
+
+  if (uploaderId && currentUserId && uploaderId === currentUserId) {
+    return true;
+  }
+
+  if (!currentUserId || !file.filename) return false;
+
+  const owner = await Provider.findOne({
+    userId: user._id || user.id,
+    verificationDocuments: {
+      $elemMatch: {
+        fileUrl: { $regex: escapeRegex(file.filename) },
+      },
+    },
+  }).select('_id');
+
+  return Boolean(owner);
+};
 
 let gfsBucket;
 
@@ -65,15 +97,8 @@ router.get('/:filename', protect, async (req, res) => {
 
     const file = files[0];
 
-    // 2. Authorization Check: Admin / Super Admin OR the original uploader
-    const currentUserId = req.user ? (req.user._id || req.user.id).toString() : null;
-    const currentUserRole = req.user?.role;
-    const fileUploaderId = file.metadata?.uploadedBy ? file.metadata.uploadedBy.toString() : null;
-
-    const isAdmin = ['admin', 'super-admin', 'superadmin'].includes(currentUserRole);
-    const isOwner = fileUploaderId ? fileUploaderId === currentUserId : true; // Fallback to allow logged-in user if missing
-
-    if (!isAdmin && !isOwner) {
+    const allowed = await userCanAccessFile(req.user, file);
+    if (!allowed) {
       return res.status(403).json({
         success: false,
         message: 'Access denied. You do not have permission to view this document.',

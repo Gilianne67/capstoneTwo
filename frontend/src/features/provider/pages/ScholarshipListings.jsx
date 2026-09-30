@@ -22,9 +22,7 @@ import FilterBar from '../../../components/common/FilterBar';
 import Pagination from '../../../components/common/Pagination';
 import CreateListing from './CreateListing';
 import { formatDeadlineDate } from '../../../utils/deadline';
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+import { API_BASE_URL } from '../../../config/api';
 
 
 export default function ScholarshipListings({ onNavigateToCreate, onNavigateToEdit }) {
@@ -72,7 +70,7 @@ export default function ScholarshipListings({ onNavigateToCreate, onNavigateToEd
     }
 
     const response = await fetch(
-      `${import.meta.env.VITE_API_URL}/scholarships/my`,
+      `${API_BASE_URL}/scholarships/my`,
       {
         headers: {
           'Content-Type': 'application/json',

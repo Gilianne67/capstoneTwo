@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { 
   Building2, 
   ShieldCheck, 
@@ -22,6 +23,7 @@ import {
 import PageHeader from '../../../components/common/PageHeader';
 import StatusBadge from '../../../components/common/StatusBadge';
 import ProtectedDocumentViewer from '../../../components/common/ProtectedDocumentViewer';
+import { API_ORIGIN } from '../../../config/api';
 
 const COMMON_REJECTION_REASONS = [
   'Incomplete or unclear documentation submitted.',
@@ -37,13 +39,15 @@ const getFullDocumentUrl = (rawPath) => {
     return rawPath;
   }
   
-  const backendBase = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  const backendBase = API_ORIGIN;
   const cleanPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
   
   return `${backendBase}${cleanPath}`;
 };
 
 export default function VerificationQueue() {
+  const [searchParams] = useSearchParams();
+  const focusProviderId = searchParams.get('providerId');
   const [verifications, setVerifications] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -91,6 +95,13 @@ export default function VerificationQueue() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!focusProviderId || verifications.length === 0) return;
+    setStatusFilter('All');
+    const target = document.getElementById(`provider-${focusProviderId}`);
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [focusProviderId, verifications]);
+
   const handleConfirmAction = async () => {
     if (!selectedAction) return;
 
@@ -124,7 +135,7 @@ export default function VerificationQueue() {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.message || 'Verification update failed on server');
+        throw new Error(errData.message || errData.error || 'Verification update failed on server');
       }
 
       const updatedStatusLabel = isReject ? 'Rejected' : 'Verified';
@@ -153,12 +164,26 @@ export default function VerificationQueue() {
     }
   };
 
-  const handleOpenDocument = (doc) => {
+  const handleOpenDocument = async (doc) => {
     const rawUrl = typeof doc === 'string' ? doc : (doc.fileUrl || doc.url || doc.path || '#');
     const fullUrl = getFullDocumentUrl(rawUrl);
-    
-    if (fullUrl !== '#') {
-      window.open(fullUrl, '_blank', 'noopener,noreferrer');
+
+    if (!fullUrl || fullUrl === '#') return;
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(fullUrl, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!response.ok) {
+        throw new Error('Unable to open this document.');
+      }
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      window.open(objectUrl, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+    } catch (err) {
+      setErrorMsg(err.message || 'Unable to open this document.');
     }
   };
 
@@ -276,7 +301,15 @@ export default function VerificationQueue() {
               const docs = item.documents || item.verificationDocuments || [];
 
               return (
-                <div key={item._id || item.id} className="border border-slate-200/80 rounded-2xl p-5 space-y-4 bg-white shadow-xs">
+                <div
+                  key={item._id || item.id}
+                  id={`provider-${item._id || item.id}`}
+                  className={`border rounded-2xl p-5 space-y-4 bg-white shadow-xs ${
+                    focusProviderId && String(focusProviderId) === String(item._id || item.id)
+                      ? 'border-emerald-400 ring-2 ring-emerald-100'
+                      : 'border-slate-200/80'
+                  }`}
+                >
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2">

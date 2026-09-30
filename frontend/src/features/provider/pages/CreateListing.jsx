@@ -23,6 +23,7 @@ import {
   PROVINCES,
   MUNICIPALITIES
 } from '../../../data/locationData';
+import { API_BASE_URL } from '../../../config/api';
 
 // Standard System Demographic Tags from Paper Blueprint (Table 3.8)
 const SYSTEM_DEMOGRAPHIC_TAGS = [
@@ -262,13 +263,11 @@ useEffect(() => {
 
 }, [initialData]);
 
-  const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
-
   const fetchCriterionRequests = useCallback(() => {
     const token = localStorage.getItem('token');
     if (!token) return Promise.resolve(null);
 
-    return fetch(`${apiBaseUrl}/providers/eligibility-criterion-requests`, {
+    return fetch(`${API_BASE_URL}/providers/eligibility-criterion-requests`, {
       headers: { Authorization: `Bearer ${token}` }
     })
       .then((res) => (res.ok ? res.json() : null))
@@ -280,7 +279,7 @@ useEffect(() => {
         console.warn('Unable to load eligibility criterion requests:', err);
         return null;
       });
-  }, [apiBaseUrl]);
+  }, []);
 
   const loadCriterionRequests = useCallback(
     () =>
@@ -405,7 +404,7 @@ useEffect(() => {
     setIsSubmittingCriterionRequest(true);
 
     try {
-      const res = await fetch(`${apiBaseUrl}/providers/eligibility-criterion-requests`, {
+      const res = await fetch(`${API_BASE_URL}/providers/eligibility-criterion-requests`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -691,8 +690,8 @@ const handleExecutePublish = async () => {
     }
 
     const endpoint = isEditMode
-      ? `${import.meta.env.VITE_API_URL}/scholarships/${initialData._id}`
-      : `${import.meta.env.VITE_API_URL}/scholarships`;
+      ? `${API_BASE_URL}/scholarships/${initialData._id}`
+      : `${API_BASE_URL}/scholarships`;
 
     const method = isEditMode ? 'PUT' : 'POST';
 

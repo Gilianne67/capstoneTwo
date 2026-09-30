@@ -58,7 +58,8 @@ exports.register = asyncHandler(async (req, res, next) => {
   const { name, email, password, role, organization } = req.body;
 
   // 1. Role Security Check (Prevent self-registration as admin or superadmin)
-  if (role && ['admin', 'superadmin', 'super_admin'].includes(role)) {
+  const requestedRole = typeof role === 'string' ? role.trim().toLowerCase().replace(/-/g, '_') : '';
+  if (['admin', 'superadmin', 'super_admin'].includes(requestedRole)) {
     return next(new ErrorResponse('You cannot register directly as an admin role.', 403));
   }
 
@@ -193,9 +194,10 @@ exports.logout = asyncHandler(async (req, res, next) => {
     }
   }
 
-  res.cookie('token', 'none', {
-    expires: new Date(Date.now() + 10 * 1000),
+  res.clearCookie('token', {
     httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
   });
 
   res.status(200).json({

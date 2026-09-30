@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { Bell, LogOut, Loader2, User as UserIcon, WifiOff } from 'lucide-react';
-import Sidebar from '../components/navigation/Sidebar';
-import { useAuth } from '../context/AuthContext'; // 
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL || 'https://api.iskolarmatch.ph/v1';
+import Sidebar from '../components/navigation/SideBar';
+import { useAuth } from '../context/AuthContext';
+import { API_BASE_URL } from '../config/api';
 
 export default function AppLayout() {
   const navigate = useNavigate();
@@ -16,7 +14,7 @@ export default function AppLayout() {
   const [isUsingMockData, setIsUsingMockData] = useState(false);
 
   // Notifications State
-  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(2);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
 
   // User Menu State
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -50,23 +48,23 @@ export default function AppLayout() {
 
   // 4. Unified Logout Handler
   const handleLogout = async () => {
-    try {
-      if (token) {
-        await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-      }
-    } catch (_err) {
-      console.warn('Logout API unreachable.');
-    } finally {
-      logout(); // Clears AuthContext state and localStorage token
-      navigate('/auth?mode=signin', { replace: true });
-    }
+    await logout();
+    navigate('/auth?mode=signin', { replace: true });
   };
 
   // Extract role dynamically from AuthContext user object
   const role = user?.role?.toLowerCase() || 'student';
+  const isAdminRole = role === 'admin' || role === 'superadmin' || role === 'super_admin';
+  const notificationPath = isAdminRole
+    ? '/dashboard/admin/notifications'
+    : role === 'student'
+      ? '/dashboard/student/notifications'
+      : '/dashboard/provider/help';
+  const settingsPath = isAdminRole
+    ? '/dashboard/admin/settings'
+    : role === 'student'
+      ? '/dashboard/student/profile'
+      : '/dashboard/provider';
 
   if (loading) {
     return (
@@ -105,7 +103,7 @@ export default function AppLayout() {
             {/* Notification Bell */}
             <button
               type="button"
-              onClick={() => navigate('/dashboard/notifications')}
+              onClick={() => navigate(notificationPath)}
               aria-label="View notifications"
               className="relative p-2 rounded-xl text-slate-500 hover:bg-slate-100 cursor-pointer transition-colors"
             >
@@ -140,7 +138,7 @@ export default function AppLayout() {
                     type="button"
                     onClick={() => {
                       setIsUserMenuOpen(false);
-                      navigate('/dashboard/settings');
+                      navigate(settingsPath);
                     }}
                     className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
                   >

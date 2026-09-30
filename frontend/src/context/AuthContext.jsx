@@ -1,14 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { resolveRedirectPath } from './redirectPath';
+import { API_BASE_URL } from '../config/api';
 
 const AuthContext = createContext(null);
-
-// Base backend URL resolution (e.g., http://localhost:5000)
-const RAW_BASE =
-  import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
-
-const API_BASE_URL = RAW_BASE.endsWith('/')
-  ? RAW_BASE.slice(0, -1)
-  : RAW_BASE;
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -30,45 +24,10 @@ export function AuthProvider({ children }) {
    * @param {Object} userData - User object returned from auth endpoints
    * @returns {string} Route path to navigate to
    */
-  const getRedirectPath = useCallback((userData) => {
-    if (!userData) return '/auth?mode=signin';
-
-    const role = userData?.role?.toLowerCase();
-    const isOnboarded = userData?.isOnboarded ?? userData?.is_onboarded ?? false;
-    const verificationStatus = (userData?.verificationStatus || userData?.verification_status || '').toLowerCase();
-
-    if (role === 'provider') {
-      // 1. Not onboarded -> Provider Onboarding Form
-      if (!isOnboarded) {
-        return '/provider/onboarding';
-      }
-      // 2. Onboarded but pending verification -> Pending Approval Screen
-      if (verificationStatus === 'pending') {
-        return '/provider/pending-approval';
-      }
-      // 3. Rejected -> Rejection info screen
-      if (verificationStatus === 'rejected') {
-        return '/provider/rejected';
-      }
-      // 4. Approved -> Main Provider Dashboard
-      return '/dashboard/provider';
-    }
-
-    if (role === 'student') {
-      // 1. Not onboarded -> Student Onboarding Form
-      if (!isOnboarded) {
-        return '/onboarding';
-      }
-      // 2. Onboarded -> Student Dashboard
-      return '/dashboard/student';
-    }
-
-    if (role === 'admin' || role === 'superadmin' || role === 'super_admin') {
-      return '/dashboard/admin';
-    }
-
-    return '/auth?mode=signin';
-  }, []);
+  const getRedirectPath = useCallback(
+    (userData) => resolveRedirectPath(userData),
+    []
+  );
 
   // Single initialization effect to verify MongoDB JWT session
   useEffect(() => {
@@ -185,11 +144,24 @@ export function AuthProvider({ children }) {
     return data;
   };
 
-  // Logout Handler
-  const logout = () => {
-    localStorage.removeItem('token');
-    setUser(null);
-    setToken(null);
+  // Logout Handler — revoke the current token, then drop local session state.
+  const logout = async () => {
+    const activeToken = getCleanToken();
+
+    try {
+      await fetch(`${API_BASE_URL}/auth/logout`, {
+        method: 'GET',
+        headers: activeToken ? { Authorization: `Bearer ${activeToken}` } : {},
+        credentials: 'include',
+      });
+    } catch (err) {
+      console.warn('Logout API unreachable.', err);
+    } finally {
+      localStorage.removeItem('token');
+      localStorage.removeItem('iskolar_session');
+      setUser(null);
+      setToken(null);
+    }
   };
 
   return (

@@ -1,21 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import ProfileHeader from '../../../components/settings/ProfileHeader';
 import SecurityForm from '../../../components/settings/SecurityForm';
+import PrototypeNotice from '../components/PrototypeNotice';
+import { useAuth } from '../../../context/AuthContext';
 import { 
   Sliders, 
   Database, 
   Server, 
   Save, 
-  CheckCircle2,
   RefreshCw,
-  Loader2,
   AlertCircle,
   UserPlus,
-  Mail,
   ShieldCheck
 } from 'lucide-react';
 
 export function SystemSettings() {
+  const { user } = useAuth();
   const [platformConfig, setPlatformConfig] = useState({
     maintenanceMode: false,
     studentRegistration: true,
@@ -25,59 +25,28 @@ export function SystemSettings() {
     autoApproveProviders: false
   });
 
-  const [dbStatus, setDbStatus] = useState({
-    mongoStatus: 'Connected',
-    redisCache: 'Active (99.8%)',
-    storageUsage: '41.2 GB / 500 GB'
-  });
+  const dbStatus = {
+    mongoStatus: 'Not measured',
+    redisCache: 'Not connected',
+    storageUsage: 'Not measured'
+  };
 
-  // New Admin Provisioning Form State
   const [newAdmin, setNewAdmin] = useState({
     fullName: '',
     email: '',
-    adminRole: 'admin' // 'admin' or 'super_admin'
+    adminRole: 'admin'
   });
 
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isInvitingAdmin, setIsInvitingAdmin] = useState(false);
-  const [isPurging, setIsPurging] = useState(false);
-  const [isBackingUp, setIsBackingUp] = useState(false);
-  
-  const [saved, setSaved] = useState(false);
-  const [adminInviteSuccess, setAdminInviteSuccess] = useState(false);
-  const [errorMessage, setErrorMessage] = useState(null);
+  const [notice, setNotice] = useState(null);
 
-  useEffect(() => {
-    let isMounted = true;
-
-    const fetchSettings = async () => {
-      setIsLoading(true);
-      try {
-        const token = localStorage.getItem('token');
-        const headers = token ? { Authorization: `Bearer ${token}` } : {};
-
-        const res = await fetch('/api/v1/admin/settings', { headers });
-        if (res.ok) {
-          const data = await res.json();
-          if (isMounted) {
-            setPlatformConfig(data.config || data);
-            if (data.dbStatus) setDbStatus(data.dbStatus);
-          }
-        }
-      } catch (err) {
-        console.warn('Backend offline. Using local settings state:', err);
-      } finally {
-        if (isMounted) setIsLoading(false);
-      }
-    };
-
-    fetchSettings();
-    return () => { isMounted = false; };
-  }, []);
+  const showPrototypeNotice = (event) => {
+    if (event?.preventDefault) event.preventDefault();
+    setNotice('This control is prototype-only. Nothing was saved to the database.');
+  };
 
   const handleToggle = (key) => {
     setPlatformConfig(prev => ({ ...prev, [key]: !prev[key] }));
+    setNotice('This change is local to the page and was not saved.');
   };
 
   const handleChange = (e) => {
@@ -86,6 +55,7 @@ export function SystemSettings() {
       ...prev, 
       [name]: type === 'number' || type === 'range' ? Number(value) : value 
     }));
+    setNotice('This change is local to the page and was not saved.');
   };
 
   const handleAdminInputChange = (e) => {
@@ -93,140 +63,28 @@ export function SystemSettings() {
     setNewAdmin(prev => ({ ...prev, [name]: value }));
   };
 
-  // Save Settings to MongoDB
-  const handleSaveConfig = async (e) => {
-    e.preventDefault();
-    setIsSaving(true);
-    setErrorMessage(null);
-
-    try {
-      const token = localStorage.getItem('token');
-      const res = await fetch('/api/v1/admin/settings', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token && { Authorization: `Bearer ${token}` })
-        },
-        body: JSON.stringify(platformConfig)
-      });
-
-      if (!res.ok) throw new Error('Failed to update system configuration');
-
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
-    } catch (err) {
-      setErrorMessage(err.message);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  // Provision New Admin User Endpoint Trigger
-  const handleInviteAdmin = async (e) => {
-    e.preventDefault();
-    setIsInvitingAdmin(true);
-    setErrorMessage(null);
-
-    try {
-      const token = localStorage.getItem('token');
-      const res = await fetch('/api/v1/admin/users/invite', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token && { Authorization: `Bearer ${token}` })
-        },
-        body: JSON.stringify(newAdmin)
-      });
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.message || 'Failed to send admin invitation');
-      }
-
-      setAdminInviteSuccess(true);
-      setNewAdmin({ fullName: '', email: '', adminRole: 'admin' });
-      setTimeout(() => setAdminInviteSuccess(false), 4000);
-    } catch (err) {
-      setErrorMessage(err.message);
-    } finally {
-      setIsInvitingAdmin(false);
-    }
-  };
-
-  const handlePurgeCache = async () => {
-    setIsPurging(true);
-    try {
-      const token = localStorage.getItem('token');
-      await fetch('/api/v1/admin/system/purge-cache', {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {}
-      });
-      alert('Redis match cache purged successfully.');
-    } catch (err) {
-      alert('Failed to purge cache.');
-    } finally {
-      setIsPurging(false);
-    }
-  };
-
-  const handleTriggerBackup = async () => {
-    setIsBackingUp(true);
-    try {
-      const token = localStorage.getItem('token');
-      await fetch('/api/v1/admin/system/backup', {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {}
-      });
-      alert('MongoDB database backup job queued successfully.');
-    } catch (err) {
-      alert('Failed to trigger database backup.');
-    } finally {
-      setIsBackingUp(false);
-    }
-  };
-
-  if (isLoading) {
-    return (
-      <div className="max-w-5xl mx-auto min-h-[400px] flex flex-col items-center justify-center gap-3 bg-white rounded-2xl border border-slate-200 p-6">
-        <Loader2 className="h-7 w-7 text-emerald-600 animate-spin" />
-        <p className="text-xs text-slate-500 font-medium">Loading system configuration...</p>
-      </div>
-    );
-  }
-
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-12">
       <ProfileHeader 
-        name="System Administrator"
-        email="admin@iskolarmatch.ph"
+        name={user?.name || 'Administrator'}
+        email={user?.email || ''}
         role="admin"
-        subtitle="Super Admin Level Access • Root Authority"
+        subtitle="Prototype settings. Controls on this page are not saved."
         badgeText="System Admin"
       />
 
-      {saved && (
-        <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold rounded-2xl flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>System configuration parameters saved to MongoDB successfully.</span>
+      <PrototypeNotice>
+        System settings, admin invitations, cache tools, and backups are not connected to the database.
+      </PrototypeNotice>
+
+      {notice && (
+        <div className="p-4 bg-amber-50 border border-amber-200 text-amber-900 text-xs font-bold rounded-2xl flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-amber-700 shrink-0" />
+          <span>{notice}</span>
         </div>
       )}
 
-      {adminInviteSuccess && (
-        <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold rounded-2xl flex items-center gap-2">
-          <Mail className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>Admin account invitation email sent successfully with registration token.</span>
-        </div>
-      )}
-
-      {errorMessage && (
-        <div className="p-4 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-2xl flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-          <span>{errorMessage}</span>
-        </div>
-      )}
-
-      {/* Global Platform Controls */}
-      <form onSubmit={handleSaveConfig} className="bg-card-bg rounded-2xl border border-app-text/10 p-6 shadow-xs space-y-6">
+      <form onSubmit={showPrototypeNotice} className="bg-card-bg rounded-2xl border border-app-text/10 p-6 shadow-xs space-y-6">
         <div className="flex items-center justify-between pb-4 border-b border-app-text/10">
           <div className="flex items-center gap-2">
             <Sliders className="w-5 h-5 text-primary" />
@@ -238,10 +96,9 @@ export function SystemSettings() {
 
           <button
             type="submit"
-            disabled={isSaving}
-            className="px-4 py-2 bg-primary text-white text-xs font-bold rounded-xl hover:opacity-90 transition-opacity cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+            className="px-4 py-2 bg-primary text-white text-xs font-bold rounded-xl hover:opacity-90 transition-opacity cursor-pointer flex items-center gap-1.5"
           >
-            {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            <Save className="w-3.5 h-3.5" />
             <span>Save System Config</span>
           </button>
         </div>
@@ -341,7 +198,7 @@ export function SystemSettings() {
       </form>
 
       {/* Admin Account Provisioning Panel */}
-      <form onSubmit={handleInviteAdmin} className="bg-card-bg rounded-2xl border border-app-text/10 p-6 shadow-xs space-y-4">
+      <form onSubmit={showPrototypeNotice} className="bg-card-bg rounded-2xl border border-app-text/10 p-6 shadow-xs space-y-4">
         <div className="flex items-center gap-2 pb-3 border-b border-app-text/10">
           <UserPlus className="w-5 h-5 text-primary" />
           <div>
@@ -394,10 +251,9 @@ export function SystemSettings() {
         <div className="flex justify-end pt-2">
           <button
             type="submit"
-            disabled={isInvitingAdmin}
-            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
           >
-            {isInvitingAdmin ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />}
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
             <span>Send Admin Invitation</span>
           </button>
         </div>
@@ -405,7 +261,11 @@ export function SystemSettings() {
 
       {/* Database Operations Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <SecurityForm onSave={(data) => console.log('Admin password updated:', data)} />
+        <SecurityForm
+          passwordChangeAvailable={false}
+          twoFactorAvailable={false}
+          onSave={() => setNotice('Password changes are not available on this prototype screen.')}
+        />
         
         <div className="bg-card-bg rounded-2xl border border-app-text/10 p-6 shadow-xs space-y-4">
           <div className="flex items-center gap-2 pb-3 border-b border-app-text/10">
@@ -416,14 +276,14 @@ export function SystemSettings() {
           <div className="space-y-3">
             <div className="p-3 bg-app-bg rounded-xl border border-app-text/10 flex items-center justify-between text-xs">
               <span className="font-semibold text-app-text">MongoDB Database</span>
-              <span className="font-black text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-md">
+              <span className="font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
                 {dbStatus.mongoStatus}
               </span>
             </div>
 
             <div className="p-3 bg-app-bg rounded-xl border border-app-text/10 flex items-center justify-between text-xs">
               <span className="font-semibold text-app-text">Redis Match Cache</span>
-              <span className="font-black text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-md">
+              <span className="font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
                 {dbStatus.redisCache}
               </span>
             </div>
@@ -437,20 +297,18 @@ export function SystemSettings() {
           <div className="pt-2 flex gap-2">
             <button
               type="button"
-              disabled={isPurging}
-              onClick={handlePurgeCache}
-              className="flex-1 py-2 bg-app-bg hover:bg-app-text/5 text-app-text border border-app-text/10 font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+              onClick={showPrototypeNotice}
+              className="flex-1 py-2 bg-app-bg hover:bg-app-text/5 text-app-text border border-app-text/10 font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5"
             >
-              {isPurging ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 text-text-muted" />}
+              <RefreshCw className="w-3.5 h-3.5 text-text-muted" />
               <span>Purge Cache</span>
             </button>
             <button
               type="button"
-              disabled={isBackingUp}
-              onClick={handleTriggerBackup}
-              className="flex-1 py-2 bg-primary/10 hover:bg-primary/20 text-primary font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+              onClick={showPrototypeNotice}
+              className="flex-1 py-2 bg-primary/10 hover:bg-primary/20 text-primary font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5"
             >
-              {isBackingUp ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
+              <Database className="w-3.5 h-3.5" />
               <span>Trigger Backup</span>
             </button>
           </div>

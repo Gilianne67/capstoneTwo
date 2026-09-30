@@ -13,16 +13,7 @@ import {
 
 import PageHeader from '../../../components/common/PageHeader';
 import ConfirmModal from '../../../components/common/ConfirmModal';
-
-// Fallback Mock Data
-const MOCK_TAXONOMY = [
-  { _id: 'tag-01', name: 'STEM / Technology', category: 'Field of Study', usageCount: 42, isSystem: true },
-  { _id: 'tag-02', name: 'Undergraduate', category: 'Education Level', usageCount: 88, isSystem: true },
-  { _id: 'tag-03', name: 'Low-Income Household (4Ps)', category: 'Demographic', usageCount: 31, isSystem: false },
-  { _id: 'tag-04', name: 'Full Tuition Grant', category: 'Award Type', usageCount: 65, isSystem: true },
-  { _id: 'tag-05', name: 'Agriculture & Forestry', category: 'Field of Study', usageCount: 14, isSystem: false },
-  { _id: 'tag-06', name: 'PWD Candidate', category: 'Demographic', usageCount: 19, isSystem: false }
-];
+import PrototypeNotice from '../components/PrototypeNotice';
 
 const CATEGORIES = ['All', 'Field of Study', 'Education Level', 'Demographic', 'Award Type'];
 
@@ -57,17 +48,18 @@ export default function TaxonomyTags() {
 
         if (res.ok) {
           const data = await res.json();
+          const list = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
           if (isMounted) {
-            setTags(Array.isArray(data) ? data : MOCK_TAXONOMY);
+            setTags(list);
             setIsUsingFallback(false);
           }
         } else {
-          throw new Error('Taxonomy API error');
+          throw new Error('Taxonomy is not connected to the database.');
         }
       } catch (err) {
         if (isMounted) {
-          console.warn('Backend server offline. Displaying fallback taxonomy tags:', err);
-          setTags(MOCK_TAXONOMY);
+          console.warn('Taxonomy is prototype-only:', err);
+          setTags([]);
           setIsUsingFallback(true);
         }
       } finally {
@@ -105,7 +97,7 @@ export default function TaxonomyTags() {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.message || 'Server rejected tag creation');
+        throw new Error(errData.message || errData.error || 'This tag was not saved. Taxonomy is prototype-only.');
       }
 
       const createdTag = await res.json();
@@ -113,21 +105,7 @@ export default function TaxonomyTags() {
       setNewTagName('');
     } catch (err) {
       console.error('Create Tag Error:', err);
-      
-      if (isUsingFallback) {
-        // Fallback execution mode
-        const tempTag = {
-          _id: `tag-${Date.now()}`,
-          name: newTagName.trim(),
-          category: newTagCategory,
-          usageCount: 0,
-          isSystem: false
-        };
-        setTags(prev => [tempTag, ...prev]);
-        setNewTagName('');
-      } else {
-        setFormError(err.message);
-      }
+      setFormError(err.message || 'This tag was not saved. Taxonomy is prototype-only.');
     } finally {
       setIsAdding(false);
     }
@@ -151,28 +129,21 @@ export default function TaxonomyTags() {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.message || 'Delete failed on server');
+        throw new Error(errData.message || errData.error || 'Delete was not saved. Taxonomy is prototype-only.');
       }
 
-      // Safe update state ONLY on 2xx success
       setTags(prev => prev.filter(t => t._id !== tagToDelete._id));
       setTagToDelete(null);
     } catch (err) {
       console.error('Delete Tag Error:', err);
-
-      if (isUsingFallback) {
-        setTags(prev => prev.filter(t => t._id !== tagToDelete._id));
-        setTagToDelete(null);
-      } else {
-        setDeleteError(err.message);
-      }
+      setDeleteError(err.message || 'Delete was not saved. Taxonomy is prototype-only.');
     } finally {
       setIsDeleting(false);
     }
   };
 
   const filteredTags = tags.filter((t) => {
-    const matchesSearch = t.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = (t.name || '').toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCat = selectedCategory === 'All' || t.category === selectedCategory;
     return matchesSearch && matchesCat;
   });
@@ -199,11 +170,15 @@ export default function TaxonomyTags() {
         subtitle="Configure system-wide scholarship tags, degree categories, and search filters."
       />
 
+      <PrototypeNotice>
+        Taxonomy and tags are not stored in the database. Adding or deleting a tag on this screen does not change scholarship data.
+      </PrototypeNotice>
+
       {isUsingFallback && (
         <div className="bg-amber-500/10 border border-amber-500/20 text-amber-800 p-3.5 rounded-xl flex items-center justify-between text-xs font-medium">
           <span className="flex items-center gap-2">
             <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
-            Backend API unreachable. Displaying local fallback taxonomy tags.
+            Taxonomy is not connected to the database in this prototype.
           </span>
         </div>
       )}
