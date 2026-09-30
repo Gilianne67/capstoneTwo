@@ -11,6 +11,7 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
+import PrototypeNotice from '../components/PrototypeNotice';
 
 export function AdminNotifications() {
   const [logs, setLogs] = useState([]);
@@ -45,10 +46,11 @@ export function AdminNotifications() {
         headers: getAuthHeaders()
       });
 
-      if (!res.ok) throw new Error('Failed to load system audit logs.');
+      if (!res.ok) throw new Error('Notifications are not connected to the database in this prototype.');
 
       const data = await res.json();
-      setLogs(data.logs || data);
+      const list = Array.isArray(data) ? data : (Array.isArray(data.logs) ? data.logs : (Array.isArray(data.data) ? data.data : []));
+      setLogs(list);
     } catch (err) {
       console.error('Fetch Logs Error:', err);
       setErrorMessage(err.message);
@@ -61,49 +63,14 @@ export function AdminNotifications() {
     fetchAuditLogs();
   }, []);
 
-  // 2. POST: Dispatch Broadcast Announcement
-  const handleBroadcastSubmit = async (e) => {
+  const handleBroadcastSubmit = (e) => {
     e.preventDefault();
-    setIsBroadcasting(true);
-    setErrorMessage(null);
-
-    try {
-      const res = await fetch('/api/v1/admin/broadcasts', {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify(broadcast)
-      });
-
-      if (!res.ok) throw new Error('Failed to send broadcast announcement.');
-
-      setBroadcastSent(true);
-      setBroadcast({ target: 'All Users', title: '', message: '' });
-      setTimeout(() => setBroadcastSent(false), 4000);
-    } catch (err) {
-      setErrorMessage(err.message);
-    } finally {
-      setIsBroadcasting(false);
-    }
+    setBroadcastSent(false);
+    setErrorMessage('Broadcasts are prototype-only and were not sent.');
   };
 
-  // 3. PATCH: Mark All Logged Events as Read
-  const markAllRead = async () => {
-    setIsMarkingRead(true);
-    try {
-      const res = await fetch('/api/v1/admin/audit-logs/mark-read', {
-        method: 'PATCH',
-        headers: getAuthHeaders()
-      });
-
-      if (!res.ok) throw new Error('Failed to update logs status.');
-
-      // Optimistically update local state on success
-      setLogs(prev => prev.map(item => ({ ...item, read: true })));
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setIsMarkingRead(false);
-    }
+  const markAllRead = () => {
+    setErrorMessage('Marking notifications as read is prototype-only and was not saved.');
   };
 
   const filteredLogs = useMemo(() => {
@@ -148,6 +115,10 @@ export function AdminNotifications() {
           <span>Mark All Logged Events as Read</span>
         </button>
       </div>
+
+      <PrototypeNotice>
+        Notifications and broadcasts are not connected to the database. Sending a message or marking items read does not change stored data.
+      </PrototypeNotice>
 
       {errorMessage && (
         <div className="p-4 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-2xl flex items-center gap-2">

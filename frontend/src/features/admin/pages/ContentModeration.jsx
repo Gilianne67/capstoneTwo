@@ -15,43 +15,7 @@ import {
 import PageHeader from '../../../components/common/PageHeader';
 import StatusBadge from '../../../components/common/StatusBadge';
 import ConfirmModal from '../../../components/common/ConfirmModal';
-
-// Fallback Mock Flagged Data
-const MOCK_FLAGGED_CONTENT = [
-  {
-    _id: 'flag-01',
-    listingId: 'sch-101',
-    listingTitle: 'Guaranteed Overseas Student Grant 2026',
-    providerName: 'Unverified Global Study Corp',
-    reason: 'Suspicious processing fee requested prior to application.',
-    reporterRole: 'Student',
-    status: 'Pending Review',
-    flaggedAt: '2026-07-28',
-    severity: 'High'
-  },
-  {
-    _id: 'flag-02',
-    listingId: 'sch-102',
-    listingTitle: 'National Tech Scholars Allowance',
-    providerName: 'Apex Student Educational Trust',
-    reason: 'Expired application link and inaccurate grant value listed.',
-    reporterRole: 'Student',
-    status: 'Pending Review',
-    flaggedAt: '2026-07-26',
-    severity: 'Medium'
-  },
-  {
-    _id: 'flag-03',
-    listingId: 'sch-103',
-    listingTitle: 'LGU Provincial Excellence Assistance',
-    providerName: 'Provincial LGU Board',
-    reason: 'Duplicate listing entry in catalog.',
-    reporterRole: 'Provider',
-    status: 'Resolved',
-    flaggedAt: '2026-07-21',
-    severity: 'Low'
-  }
-];
+import PrototypeNotice from '../components/PrototypeNotice';
 
 export default function ContentModeration() {
   const [reports, setReports] = useState([]);
@@ -76,17 +40,18 @@ export default function ContentModeration() {
 
         if (res.ok) {
           const data = await res.json();
+          const list = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
           if (isMounted) {
-            setReports(Array.isArray(data) ? data : MOCK_FLAGGED_CONTENT);
+            setReports(list);
             setIsUsingFallback(false);
           }
         } else {
-          throw new Error('Content Moderation API error');
+          throw new Error('Content moderation is not connected to the database.');
         }
       } catch (err) {
         if (isMounted) {
-          console.warn('Backend server offline. Displaying fallback flagged reports:', err);
-          setReports(MOCK_FLAGGED_CONTENT);
+          console.warn('Content moderation is prototype-only:', err);
+          setReports([]);
           setIsUsingFallback(true);
         }
       } finally {
@@ -130,29 +95,22 @@ export default function ContentModeration() {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.message || 'Moderation action failed on server');
+        throw new Error(errData.message || errData.error || 'Moderation is prototype-only and was not saved.');
       }
 
-      // Safe State Update only after 2xx HTTP response
       setReports(prev => prev.map(r => r._id === id ? { ...r, status: newStatus, resolution: resolutionAction } : r));
       setSelectedAction(null);
     } catch (err) {
       console.error('Moderation API Error:', err);
-      setActionError(err.message);
-
-      // Fallback update path for offline demonstration mode
-      if (isUsingFallback) {
-        setReports(prev => prev.map(r => r._id === id ? { ...r, status: newStatus } : r));
-        setSelectedAction(null);
-      }
+      setActionError(err.message || 'This action was not saved. Content moderation is prototype-only.');
     } finally {
       setIsProcessing(false);
     }
   };
 
   const filteredReports = reports.filter((r) => {
-    const matchesSearch = r.listingTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          r.providerName.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = (r.listingTitle || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          (r.providerName || '').toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'All' || r.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -179,11 +137,15 @@ export default function ContentModeration() {
         subtitle="Review user reports, take down flagged scam listings, and enforce platform standards."
       />
 
+      <PrototypeNotice>
+        Content moderation is not connected to the database. No reports are stored, and resolve or remove actions are not saved.
+      </PrototypeNotice>
+
       {isUsingFallback && (
         <div className="bg-amber-500/10 border border-amber-500/20 text-amber-800 p-3.5 rounded-xl flex items-center justify-between text-xs font-medium">
           <span className="flex items-center gap-2">
             <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
-            Backend API unreachable. Displaying local fallback moderation queue.
+            Content moderation has no database records in this prototype.
           </span>
         </div>
       )}

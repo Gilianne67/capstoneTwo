@@ -1,4 +1,6 @@
 const assert = require('assert');
+const path = require('path');
+const { pathToFileURL } = require('url');
 const { CATALOG_INDEX } = require('../utils/courseCanonical');
 const {
   passesHardFilters,
@@ -6,6 +8,10 @@ const {
   rankScholarships,
   classifyScore
 } = require('../services/matchingService');
+const {
+  isProfileComplete,
+  rankIfProfileComplete
+} = require('../utils/studentProfileCompletion');
 
 const FIXED_NOW = new Date('2026-09-26T04:00:00.000Z');
 
@@ -902,4 +908,81 @@ test('preferred tag ranks a match and still accepts a student without it', () =>
   assert.strictEqual(scholarship.criteriaWeights.tagsWeight, 0.2);
 });
 
-console.log(`matching engine tests passed (${passed})`);
+const rankList = (student, scholarships) =>
+  rankScholarships(student, scholarships, CATALOG_INDEX, FIXED_NOW);
+
+test('incomplete profile returns no matches', () => {
+  const student = baseStudent({
+    dateOfBirth: '2008-06-01',
+    yearLevel: '1st Year',
+    province: '',
+    municipalityCity: ''
+  });
+  const scholarships = [baseScholarship()];
+
+  assert.strictEqual(isProfileComplete(student), false);
+  assert.ok(rankList(student, scholarships).length > 0);
+  assert.deepStrictEqual(
+    rankIfProfileComplete(student, scholarships, rankList),
+    []
+  );
+});
+
+test('complete profile matching still works', () => {
+  const student = baseStudent({
+    dateOfBirth: '2004-01-15',
+    yearLevel: '2nd Year'
+  });
+  const scholarships = [baseScholarship({ name: 'Open Match' })];
+  const direct = rankList(student, scholarships);
+  const gated = rankIfProfileComplete(student, scholarships, rankList);
+
+  assert.strictEqual(isProfileComplete(student), true);
+  assert.strictEqual(gated.length, 1);
+  assert.strictEqual(direct.length, 1);
+  assert.strictEqual(gated[0].totalScore, direct[0].totalScore);
+  assert.strictEqual(gated[0].gpaScore, direct[0].gpaScore);
+  assert.strictEqual(gated[0].incomeScore, direct[0].incomeScore);
+  assert.strictEqual(gated[0].tagsScore, direct[0].tagsScore);
+  assert.deepStrictEqual(gated[0].weights, direct[0].weights);
+  assert.strictEqual(gated[0].classification, direct[0].classification);
+  assert.strictEqual(gated[0].scholarship.name, 'Open Match');
+});
+
+const assertFrontendRulesMatch = async () => {
+  const frontendPath = path.resolve(
+    __dirname,
+    '../../../frontend/src/features/student/profileCompletion.js'
+  );
+  const { isProfileComplete: frontendIsProfileComplete } = await import(
+    pathToFileURL(frontendPath).href
+  );
+  const samples = [
+    baseStudent({
+      dateOfBirth: '2008-06-01',
+      yearLevel: '1st Year',
+      province: '',
+      municipalityCity: ''
+    }),
+    baseStudent({
+      dateOfBirth: '2004-01-15',
+      yearLevel: '2nd Year'
+    })
+  ];
+
+  samples.forEach((sample) => {
+    assert.strictEqual(
+      frontendIsProfileComplete(sample),
+      isProfileComplete(sample)
+    );
+  });
+};
+
+assertFrontendRulesMatch()
+  .then(() => {
+    console.log(`matching engine tests passed (${passed})`);
+  })
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });

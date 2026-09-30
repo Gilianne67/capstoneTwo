@@ -1,5 +1,6 @@
 const StudentProfile = require('../models/StudentProfile');
 const { getRankedScholarships } = require('../services/matchingService');
+const { isProfileComplete } = require('../utils/studentProfileCompletion');
 
 exports.getMatches = async (req, res) => {
   try {
@@ -11,6 +12,15 @@ exports.getMatches = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Student profile not found',
+      });
+    }
+
+    if (!isProfileComplete(studentProfile)) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        matches: [],
+        profileComplete: false,
       });
     }
 

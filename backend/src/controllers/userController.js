@@ -241,16 +241,44 @@ exports.approveConsent = async (req, res) => {
 // POST /api/v1/consent/resend
 exports.resendConsentEmail = async (req, res) => {
   try {
-    const { userId, guardianEmail } = req.body;
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Not authorized to access this route',
+      });
+    }
 
-    const user = await User.findById(userId);
+    if (req.user.role !== 'student' || req.user.status !== 'pending_consent') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only a student awaiting guardian consent can resend the consent email.',
+      });
+    }
+
+    const currentId = String(req.user._id || req.user.id);
+    const requestedId = req.body?.userId ? String(req.body.userId) : currentId;
+    if (requestedId !== currentId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only resend consent for your own account.',
+      });
+    }
+
+    const user = await User.findById(currentId);
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
-    const targetEmail = (guardianEmail || user.guardianEmail)?.trim().toLowerCase();
+    const targetEmail = user.guardianEmail?.trim().toLowerCase();
+    const requestedEmail = req.body?.guardianEmail?.trim().toLowerCase();
     if (!targetEmail) {
       return res.status(400).json({ success: false, message: 'Guardian email missing.' });
+    }
+    if (requestedEmail && requestedEmail !== targetEmail) {
+      return res.status(400).json({
+        success: false,
+        message: 'Guardian email does not match the address on this account.',
+      });
     }
 
     const consentToken = jwt.sign(

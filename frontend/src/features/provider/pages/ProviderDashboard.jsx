@@ -26,49 +26,7 @@ import StatusBadge from '../../../components/common/StatusBadge';
 // Create / Edit Listing View Component
 import CreateListing from './CreateListing';
 import { formatDeadlineDate } from '../../../utils/deadline';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
-
-// ==========================================
-// FALLBACK MOCK DATA & IN-MEMORY TEST STORE
-// ==========================================
-const MOCK_PROVIDER_USER = {
-  name: 'Scholarship Provider',
-  role: 'Scholarship Provider'
-};
-
-const INITIAL_MOCK_LISTINGS = [
-  { 
-    _id: '1', 
-    title: 'CHED Regional Merit Award 2026', 
-    amount: '₱50,000', 
-    status: 'Open', 
-    impressions: 5100, 
-    clicks: 720, 
-    deadline: '2026-08-30',
-    applicationUrl: 'https://ched.gov.ph/apply'
-  },
-  { 
-    _id: '2', 
-    title: 'Tertiary Education Subsidy (TES)', 
-    amount: '₱40,000', 
-    status: 'Open', 
-    impressions: 3320, 
-    clicks: 400, 
-    deadline: '2026-09-15',
-    applicationUrl: 'https://unifast.gov.ph/tes'
-  },
-  { 
-    _id: '3', 
-    title: 'Municipal Honor Graduate Grant', 
-    amount: '₱15,000', 
-    status: 'Closed', 
-    impressions: 1200, 
-    clicks: 85, 
-    deadline: '2026-05-01',
-    applicationUrl: 'https://pasig.gov.ph/grant'
-  },
-];
+import { API_BASE_URL } from '../../../config/api';
 
 export default function ProviderDashboard() {
   const navigate = useNavigate();
@@ -78,7 +36,7 @@ export default function ProviderDashboard() {
 
 
   const [isLoading, setIsLoading] = useState(true);
-  const [isUsingFallback, setIsUsingFallback] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   // Modal & Toast Notification States
   const [confirmModal, setConfirmModal] = useState({
@@ -92,8 +50,11 @@ export default function ProviderDashboard() {
   const [toast, setToast] = useState(null); // { type: 'success'|'error'|'info', message: string }
 
   // Dashboard Data State
-  const [providerUser, setProviderUser] = useState(MOCK_PROVIDER_USER);
-  const [listings, setListings] = useState(INITIAL_MOCK_LISTINGS);
+  const [providerUser, setProviderUser] = useState({
+    name: 'Provider',
+    role: 'Scholarship Provider'
+  });
+  const [listings, setListings] = useState([]);
 
   // Helper to show floating toast messages
   const showToast = (message, type = 'success') => {
@@ -116,6 +77,7 @@ export default function ProviderDashboard() {
  
   const fetchDashboardData = useCallback(async () => {
   setIsLoading(true);
+  setLoadError('');
 
   try {
     const token = localStorage.getItem('token')
@@ -157,19 +119,11 @@ export default function ProviderDashboard() {
     const fetchedListings = listingsData.scholarships || [];
 
     setListings(fetchedListings);
-    setIsUsingFallback(false);
 
    } catch (error) {
     console.error('Failed to fetch provider dashboard:', error);
-
-    setIsUsingFallback(true);
-
-    // Keep existing mock data as fallback
-    setListings((prevListings) => {
-      return prevListings.length > 0
-        ? prevListings
-        : INITIAL_MOCK_LISTINGS;
-    });
+    setListings([]);
+    setLoadError(error.message || 'Unable to load your scholarship listings.');
 
   } finally {
     setIsLoading(false);
@@ -242,7 +196,7 @@ useEffect(() => {
       const token = localStorage.getItem('token');
       
       const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/scholarships/${listingId}/archive`,
+        `${API_BASE_URL}/scholarships/${listingId}/archive`,
         {
           method: 'PATCH',
           headers: {
@@ -254,12 +208,8 @@ useEffect(() => {
       if (!res.ok) throw new Error('Delete operation failed on server');
       showToast(`"${title}" has been deleted.`, 'success');
       fetchDashboardData();
-    } catch  {
-      // Local Mock Execution if API Offline
-        setListings((prev) => {
-            return prev.filter((item) => item._id !== listingId);
-          });
-      showToast(`"${title}" removed from listing (Local State).`, 'success');
+    } catch (error) {
+      showToast(error.message || 'Unable to archive this scholarship.', 'error');
     }
   };
 
@@ -443,18 +393,18 @@ const recentScholarships = [...listings]
       />
 
       {/* API Offline Warning Banner */}
-      {isUsingFallback && (
-        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-800 p-3.5 rounded-xl flex items-center justify-between text-xs font-medium">
+      {loadError && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 p-3.5 rounded-xl flex items-center justify-between text-xs font-medium">
           <span className="flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
-            Backend API offline/unreachable. Mock API active — local interactions (Status toggle, Edit, Delete) will update live in state.
+            <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
+            {loadError}
           </span>
           <button 
             type="button"
             onClick={fetchDashboardData}
-            className="flex items-center gap-1 text-[11px] bg-amber-200/60 hover:bg-amber-200 px-2.5 py-1 rounded-md transition-colors cursor-pointer font-bold"
+            className="flex items-center gap-1 text-[11px] bg-rose-100 hover:bg-rose-200 px-2.5 py-1 rounded-md transition-colors cursor-pointer font-bold"
           >
-            <RefreshCw className="h-3 w-3" /> Retry Connection
+            <RefreshCw className="h-3 w-3" /> Retry
           </button>
         </div>
       )}
