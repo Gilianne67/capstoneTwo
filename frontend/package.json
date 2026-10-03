@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-  "build": "vite build, concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+  "build": "vite build",
   "preview": "vite preview",
     "dev:server": "npm run dev --prefix server",
     "dev:client": "npm run dev --prefix client",
