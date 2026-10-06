@@ -10,11 +10,16 @@ const morgan = require('morgan');
 const mongoose = require('mongoose');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
+
 // Load Environment Variables
 dotenv.config();
 
 // Initialize Express Application
 const app = express();
+
+// Enable proxy trust for Railway / Vercel reverse proxies
+// (Fixes express-rate-limit ERR_ERL_UNEXPECTED_X_FORWARDED_FOR error)
+app.set('trust proxy', 1);
 
 // Route & Middleware Imports
 const authRoutes = require('./routes/authRoutes');
@@ -39,6 +44,8 @@ app.use(
 const allowedOrigins = [
   process.env.CLIENT_URL,
   process.env.FRONTEND_URL,
+  'https://iskolarmatch.up.railway.app',
+  'https://iskolarmatch-backend.up.railway.app',
   'http://localhost:3000',
   'http://localhost:5173',
   'http://localhost:5174',
@@ -46,8 +53,21 @@ const allowedOrigins = [
 
 app.use(
   cors({
-    origin: allowedOrigins,
+    origin: function (origin, callback) {
+      // Allow requests with no origin (mobile apps, Postman, curl)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.indexOf(origin) !== -1) {
+        return callback(null, true);
+      }
+      // Allow any Vercel preview links (*.vercel.app)
+      if (/^https:\/\/.*\.vercel\.app$/.test(origin)) {
+        return callback(null, true);
+      }
+      return callback(null, true); // Permissive for staging/testing
+    },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   })
 );
 
@@ -68,6 +88,11 @@ const limiter = rateLimit({
   message: { success: false, error: 'Too many requests from this IP, please try again later.' },
 });
 app.use('/api/v1', limiter);
+
+// Root Endpoint (Prevents 404 when hitting base URL)
+app.get('/', (req, res) => {
+  res.status(200).json({ status: 'success', message: 'IskolarMatch API Online' });
+});
 
 // Health Check Endpoint
 app.get('/api/v1/health', (req, res) => {

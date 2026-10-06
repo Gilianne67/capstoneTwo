@@ -70,6 +70,16 @@ app.use('/api/v1/consent', consentRoutes);
 
 app.use(morgan('[0] :method :url :status :response-time ms - :res[content-length]'));
 
+app.get('/', (req, res) => {
+  res.status(200).json({
+    status: 'success',
+    message: 'IskolarMatch API is up and running on Railway!'
+  });
+});
+
+
 app.use(express.json());
+
+
 
 module.exports = app;
