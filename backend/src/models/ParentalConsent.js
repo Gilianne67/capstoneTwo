@@ -9,11 +9,11 @@ const ParentalConsentSchema = new mongoose.Schema(
     },
     studentName: {
       type: String,
-      required: [true, 'Student name is required']
+      default: 'Student'
     },
     age: {
       type: Number,
-      required: [true, 'Student age is required']
+      default: 17
     },
     guardianName: {
       type: String,
@@ -36,12 +36,18 @@ const ParentalConsentSchema = new mongoose.Schema(
     },
     documentUrl: {
       type: String,
-      required: [true, 'Signed consent document URL is required']
+      default: 'PENDING_TOKEN_VERIFICATION'
+    },
+    consentToken: {
+      type: String
     },
     status: {
       type: String,
-      enum: ['Pending', 'Verified', 'Rejected'],
-      default: 'Pending'
+      enum: ['pending', 'approved', 'rejected', 'Pending', 'Verified', 'Rejected'],
+      default: 'pending'
+    },
+    approvedAt: {
+      type: Date
     },
     verifiedAt: {
       type: Date

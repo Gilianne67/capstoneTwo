@@ -1,6 +1,5 @@
 const nodemailer = require('nodemailer');
 
-
 /**
  * Core transporter helper function
  */
@@ -41,7 +40,76 @@ const sendEmail = async (options) => {
 };
 
 /**
- * 2. Provider Onboarding Notification (Sent TO ADMIN)
+ * 2. Account Email Verification Dispatcher
+ */
+const sendVerificationEmail = async (email, name, verifyUrl) => {
+  const transporter = createTransporter();
+  const user = process.env.SMTP_EMAIL || process.env.EMAIL_USER;
+
+  const htmlContent = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+      <h2 style="color: #2563eb; margin-top: 0;">Verify Your IskolarMatch Account</h2>
+      <p style="color: #334155; font-size: 14px;">Hi ${name || 'Student'},</p>
+      <p style="color: #475569; font-size: 14px; line-height: 1.6;">
+        Welcome to IskolarMatch! Please click the button below to verify your email address and activate your account.
+      </p>
+      <div style="text-align: center; margin: 24px 0;">
+        <a href="${verifyUrl}" style="background-color: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; font-size: 14px;">Verify Email Address</a>
+      </div>
+      <p style="color: #64748b; font-size: 12px; line-height: 1.5;">
+        If you did not request this verification, please ignore this email. This link will expire in 2 hours.
+      </p>
+      <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 24px 0;" />
+      <p style="color: #94a3b8; font-size: 12px; text-align: center;">&copy; ${new Date().getFullYear()} IskolarMatch. All rights reserved.</p>
+    </div>
+  `;
+
+  return await transporter.sendMail({
+    from: `${process.env.FROM_NAME || 'IskolarMatch'} <${process.env.FROM_EMAIL || user}>`,
+    to: email,
+    subject: 'Verify Your IskolarMatch Account',
+    html: htmlContent,
+  });
+};
+
+/**
+ * 3. Account Security Lockout Notification
+ */
+const sendAccountLockoutEmail = async (email, name, unlockUrl) => {
+  const transporter = createTransporter();
+  const user = process.env.SMTP_EMAIL || process.env.EMAIL_USER;
+
+  const htmlContent = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+      <h2 style="color: #dc2626; margin-top: 0;">Account Security Alert</h2>
+      <p style="color: #334155; font-size: 14px;">Hi ${name || 'User'},</p>
+      <p style="color: #475569; font-size: 14px; line-height: 1.6;">
+        Your IskolarMatch account has been temporarily locked due to multiple consecutive failed login attempts.
+      </p>
+      <p style="color: #475569; font-size: 14px; line-height: 1.6;">
+        If this was you, you can securely unlock your account and reset your password by clicking the button below:
+      </p>
+      <div style="text-align: center; margin: 24px 0;">
+        <a href="${unlockUrl}" style="background-color: #dc2626; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; font-size: 14px;">Unlock Account</a>
+      </div>
+      <p style="color: #64748b; font-size: 12px; line-height: 1.5;">
+        If you did not attempt to sign in, please secure your account immediately.
+      </p>
+      <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 24px 0;" />
+      <p style="color: #94a3b8; font-size: 12px; text-align: center;">&copy; ${new Date().getFullYear()} IskolarMatch. All rights reserved.</p>
+    </div>
+  `;
+
+  return await transporter.sendMail({
+    from: `${process.env.FROM_NAME || 'IskolarMatch'} <${process.env.FROM_EMAIL || user}>`,
+    to: email,
+    subject: 'Security Alert: Account Temporarily Locked',
+    html: htmlContent,
+  });
+};
+
+/**
+ * 4. Provider Onboarding Notification (Sent TO ADMIN)
  */
 const sendProviderAdminNotification = async (providerData = {}, fileInfo = null) => {
   const transporter = createTransporter();
@@ -138,7 +206,7 @@ const sendProviderAdminNotification = async (providerData = {}, fileInfo = null)
 };
 
 /**
- * 3. Provider Onboarding Confirmation (Sent TO PROVIDER)
+ * 5. Provider Onboarding Confirmation (Sent TO PROVIDER)
  */
 const sendProviderConfirmation = async (repEmail, repName, institutionName) => {
   const transporter = createTransporter();
@@ -172,6 +240,8 @@ const sendProviderConfirmation = async (repEmail, repName, institutionName) => {
 
 module.exports = {
   sendEmail,
+  sendVerificationEmail,
+  sendAccountLockoutEmail,
   sendProviderAdminNotification,
   sendProviderConfirmation,
 };

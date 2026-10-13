@@ -7,7 +7,7 @@ const isLogoutRequest = (req) =>
   req.method === 'GET' && String(req.originalUrl || req.url || '').split('?')[0].endsWith('/auth/logout');
 
 const rejectedProviderMessage = (provider) =>
-  `Your provider application was rejected. Reason: ${provider?.rejectionReason || 'Contact support for details.'}`;
+  `Your provider application was declined. Reason: ${provider?.rejectionReason || 'Please contact support for more details.'}`;
 
 /**
  * Authentication Middleware
@@ -27,7 +27,7 @@ const protect = async (req, res, next) => {
   if (!token) {
     return res
       .status(401)
-      .json({ success: false, message: 'Not authorized to access this route' });
+      .json({ success: false, message: 'Please log in to continue.' });
   }
 
   // Safe check for token revocation (Redis / Blacklist)
@@ -42,7 +42,7 @@ const protect = async (req, res, next) => {
       if (blacklisted) {
         return res.status(401).json({
           success: false,
-          message: 'Token has been revoked. Please log in again.',
+          message: 'Your session has expired. Please log in again.',
         });
       }
     }
@@ -61,7 +61,7 @@ const protect = async (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({
         success: false,
-        message: 'User belonging to this token no longer exists',
+        message: 'We could not find your account. Please sign up or log in again.',
       });
     }
 
@@ -82,7 +82,7 @@ const protect = async (req, res, next) => {
   } catch (err) {
     return res
       .status(401)
-      .json({ success: false, message: 'Token verification failed' });
+      .json({ success: false, message: 'Your session has expired or is invalid. Please log in again.' });
   }
 };
 
@@ -92,15 +92,13 @@ const isStudentPendingConsent = (user) =>
 /**
  * Authorization Middleware
  * Restricts access to specific user roles.
- * A student waiting for guardian consent keeps the existing token, but
- * cannot call student or matching routes until status is active again.
  */
 const authorize = (...roles) => {
   function authorizeRequest(req, res, next) {
     if (!req.user) {
       return res.status(401).json({
         success: false,
-        message: 'Not authorized',
+        message: 'Please log in to access this page.',
       });
     }
 
@@ -109,14 +107,14 @@ const authorize = (...roles) => {
         success: false,
         requiresConsent: true,
         message:
-          'Your account is pending parental consent. Please ask your parent/guardian to approve the request sent to their email.',
+          'Your account is waiting for parental consent. Please check your parent or guardian email for the approval link.',
       });
     }
 
     if (!roles.includes(req.user.role)) {
       return res.status(403).json({
         success: false,
-        message: 'User is not authorized to access this route',
+        message: 'You do not have permission to access this page.',
       });
     }
 

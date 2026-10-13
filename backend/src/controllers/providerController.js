@@ -8,6 +8,7 @@ const {
   sendProviderAdminNotification,
   sendProviderConfirmation
 } = require('../utils/sendEmail');
+const { recordAuditLog } = require('./auditController');
 
 // Helper to safely resolve user ID from Passport / JWT middleware
 const getUserId = (user) => user?._id || user?.id;
@@ -57,7 +58,22 @@ exports.updateProfile = async (req, res) => {
     const attemptedVerificationChange = verificationFields.some((field) =>
       Object.prototype.hasOwnProperty.call(req.body, field)
     );
+    
     if (attemptedVerificationChange) {
+      // 📝 AUDIT LOG: Unauthorized Verification Alteration Attempt
+      const actorName = req.user 
+        ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
+        : provider.institutionName || 'Provider User';
+
+      await recordAuditLog({
+        actor: actorName,
+        role: 'Provider',
+        action: 'SECURITY_ALERT',
+        details: `Provider (ID: ${provider._id}) attempted unauthorized self-modification of verification status.`,
+        ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+        severity: 'Warning'
+      });
+
       return res.status(403).json({
         success: false,
         message: 'Providers cannot change their own verification status.',
@@ -87,6 +103,20 @@ exports.updateProfile = async (req, res) => {
     }
 
     await provider.save();
+
+    // 📝 AUDIT LOG: Provider Profile Updated
+    const actorName = req.user 
+      ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
+      : provider.institutionName || 'Provider User';
+
+    await recordAuditLog({
+      actor: actorName,
+      role: 'Provider',
+      action: 'PROVIDER_PROFILE_UPDATE',
+      details: `Provider "${provider.institutionName}" updated organization profile details.`,
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+      severity: 'Info'
+    });
 
     res.status(200).json({
       success: true,
@@ -254,6 +284,20 @@ exports.handleOnboarding = async (req, res) => {
     // 5. Update User onboarding state
     await User.findByIdAndUpdate(userId, { isOnboarded: true });
 
+    // 📝 AUDIT LOG: Provider Verification Document Submission
+    const actorName = req.user 
+      ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
+      : provider.institutionName || 'Provider User';
+
+    await recordAuditLog({
+      actor: actorName,
+      role: 'Provider',
+      action: 'PROVIDER_VERIFICATION_SUBMITTED',
+      details: `Provider "${provider.institutionName}" submitted verification documents (${documentType || 'SEC / DTI Registration'}). Status set to Pending Review.`,
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+      severity: 'Info'
+    });
+
     // 6. Send Email Notifications
     const providerData = {
       institutionName: provider.institutionName,
@@ -287,6 +331,7 @@ exports.handleOnboarding = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: 'Verification documents submitted successfully. Account pending admin review.',
+      redirectTo: '/provider/dashboard', // 🚀 Routes provider directly into their module/dashboard
       provider,
     });
   } catch (error) {

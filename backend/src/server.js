@@ -17,7 +17,7 @@ dotenv.config();
 // Initialize Express Application
 const app = express();
 
-// Enable proxy trust for Railway / Vercel reverse proxies
+// Enable proxy trust for Railway reverse proxies
 // (Fixes express-rate-limit ERR_ERL_UNEXPECTED_X_FORWARDED_FOR error)
 app.set('trust proxy', 1);
 
@@ -32,6 +32,9 @@ const studentRoutes = require('./routes/studentRoutes');
 const matchingRoutes = require('./routes/matchingRoutes');
 const documentRoutes = require('./routes/documentRoutes');
 const errorHandler = require('./middleware/error');
+const moderationRoutes = require('./routes/moderationRoutes');
+const taxonomyRoutes = require('./routes/taxonomyRoutes');
+const auditRoutes = require('./routes/auditRoutes');
 
 // Security Middlewares
 app.use(
@@ -110,8 +113,11 @@ app.use('/api/v1/scholarships', scholarshipRoutes);
 app.use('/api/v1/students', studentRoutes);
 app.use('/api/v1/matching', matchingRoutes);
 app.use('/api/v1/documents', documentRoutes);
+app.use('/api/v1/admin/moderation', moderationRoutes); 
+app.use('/api/v1/admin/taxonomy', taxonomyRoutes);
+app.use('/api/v1/admin/audit-logs', auditRoutes);
 
-// Centralized Error Handling Middleware (must be registered after routes)
+// Centralized Error Handling Middleware
 app.use(errorHandler);
 
 // Database Connection & Server Initialization
