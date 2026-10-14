@@ -43,10 +43,28 @@ const UserSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+
+    // 🔒 Verification Gatekeeper Fields
     isVerified: {
       type: Boolean,
       default: false,
     },
+    emailVerificationToken: {
+      type: String,
+    },
+    emailVerificationExpire: {
+      type: Date,
+    },
+
+    // Account Protection & Security Lockout fields
+    failedLoginAttempts: {
+      type: Number,
+      default: 0,
+    },
+    lockUntil: {
+      type: Date,
+    },
+
     // Onboarding & Parental Consent fields
     dob: { type: Date },
     course: { type: String, trim: true },
@@ -81,7 +99,8 @@ UserSchema.methods.getSignedJwtToken = function () {
       id: this._id.toString(), 
       role: this.role,
       status: this.status,
-      isOnboarded: this.isOnboarded
+      isOnboarded: this.isOnboarded,
+      isVerified: this.isVerified
     },
     process.env.JWT_SECRET || 'fallback_secret',
     { expiresIn: process.env.JWT_EXPIRE || '30d' }

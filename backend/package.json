@@ -8,7 +8,7 @@
     "seed:courses": "node src/scripts/seedCourseAliases.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "seed": "node src/scripts/seedScholarships.js"
+    "seed:audit": "node src/scripts/seedAuditLogs.js"
   },
   "keywords": [],
   "author": "",
@@ -28,7 +28,8 @@
     "morgan": "^1.12.1",
     "multer": "^2.4.0",
     "multer-gridfs-storage": "^6.2.1",
-    "nodemailer": "^10.0.10"
+    "nodemailer": "^10.0.10",
+    "redis": "^6.3.0"
   },
   "devDependencies": {
     "@express-rate-limit/tsconfig": "^1.0.5",

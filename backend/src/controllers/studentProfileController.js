@@ -1,5 +1,6 @@
 const StudentProfile = require('../models/StudentProfile');
 const { safeNotifyProfileChange } = require('../services/notificationService');
+const { recordAuditLog } = require('./auditController');
 
 // Create a new student profile for the logged-in user
 exports.createProfile = async (req, res) => {
@@ -16,8 +17,23 @@ exports.createProfile = async (req, res) => {
 
     await safeNotifyProfileChange(null, profile);
 
+    // 📝 AUDIT LOG: Student Profile Created
+    const actorName = req.user 
+      ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
+      : 'Student User';
+
+    await recordAuditLog({
+      actor: actorName,
+      role: 'Student',
+      action: 'PROFILE_CREATE',
+      details: `Student (${req.user.email}) created their profile. Course: ${profile.course || 'N/A'}, Year: ${profile.yearLevel || 'N/A'}.`,
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+      severity: 'Info'
+    });
+
     res.status(201).json({ success: true, profile });
   } catch (error) {
+    console.error('Error creating student profile:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -32,6 +48,7 @@ exports.getProfile = async (req, res) => {
 
     res.status(200).json({ success: true, profile });
   } catch (error) {
+    console.error('Error fetching student profile:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -57,8 +74,23 @@ exports.updateProfile = async (req, res) => {
 
     await safeNotifyProfileChange(existingProfile, profile);
 
+    // 📝 AUDIT LOG: Student Profile Updated
+    const actorName = req.user 
+      ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
+      : 'Student User';
+
+    await recordAuditLog({
+      actor: actorName,
+      role: 'Student',
+      action: 'PROFILE_UPDATE',
+      details: `Student (${req.user.email}) updated profile details (GWA: ${profile.gwa || 'N/A'}, Income Bracket: ${profile.incomeBracket || 'N/A'}).`,
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+      severity: 'Info'
+    });
+
     res.status(200).json({ success: true, profile });
   } catch (error) {
+    console.error('Error updating student profile:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
