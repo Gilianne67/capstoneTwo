@@ -35,6 +35,7 @@ const errorHandler = require('./middleware/error');
 const moderationRoutes = require('./routes/moderationRoutes');
 const taxonomyRoutes = require('./routes/taxonomyRoutes');
 const auditRoutes = require('./routes/auditRoutes');
+const { protect } = require('./middleware/auth'); // Added auth protection middleware
 
 // Security Middlewares
 app.use(
@@ -116,6 +117,14 @@ app.use('/api/v1/documents', documentRoutes);
 app.use('/api/v1/admin/moderation', moderationRoutes); 
 app.use('/api/v1/admin/taxonomy', taxonomyRoutes);
 app.use('/api/v1/admin/audit-logs', auditRoutes);
+
+// Quick fallback endpoint for notifications (prevents 404 crash on frontend load)
+app.get('/api/v1/notifications/unread-count', protect, (req, res) => {
+  res.status(200).json({
+    success: true,
+    count: 0,
+  });
+});
 
 // Centralized Error Handling Middleware
 app.use(errorHandler);
