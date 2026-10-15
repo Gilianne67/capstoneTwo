@@ -12,30 +12,6 @@ const { sendAccountLockoutEmail, sendVerificationEmail } = require('../utils/sen
 const GENERIC_AUTH_ERROR = 'Invalid credentials or account temporarily locked. Please try again later.';
 
 
-// Helper: Verify email domain has active Mail Exchange (MX) DNS records
-const verifyRealEmailDomain = async (email) => {
-  const domain = email.split('@')[1]?.toLowerCase().trim();
-  if (!domain) return false;
-
-  // 1. Block disposable email providers
-  if (DISPOSABLE_EMAIL_DOMAINS.has(domain)) {
-    return false;
-  }
-
-  // 2. Bypass DNS resolution for local/test domains during development or automated tests
-  if (process.env.NODE_ENV === 'test' || domain === 'localhost' || domain.endsWith('.local')) {
-    return true;
-  }
-
-  // 3. Perform live DNS MX Record Lookup
-  try {
-    const mxRecords = await dns.resolveMx(domain);
-    return Array.isArray(mxRecords) && mxRecords.length > 0;
-  } catch (err) {
-    return false;
-  }
-};
-
 // Helper: Generate and save cryptographic email verification token (expires in 2 hours)
 const generateVerificationToken = async (user) => {
   const rawToken = crypto.randomBytes(32).toString('hex');
@@ -141,13 +117,8 @@ exports.register = asyncHandler(async (req, res, next) => {
 
   const normalizedEmail = email ? email.toLowerCase().trim() : '';
 
-  // 3. DNS Lookup & Email Validation
-  const isValidRealEmail = await verifyRealEmailDomain(normalizedEmail);
-  if (!isValidRealEmail) {
-    return next(new ErrorResponse('Please provide a valid, deliverable email address from an active domain.', 400));
-  }
-
-  // 4. Check for existing user (Anti-enumeration friendly handling)
+  
+  // 3. Check for existing user (Anti-enumeration friendly handling)
   const userExists = await User.findOne({ email: normalizedEmail });
   if (userExists) {
     return res.status(200).json({
@@ -158,7 +129,7 @@ exports.register = asyncHandler(async (req, res, next) => {
     });
   }
 
-  // 5. Create User Record with isVerified = false & isOnboarded = false (NO Provider Document creation here yet!)
+  // 4. Create User Record with isVerified = false & isOnboarded = false (NO Provider Document creation here yet!)
   const user = await User.create({
     name,
     email: normalizedEmail,
