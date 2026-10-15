@@ -1,3 +1,5 @@
+import axios from 'axios';
+
 /**
  * Detects environment dynamically based on hostname.
  * - Localhost uses local backend.
@@ -30,3 +32,23 @@ export function apiUrl(path) {
   const normalized = String(path || '').replace(/^\//, '');
   return `${API_BASE_URL}/${normalized}`;
 }
+
+/**
+ * GLOBAL AXIOS INTERCEPTOR:
+ * Automatically catches any hardcoded relative requests (e.g., axios.get('/api/v1/...'))
+ * and redirects them to the correct backend URL so you don't have to change your service files.
+ */
+axios.interceptors.request.use((config) => {
+  // If the URL is relative (starts with /), rewrite it to point to the backend
+  if (config.url && config.url.startsWith('/')) {
+    // Strip leading /api/v1 if present to avoid duplication, then format with API_BASE_URL
+    const cleanPath = config.url
+      .replace(/^\/api\/v1/, '')
+      .replace(/^\//, '');
+    
+    config.url = `${API_BASE_URL}/${cleanPath}`;
+  }
+  return config;
+}, (error) => {
+  return Promise.reject(error);
+});
