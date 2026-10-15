@@ -1,11 +1,15 @@
 /**
- * One frontend API base.
- * Staging and production set VITE_API_URL, including the /api/v1 prefix.
+ * Detects environment dynamically based on hostname.
+ * - Localhost uses local backend.
+ * - Any other domain (Railway/Production) uses the backend Railway URL.
  */
-export const DEFAULT_API_BASE_URL = 
-  import.meta.env.MODE === 'production'
-    ? 'https://iskolarmatch-backend.up.railway.app/api/v1'
-    : 'http://localhost:5000/api/v1';
+const isLocal = 
+  typeof window !== 'undefined' && 
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+export const DEFAULT_API_BASE_URL = isLocal
+  ? 'http://localhost:5000/api/v1'
+  : 'https://iskolarmatch-backend.up.railway.app/api/v1';
 
 export function resolveApiBaseUrl(configured) {
   const raw = String(configured || DEFAULT_API_BASE_URL).trim();
