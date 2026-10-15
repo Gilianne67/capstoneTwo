@@ -34,21 +34,40 @@ export function apiUrl(path) {
 }
 
 /**
- * GLOBAL AXIOS INTERCEPTOR:
- * Automatically catches any hardcoded relative requests (e.g., axios.get('/api/v1/...'))
- * and redirects them to the correct backend URL so you don't have to change your service files.
+ * HELPER: Formats any relative URL to point to the backend
  */
-axios.interceptors.request.use((config) => {
-  // If the URL is relative (starts with /), rewrite it to point to the backend
-  if (config.url && config.url.startsWith('/')) {
-    // Strip leading /api/v1 if present to avoid duplication, then format with API_BASE_URL
-    const cleanPath = config.url
+function rewriteUrl(url) {
+  if (typeof url === 'string' && url.startsWith('/')) {
+    const cleanPath = url
       .replace(/^\/api\/v1/, '')
       .replace(/^\//, '');
-    
-    config.url = `${API_BASE_URL}/${cleanPath}`;
+    return `${API_BASE_URL}/${cleanPath}`;
   }
+  return url;
+}
+
+/**
+ * 1. AXIOS INTERCEPTOR
+ */
+axios.interceptors.request.use((config) => {
+  config.url = rewriteUrl(config.url);
   return config;
-}, (error) => {
-  return Promise.reject(error);
-});
+}, (error) => Promise.reject(error));
+
+/**
+ * 2. WINDOW.FETCH INTERCEPTOR (Catches standard fetch calls)
+ */
+if (typeof window !== 'undefined') {
+  const originalFetch = window.fetch;
+  window.fetch = async function (resource, init) {
+    if (typeof resource === 'string') {
+      resource = rewriteUrl(resource);
+    } else if (resource instanceof Request) {
+      const newUrl = rewriteUrl(resource.url);
+      if (newUrl !== resource.url) {
+        resource = new Request(newUrl, resource);
+      }
+    }
+    return originalFetch.call(this, resource, init);
+  };
+}
