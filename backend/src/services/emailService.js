@@ -2,14 +2,18 @@ import nodemailer from 'nodemailer';
 import jwt from 'jsonwebtoken';
 
 // 1. Configure SMTP Transporter
+const port = Number(process.env.SMTP_PORT) || 465;
+
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: Number(process.env.SMTP_PORT) || 465,
-  secure: Number(process.env.SMTP_PORT) === 465 || true, // SSL for 465, TLS for 587
+  port: port,
+  secure: port === 465, // Automatically true for 465, false for 587
   auth: {
     user: process.env.SMTP_EMAIL,
     pass: process.env.SMTP_PASSWORD,
   },
+  family: 4, // 👈 FORCES IPv4 (Fixes Railway ENETUNREACH error)
+  connectionTimeout: 10000, // 10s connection timeout
 });
 
 // Verify connection configuration on server startup
