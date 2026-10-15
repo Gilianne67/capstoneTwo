@@ -1,12 +1,14 @@
 /**
  * One frontend API base.
- * Local development uses the local backend when VITE_API_URL is unset.
  * Staging and production set VITE_API_URL, including the /api/v1 prefix.
  */
-export const LOCAL_API_BASE_URL = 'http://localhost:5000/api/v1';
+export const DEFAULT_API_BASE_URL = 
+  import.meta.env.MODE === 'production'
+    ? 'https://iskolarmatch-backend.up.railway.app/api/v1'
+    : 'http://localhost:5000/api/v1';
 
 export function resolveApiBaseUrl(configured) {
-  const raw = String(configured || LOCAL_API_BASE_URL).trim();
+  const raw = String(configured || DEFAULT_API_BASE_URL).trim();
   return raw.endsWith('/') ? raw.slice(0, -1) : raw;
 }
 
