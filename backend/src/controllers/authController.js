@@ -11,12 +11,6 @@ const { sendAccountLockoutEmail, sendVerificationEmail } = require('../utils/sen
 // Generic authentication error message to prevent account enumeration
 const GENERIC_AUTH_ERROR = 'Invalid credentials or account temporarily locked. Please try again later.';
 
-// Known disposable / temporary email domains to block
-const DISPOSABLE_EMAIL_DOMAINS = new Set([
-  'mailinator.com', 'tempmail.com', '10minutemail.com', 'guerrillamail.com',
-  'throwawaymail.com', 'yopmail.com', 'sharklasers.com', 'dispostable.com',
-  'getnada.com', 'trashmail.com', 'fakeinbox.com', 'crazymailing.com'
-]);
 
 // Helper: Verify email domain has active Mail Exchange (MX) DNS records
 const verifyRealEmailDomain = async (email) => {
