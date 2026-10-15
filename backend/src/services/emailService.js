@@ -1,29 +1,8 @@
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import jwt from 'jsonwebtoken';
 
-// 1. Configure SMTP Transporter
-const port = Number(process.env.SMTP_PORT) || 465;
-
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: port,
-  secure: port === 465, // Automatically true for 465, false for 587
-  auth: {
-    user: process.env.SMTP_EMAIL,
-    pass: process.env.SMTP_PASSWORD,
-  },
-  family: 4, // 👈 FORCES IPv4 (Fixes Railway ENETUNREACH error)
-  connectionTimeout: 10000, // 10s connection timeout
-});
-
-// Verify connection configuration on server startup
-transporter.verify((error) => {
-  if (error) {
-    console.error('❌ SMTP Connection Error:', error.message);
-  } else {
-    console.log('✅ SMTP Transporter is ready to send emails');
-  }
-});
+// Initialize Resend using your API key from Railway environment variables
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 /**
  * Optional Helper: Generate token directly inside email module if needed.
@@ -37,8 +16,7 @@ export const generateConsentToken = (userId, guardianEmail) => {
 };
 
 /**
- * Send Parental Consent Email
- * Accepts consentLink generated from the controller, or falls back to creating one.
+ * Send Parental Consent Email via Resend HTTPS API (Bypasses Railway SMTP block)
  */
 export const sendParentConsentEmail = async ({ 
   guardianEmail, 
@@ -48,7 +26,6 @@ export const sendParentConsentEmail = async ({
   userId 
 }) => {
   try {
-    // Determine link: use passed consentLink or compute fallback using JWT helper
     let finalConsentUrl = consentLink;
 
     if (!finalConsentUrl) {
@@ -60,34 +37,35 @@ export const sendParentConsentEmail = async ({
       finalConsentUrl = `${frontendUrl}/consent/verify?token=${token}`;
     }
 
-    const mailOptions = {
-      from: `"${process.env.FROM_NAME || 'IskolarMatch Support'}" <${process.env.FROM_EMAIL || process.env.SMTP_EMAIL}>`,
-      to: guardianEmail,
-      subject: `Parental Consent Required for ${studentName}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333;">
-          <h2 style="color: #2563eb;">Parental Consent Verification</h2>
-          <p>Hello ${guardianName},</p>
-          <p>Your child, <strong>${studentName}</strong>, registered an account on <strong>IskolarMatch</strong>.</p>
-          <p>In compliance with Republic Act No. 10173 (Data Privacy Act), we require parental consent to activate their profile and match them with scholarship opportunities.</p>
-          
-          <div style="margin: 30px 0;">
-            <a href="${finalConsentUrl}" 
-               style="background-color: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
-              Approve & Grant Consent
-            </a>
-          </div>
-
-          <p style="font-size: 12px; color: #666;">
-            This link will expire in 7 days. If you did not request this, you can safely ignore this email.
-          </p>
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333;">
+        <h2 style="color: #2563eb;">Parental Consent Verification</h2>
+        <p>Hello ${guardianName},</p>
+        <p>Your child, <strong>${studentName}</strong>, registered an account on <strong>IskolarMatch</strong>.</p>
+        <p>In compliance with Republic Act No. 10173 (Data Privacy Act), we require parental consent to activate their profile and match them with scholarship opportunities.</p>
+        
+        <div style="margin: 30px 0;">
+          <a href="${finalConsentUrl}" 
+             style="background-color: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
+            Approve & Grant Consent
+          </a>
         </div>
-      `,
-    };
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`✅ Parent Consent Email sent! Message ID: ${info.messageId}`);
-    return info;
+        <p style="font-size: 12px; color: #666;">
+          This link will expire in 7 days. If you did not request this, you can safely ignore this email.
+        </p>
+      </div>
+    `;
+
+    const data = await resend.emails.send({
+      from: process.env.FROM_EMAIL || 'IskolarMatch Support <onboarding@resend.dev>',
+      to: [guardianEmail],
+      subject: `Parental Consent Required for ${studentName}`,
+      html: htmlContent,
+    });
+
+    console.log(`✅ Parent Consent Email sent via Resend! ID:`, data);
+    return data;
   } catch (error) {
     console.error(`❌ Error sending consent email to ${guardianEmail}:`, error.message);
     throw new Error(`Email delivery failed: ${error.message}`);
