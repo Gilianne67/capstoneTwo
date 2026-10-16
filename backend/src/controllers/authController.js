@@ -6,7 +6,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const ErrorResponse = require('../utils/errorResponse');
 const { blacklistToken } = require('../services/tokenService');
 const { recordAuditLog } = require('./auditController');
-const { sendAccountLockoutEmail, sendVerificationEmail } = require('../utils/sendEmail');
+const { sendAccountLockoutEmail, sendVerificationEmail } = require('../utils/emailService');
 
 // Generic authentication error message to prevent account enumeration
 const GENERIC_AUTH_ERROR = 'Invalid credentials or account temporarily locked. Please try again later.';

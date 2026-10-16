@@ -7,7 +7,7 @@ const User = require('../models/User');
 const {
   sendProviderAdminNotification,
   sendProviderConfirmation
-} = require('../utils/sendEmail');
+} = require('../utils/emailService');
 const { recordAuditLog } = require('./auditController');
 
 // Helper to safely resolve user ID from Passport / JWT middleware
