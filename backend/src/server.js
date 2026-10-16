@@ -3,6 +3,7 @@ const dns = require('dns');
 dns.setServers(['8.8.8.8', '8.8.4.4']);
 
 const express = require('express');
+const path = require('path');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -12,7 +13,7 @@ const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 
 // Load Environment Variables
-dotenv.config();
+dotenv.config({ path: path.join(__dirname, '../.env') });
 
 // Initialize Express Application
 const app = express();

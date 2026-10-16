@@ -3,7 +3,7 @@ const User = require('../models/User');
 const ParentalConsent = require('../models/ParentalConsent');
 const asyncHandler = require('../utils/asyncHandler');
 const ErrorResponse = require('../utils/errorResponse');
-const { sendEmail } = require('../utils/sendEmail');
+const { sendEmail } = require('../utils/emailService');
 const { recordAuditLog } = require('./auditController');
 
 // Safe import for Scholarship

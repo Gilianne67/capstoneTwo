@@ -123,13 +123,7 @@ export default function ParentConsentPage() {
                 Your parent or guardian has authorized your account. Please sign in now to request and receive your email verification link to activate your account.              </p>
             </div>
 
-            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900 font-medium space-y-1 text-left">
-              <div className="font-bold flex items-center gap-1.5">
-                <span>🔑 Next Step: Sign In</span>
-              </div>
-              <p className="text-[11px] text-emerald-800 leading-normal">
-                Log in to your account to send the verification link directly to your student inbox and complete your profile activation.              </p>
-            </div>
+            
 
             <button
               onClick={() => navigate('/auth?mode=signin')}
