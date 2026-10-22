@@ -56,6 +56,7 @@ const {
   getProfile,
   updateProfile,
   getDashboard,
+  getAnalytics,
   handleOnboarding,
 } = require('../controllers/providerController');
 
@@ -77,6 +78,7 @@ router.post('/onboarding', upload.single('verificationDoc'), handleOnboarding);
 router.get('/profile', getProfile);
 router.put('/profile', updateProfile);
 router.get('/dashboard', getDashboard);
+router.get('/analytics', getAnalytics);
 
 router.get(
   '/eligibility-criterion-requests',

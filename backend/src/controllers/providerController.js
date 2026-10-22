@@ -1,8 +1,13 @@
 const Provider = require('../models/Provider');
 const Scholarship = require('../models/Scholarship');
+const SavedMatch = require('../models/SavedMatch');
 const {
   closeExpiredScholarships
 } = require('../services/scholarshipExpirationService');
+const {
+  resolveAnalyticsPeriod,
+  buildProviderAnalytics,
+} = require('../services/providerAnalyticsService');
 const User = require('../models/User');
 const {
   sendProviderAdminNotification,
@@ -167,6 +172,68 @@ exports.getDashboard = async (req, res) => {
     });
   }
 };
+
+// GET /api/v1/provider/analytics
+// Counts and trends for the authenticated provider only.
+// Does not close expired scholarships and does not read a client provider id.
+async function getAnalytics(req, res) {
+  try {
+    const periodResult = resolveAnalyticsPeriod(req.query, new Date());
+    if (!periodResult.ok) {
+      return res.status(400).json({
+        success: false,
+        message: periodResult.message,
+      });
+    }
+
+    const userId = getUserId(req.user);
+    const provider = await Provider.findOne({ userId });
+
+    if (!provider) {
+      return res.status(404).json({
+        success: false,
+        message: 'Provider profile not found',
+      });
+    }
+
+    const scholarships = await Scholarship.find({
+      providerId: provider._id,
+    })
+      .select('name status isArchived createdAt providerId')
+      .lean();
+
+    const scholarshipIds = scholarships.map((scholarship) => scholarship._id);
+    const groupedSaves = scholarshipIds.length === 0
+      ? []
+      : await SavedMatch.aggregate([
+          { $match: { scholarshipId: { $in: scholarshipIds } } },
+          { $group: { _id: '$scholarshipId', saveCount: { $sum: 1 } } },
+        ]);
+
+    const analytics = buildProviderAnalytics({
+      providerId: provider._id,
+      scholarships,
+      saveCounts: groupedSaves.map((entry) => ({
+        scholarshipId: entry._id,
+        saveCount: entry.saveCount,
+      })),
+      period: periodResult.period,
+    });
+
+    return res.status(200).json({
+      success: true,
+      analytics,
+    });
+  } catch (error) {
+    console.error('❌ Get Provider Analytics Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+}
+
+exports.getAnalytics = getAnalytics;
 
 // POST /api/v1/provider/onboarding
 exports.handleOnboarding = async (req, res) => {
