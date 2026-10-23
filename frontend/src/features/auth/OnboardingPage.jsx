@@ -67,7 +67,10 @@ export function OnboardingPage() {
         // Updated to /consent/verify to match the App.jsx route configuration for ParentConsentPage (View 1: Waiting Screen)
         navigate(`/consent/verify?email=${encodeURIComponent(finalEmail)}`, { replace: true });
       } else {
-        navigate(`/verify-holding?email=${encodeURIComponent(finalEmail)}`, { replace: true });
+        navigate(`/verify-holding?email=${encodeURIComponent(finalEmail)}`, {
+          replace: true,
+          state: data.emailSent === false ? { emailNotice: data.message } : undefined,
+        });
       }
     } catch (err) {
       console.error('Onboarding Submission Error:', err);

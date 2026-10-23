@@ -6,23 +6,16 @@ const asyncHandler = require('../utils/asyncHandler');
 const ErrorResponse = require('../utils/errorResponse');
 const { blacklistToken } = require('../services/tokenService');
 const { recordAuditLog } = require('./auditController');
-const { sendAccountLockoutEmail, sendVerificationEmail } = require('../utils/emailService');
+const emailService = require('../utils/emailService');
+const {
+  hashToken,
+  buildVerificationUrl,
+  claimVerificationToken,
+  restoreVerificationToken,
+} = require('../utils/verificationToken');
 
 // Generic authentication error message to prevent account enumeration
 const GENERIC_AUTH_ERROR = 'Invalid credentials or account temporarily locked. Please try again later.';
-
-
-// Helper: Generate and save cryptographic email verification token (expires in 2 hours)
-const generateVerificationToken = async (user) => {
-  const rawToken = crypto.randomBytes(32).toString('hex');
-  user.emailVerificationToken = crypto
-    .createHash('sha256')
-    .update(rawToken)
-    .digest('hex');
-  user.emailVerificationExpire = Date.now() + 2 * 60 * 60 * 1000; // 2 Hours
-  await user.save({ validateBeforeSave: false });
-  return rawToken;
-};
 
 // Helper: Calculate exponential backoff lockout duration (in milliseconds)
 const calculateLockoutDuration = (attempts) => {
@@ -159,10 +152,7 @@ exports.register = asyncHandler(async (req, res, next) => {
 // @route   GET /api/v1/auth/verify-email/:token
 // @access  Public
 exports.verifyEmail = asyncHandler(async (req, res, next) => {
-  const hashedToken = crypto
-    .createHash('sha256')
-    .update(req.params.token)
-    .digest('hex');
+  const hashedToken = hashToken(req.params.token);
 
   const user = await User.findOne({
     emailVerificationToken: hashedToken,
@@ -214,19 +204,38 @@ exports.resendVerification = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse('This account is already verified.', 400));
   }
 
-  const rawToken = await generateVerificationToken(user);
-  const verifyUrl = `${process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email/${rawToken}`;
-  
+  const previousToken = user.emailVerificationToken;
+  const previousExpire = user.emailVerificationExpire;
+  const claimed = await claimVerificationToken(user._id);
+
+  if (!claimed.claimed) {
+    if (claimed.reason === 'verified') {
+      return next(new ErrorResponse('This account is already verified.', 400));
+    }
+    if (claimed.reason === 'fresh') {
+      return res.status(200).json({
+        success: true,
+        message: 'A verification link was just sent. Please use that email. You can request another link shortly.',
+      });
+    }
+    return next(new ErrorResponse('Unable to issue a verification link for this account.', 400));
+  }
+
   try {
-    if (typeof sendVerificationEmail === 'function') {
-      await sendVerificationEmail(user.email, user.name, verifyUrl);
-    } else {
+    if (typeof emailService.sendVerificationEmail !== 'function') {
       console.error('⚠️ sendVerificationEmail utility is not defined or not imported properly.');
+      await restoreVerificationToken(user._id, claimed.rawToken, previousToken, previousExpire);
       return next(new ErrorResponse('Email service configuration error.', 500));
     }
+    await emailService.sendVerificationEmail(
+      user.email,
+      user.name,
+      buildVerificationUrl(claimed.rawToken)
+    );
   } catch (err) {
-    console.error('⚠️ Nodemailer dispatch failed inside resendVerification:', err);
-    return next(new ErrorResponse(`Failed to dispatch verification link: ${err.message}`, 500));
+    console.error('⚠️ Verification email failed inside resendVerification:', err.message);
+    await restoreVerificationToken(user._id, claimed.rawToken, previousToken, previousExpire);
+    return next(new ErrorResponse('Failed to dispatch verification link. Please try again.', 500));
   }
 
   res.status(200).json({
@@ -252,12 +261,29 @@ exports.updateUnverifiedEmail = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse('Account not found or already verified.', 400));
   }
 
+  const previousToken = user.emailVerificationToken;
+  const previousExpire = user.emailVerificationExpire;
   user.email = normalizedNew;
-  const rawToken = await generateVerificationToken(user);
-  const verifyUrl = `${process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email/${rawToken}`;
+  await user.save({ validateBeforeSave: false });
 
-  if (typeof sendVerificationEmail === 'function') {
-    await sendVerificationEmail(user.email, user.name, verifyUrl);
+  const claimed = await claimVerificationToken(user._id, { force: true });
+  if (!claimed.claimed) {
+    return next(new ErrorResponse('Unable to issue a verification link for this account.', 400));
+  }
+
+  try {
+    if (typeof emailService.sendVerificationEmail !== 'function') {
+      throw new Error('Email service configuration error.');
+    }
+    await emailService.sendVerificationEmail(
+      user.email,
+      user.name,
+      buildVerificationUrl(claimed.rawToken)
+    );
+  } catch (err) {
+    console.error('⚠️ Verification email failed after address update:', err.message);
+    await restoreVerificationToken(user._id, claimed.rawToken, previousToken, previousExpire);
+    return next(new ErrorResponse('Email address was updated, but the verification email could not be sent. Please use resend.', 500));
   }
 
   res.status(200).json({
@@ -326,8 +352,8 @@ exports.login = asyncHandler(async (req, res, next) => {
 
           const unlockUrl = `${process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password/${resetToken}`;
           try {
-            if (typeof sendAccountLockoutEmail === 'function') {
-              await sendAccountLockoutEmail(user.email, user.name, unlockUrl);
+            if (typeof emailService.sendAccountLockoutEmail === 'function') {
+              await emailService.sendAccountLockoutEmail(user.email, user.name, unlockUrl);
             }
           } catch (emailErr) {
             console.error('⚠️ Account lockout email failed to send:', emailErr.message);
