@@ -2,14 +2,43 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const { GridFsStorage } = require('multer-gridfs-storage');
+const mongoose = require('mongoose');
 const path = require('path');
 
-// MongoDB URI from environment variables
-const mongoURI = process.env.MONGO_URI || process.env.MONGODB_URI;
+// multer-gridfs-storage 6.x opens its own client when given a url, and it
+// throws immediately if that url is missing. This module is loaded before
+// server.js calls mongoose.connect(), so wait for the shared connection and
+// hand that database to GridFS. Uploads are buffered until it opens.
+const connectedDatabase = () => {
+  const connection = mongoose.connection;
+
+  if (connection.readyState === 1 && connection.db) {
+    return Promise.resolve(connection);
+  }
+
+  return new Promise((resolve, reject) => {
+    const onOpen = () => {
+      connection.removeListener('error', onError);
+      if (!connection.db) {
+        reject(new Error('MongoDB connection opened without a database handle.'));
+        return;
+      }
+      resolve(connection);
+    };
+
+    const onError = (error) => {
+      connection.removeListener('open', onOpen);
+      reject(error);
+    };
+
+    connection.once('open', onOpen);
+    connection.once('error', onError);
+  });
+};
 
 // Configure GridFS storage engine
 const storage = new GridFsStorage({
-  url: mongoURI,
+  db: connectedDatabase(),
   file: (req, file) => {
     return new Promise((resolve) => {
       const filename = `doc-${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`;

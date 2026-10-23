@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams, Link, useLocation } from 'react-router-dom';
 import { Mail, RefreshCw, Edit3, ArrowLeft, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 
 export default function VerifyHoldingPage() {
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const { user } = useAuth();
 
   const [email, setEmail] = useState(searchParams.get('email') || user?.email || '');
@@ -17,9 +18,6 @@ export default function VerifyHoldingPage() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Ref to prevent duplicate automatic dispatches on fast re-renders
-  const hasTriggeredInitialSend = useRef(false);
-
   // 60-second rate-limiter timer effect
   useEffect(() => {
     let timer;
@@ -29,7 +27,14 @@ export default function VerifyHoldingPage() {
     return () => clearInterval(timer);
   }, [resendCooldown]);
 
-  // Handle Resend Verification Request (Dispatched via Nodemailer on backend)
+  useEffect(() => {
+    if (location.state?.emailNotice) {
+      setError(location.state.emailNotice);
+    }
+  }, [location.state]);
+
+  // Resend only when the student asks. Onboarding already sent the first link,
+  // and requesting another one replaces the token stored for that account.
   const handleResend = async () => {
     if (resendCooldown > 0 || isLoading || !email) return;
     setIsLoading(true);
@@ -37,8 +42,8 @@ export default function VerifyHoldingPage() {
     setError('');
 
     try {
-      await axios.post('/api/v1/auth/resend-verification', { email });
-      setMessage('A verification link has been dispatched to your email.');
+      const response = await axios.post('/api/v1/auth/resend-verification', { email });
+      setMessage(response.data?.message || 'A verification link has been dispatched to your email.');
       setResendCooldown(60); // 60s cooldown
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to dispatch verification link. Please try again.');
@@ -46,14 +51,6 @@ export default function VerifyHoldingPage() {
       setIsLoading(false);
     }
   };
-
-  // 🚀 Automatically trigger Nodemailer dispatch once when arriving on the holding page
-  useEffect(() => {
-    if (email && !hasTriggeredInitialSend.current) {
-      hasTriggeredInitialSend.current = true;
-      handleResend();
-    }
-  }, [email]);
 
   // Handle Email Typo Correction
   const handleUpdateEmail = async (e) => {
