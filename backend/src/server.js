@@ -130,15 +130,47 @@ app.get('/api/v1/notifications/unread-count', protect, (req, res) => {
 // Centralized Error Handling Middleware
 app.use(errorHandler);
 
+const { closeMatchingPool } = require('./services/matchingWorkerRunner');
+
 // Database Connection & Server Initialization
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/iskolarmatch';
+let httpServer = null;
+let stopping = false;
+
+const shutdown = (signal) => {
+  if (stopping) {
+    return;
+  }
+
+  stopping = true;
+  console.log(`${signal} received. Closing matching worker pool.`);
+  closeMatchingPool();
+
+  const exitAfterDatabase = () => {
+    mongoose.connection.close(false).then(
+      () => process.exit(0),
+      () => process.exit(1)
+    );
+  };
+
+  if (!httpServer) {
+    exitAfterDatabase();
+    return;
+  }
+
+  httpServer.close(exitAfterDatabase);
+  setTimeout(() => process.exit(1), 10000).unref();
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 mongoose
   .connect(MONGO_URI)
   .then(() => {
     console.log('✅ Connected to MongoDB successfully.');
-    app.listen(PORT, () => {
+    httpServer = app.listen(PORT, () => {
       console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
     });
   })

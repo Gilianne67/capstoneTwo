@@ -1,7 +1,10 @@
 const assert = require('assert');
 const { CATALOG_INDEX } = require('../utils/courseCanonical');
 const { rankScholarships } = require('../services/matchingService');
-const { runMatchingWorker } = require('../services/matchingWorkerRunner');
+const {
+  runMatchingWorker,
+  closeMatchingPool
+} = require('../services/matchingWorkerRunner');
 
 const FIXED_NOW = new Date('2026-09-26T04:00:00.000Z');
 
@@ -520,7 +523,11 @@ const main = async () => {
   console.log(`matching worker tests passed (${passed})`);
 };
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+main()
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  })
+  .finally(() => {
+    closeMatchingPool();
+  });
