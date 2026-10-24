@@ -1,7 +1,7 @@
 /**
  * Post-login and session redirect target.
- * Pending guardian consent stays on the onboarding page, which shows
- * the parental approval waiting screen. It does not open the dashboard.
+ * Pending guardian consent stays on the parental consent waiting screen. 
+ * It does not open the dashboard or the onboarding form.
  */
 export function resolveRedirectPath(userData) {
   if (!userData) return '/auth?mode=signin';
@@ -31,7 +31,10 @@ export function resolveRedirectPath(userData) {
   }
 
   if (role === 'student') {
-    if (!isOnboarded || status === 'pending_consent') {
+    if (status === 'pending_consent') {
+      return '/consent/verify';
+    }
+    if (!isOnboarded) {
       return '/onboarding';
     }
     return '/dashboard/student';

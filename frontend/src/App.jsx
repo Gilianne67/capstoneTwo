@@ -1,4 +1,3 @@
-// App.jsx
 import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
 
@@ -16,6 +15,9 @@ import OnboardingForm from './features/public-landing/pages/OnboardingForm';
 import ProviderOnboarding from './features/public-landing/pages/ProviderOnboarding';
 import PendingApproval from './features/public-landing/pages/PendingApproval';
 import ParentConsentPage from './features/public-landing/pages/ParentConsentPage';
+import VerifyHoldingPage from './features/public-landing/pages/VerifyHoldingPage';
+import VerifyEmailPage from './features/public-landing/pages/VerifyEmailPage';
+import OnboardingPage from './features/auth/OnboardingPage';
 
 // Student Module Pages
 import StudentDashboard from './features/student/pages/StudentDashboard';
@@ -45,35 +47,6 @@ import SystemSettings from './features/admin/pages/SystemSettings';
 import AdminNotifications from './features/admin/pages/AdminNotifications';
 import AdminHelp from './features/admin/pages/AdminHelp';
 
-function ConnectionBanner() {
-  const [status, setStatus] = useState('Testing backend connection...');
-
-  useEffect(() => {
-    fetch('/api/v1/auth/me', { credentials: 'include' })
-      .then(async (res) => {
-        if (res.status === 401) {
-          setStatus('✅ Connected to Backend API (Guest / Unauthenticated)');
-          return;
-        }
-        const data = await res.json();
-        if (data.success) {
-          setStatus(`✅ Connected to Backend API (User: ${data.data?.email || data.data?.role})`);
-        } else {
-          setStatus(`✅ Connected to Backend API (${data.message})`);
-        }
-      })
-      .catch((err) => {
-        setStatus(`❌ Connection Failed: ${err.message}`);
-      });
-  }, []);
-
-  return (
-    <div style={{ background: '#1e293b', color: '#fff', padding: '0.5rem 1rem', textAlign: 'center', fontSize: '0.875rem' }}>
-      {status}
-    </div>
-  );
-}
-
 function ProtectedRouteGuard({ allowedRoles, children }) {
   const { user, loading } = useAuth();
   const location = useLocation();
@@ -86,15 +59,48 @@ function ProtectedRouteGuard({ allowedRoles, children }) {
     );
   }
 
-  if (!user) {
+  // Allow immediate access to onboarding routes & consent verification right after sign-up even if session is pending
+  const isOnboardingRoute = 
+    location.pathname === '/onboarding' || 
+    location.pathname === '/provider/onboarding' ||
+    location.pathname === '/provider/pending-approval' ||
+    location.pathname === '/consent/verify';
+
+  if (!user && !isOnboardingRoute) {
     return <Navigate to="/auth?mode=signin" state={{ from: location }} replace />;
   }
 
-  const userRoleNormalized = user?.role?.toLowerCase();
-  const isAllowed = allowedRoles?.map((r) => r.toLowerCase()).includes(userRoleNormalized);
+  // If user exists, validate verification & roles
+  if (user) {
+    const isVerified = user?.isVerified ?? user?.is_verified ?? false;
+    const holdingPath = '/verify-holding';
+    const status = String(user?.status || '').toLowerCase();
 
-  if (allowedRoles && !isAllowed) {
-    return <Navigate to={`/dashboard/${userRoleNormalized}`} replace />;
+    // If student has pending parental consent, steer them to the consent waiting page
+    if (user.role === 'student' && status === 'pending_consent' && location.pathname !== '/consent/verify') {
+      return <Navigate to="/consent/verify" replace />;
+    }
+
+    // Only apply verification gatekeeper if they are trying to access dashboard/restricted routes, 
+    // not while they are actively filling out onboarding forms.
+    if (!isVerified && location.pathname.startsWith('/dashboard') && location.pathname !== holdingPath) {
+      return (
+        <Navigate 
+          to={`${holdingPath}?email=${encodeURIComponent(user.email || '')}`} 
+          state={{ from: location }} 
+          replace 
+        />
+      );
+    }
+
+    if (allowedRoles) {
+      const userRoleNormalized = user?.role?.toLowerCase();
+      const isAllowed = allowedRoles?.map((r) => r.toLowerCase()).includes(userRoleNormalized);
+
+      if (!isAllowed) {
+        return <Navigate to={`/dashboard/${userRoleNormalized}`} replace />;
+      }
+    }
   }
 
   return children ? children : <Outlet />;
@@ -106,6 +112,21 @@ function OnboardingGuard({ children }) {
   const location = useLocation();
 
   if (!user) return <Navigate to="/auth?mode=signin" replace />;
+
+  const status = String(user?.status || '').toLowerCase();
+  if (user.role === 'student' && status === 'pending_consent') {
+    return <Navigate to="/consent/verify" replace />;
+  }
+
+  const isVerified = user?.isVerified ?? user?.is_verified ?? false;
+  if (!isVerified) {
+    return (
+      <Navigate 
+        to={`/verify-holding?email=${encodeURIComponent(user.email || '')}`} 
+        replace 
+      />
+    );
+  }
 
   const targetPath = getRedirectPath(user);
   const onDashboard = location.pathname.startsWith('/dashboard');
@@ -129,7 +150,22 @@ function DashboardRedirect() {
   const { user, getRedirectPath } = useAuth();
   
   if (!user) return <Navigate to="/auth?mode=signin" replace />;
+
+  const status = String(user?.status || '').toLowerCase();
+  if (user.role === 'student' && status === 'pending_consent') {
+    return <Navigate to="/consent/verify" replace />;
+  }
   
+  const isVerified = user?.isVerified ?? user?.is_verified ?? false;
+  if (!isVerified) {
+    return (
+      <Navigate 
+        to={`/verify-holding?email=${encodeURIComponent(user.email || '')}`} 
+        replace 
+      />
+    );
+  }
+
   return <Navigate to={getRedirectPath(user)} replace />;
 }
 
@@ -137,7 +173,6 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <ConnectionBanner />
         <Routes>
           {/* 1. PUBLIC ROUTES */}
           <Route element={<PublicLayout />}>
@@ -145,12 +180,16 @@ export default function App() {
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/login" element={<AuthPage />} />
             <Route path="/consent/verify" element={<ParentConsentPage />} />
+            
+            {/* Verification Gatekeeper Public Routes */}
+            <Route path="/verify-holding" element={<VerifyHoldingPage />} />
+            <Route path="/verify-email/:token" element={<VerifyEmailPage />} />
           </Route>
 
           {/* 2. STANDALONE ONBOARDING ROUTES */}
           {/* Student Onboarding */}
           <Route element={<ProtectedRouteGuard allowedRoles={['student']} />}>
-            <Route path="/onboarding" element={<OnboardingForm />} />
+            <Route path="/onboarding" element={<OnboardingPage />} />
           </Route>
 
           {/* Provider Onboarding & Verification Status */}

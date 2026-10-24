@@ -13,14 +13,20 @@ import {
   AlertCircle,
   ArrowLeft,
   KeyRound,
-  ShieldAlert
+  ShieldAlert,
+  Check,
+  X
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+
+// Strict Email Format Regex
+const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+const MIN_PASSWORD_LENGTH = 15;
 
 export default function AuthPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { login, register, resetPassword } = useAuth();
+  const { login, register, resetPassword} = useAuth();
 
   // Mode management: 'signin' | 'signup' | 'forgot'
   const [authMode, setAuthMode] = useState('signin');
@@ -30,6 +36,7 @@ export default function AuthPage() {
   const [errorMessage, setErrorMessage] = useState('');
   const [pendingConsentError, setPendingConsentError] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
+  const [hasAuthError, setHasAuthError] = useState(false);
 
   const [formData, setFormData] = useState({
     fullName: '',
@@ -55,6 +62,7 @@ export default function AuthPage() {
   // Handle Input Changes
   const handleChange = (e) => {
     if (errorMessage) setErrorMessage('');
+    if (hasAuthError) setHasAuthError(false);
     if (pendingConsentError) setPendingConsentError(false);
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
@@ -63,6 +71,7 @@ export default function AuthPage() {
   const switchMode = (mode) => {
     setAuthMode(mode);
     setErrorMessage('');
+    setHasAuthError(false);
     setPendingConsentError(false);
     setResetSuccess(false);
     setFormData({
@@ -73,26 +82,8 @@ export default function AuthPage() {
     });
   };
 
-  // Dev Quick-Login Helper
-  const loginWithDemoAccount = async (email, password) => {
-    setIsLoading(true);
-    setErrorMessage('');
-    setPendingConsentError(false);
-    try {
-      const authenticatedUser = await login(email, password);
-      const targetRole = authenticatedUser?.role || 'student';
-      
-      setTimeout(() => {
-        navigate(`/dashboard/${targetRole}`, { replace: true });
-      }, 50);
-    } catch (err) {
-      setErrorMessage(err?.message || 'Demo login failed. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
-  // Handle Password Reset Request
+  // Handle Password Reset Request (Account Recovery Privacy Best Practice)
   const handleForgotPassword = async (e) => {
     e.preventDefault();
     setIsLoading(true);
@@ -100,8 +91,8 @@ export default function AuthPage() {
 
     const emailTrimmed = formData.email.trim().toLowerCase();
 
-    if (!emailTrimmed) {
-      setErrorMessage('Please enter your email address.');
+    if (!emailTrimmed || !EMAIL_REGEX.test(emailTrimmed)) {
+      setErrorMessage('Please enter a valid email address.');
       setIsLoading(false);
       return;
     }
@@ -110,10 +101,10 @@ export default function AuthPage() {
       if (resetPassword) {
         await resetPassword(emailTrimmed);
       }
-      setResetSuccess(true);
     } catch (err) {
-      setErrorMessage(err?.message || 'Failed to send reset email. Please try again.');
+      console.warn('Password reset request processed.');
     } finally {
+      setResetSuccess(true);
       setIsLoading(false);
     }
   };
@@ -128,10 +119,25 @@ export default function AuthPage() {
 
     setIsLoading(true);
     setErrorMessage('');
+    setHasAuthError(false);
     setPendingConsentError(false);
 
     const emailTrimmed = formData.email.trim().toLowerCase();
     const passwordTrimmed = formData.password.trim();
+
+    // 1. Client-Side Real-Time Format Validation
+    if (!EMAIL_REGEX.test(emailTrimmed)) {
+      setErrorMessage('Please enter a valid email address.');
+      setIsLoading(false);
+      return;
+    }
+
+    // 2. Validate Password Length for Sign Up
+    if (authMode === 'signup' && passwordTrimmed.length < MIN_PASSWORD_LENGTH) {
+      setErrorMessage(`Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`);
+      setIsLoading(false);
+      return;
+    }
 
     try {
       let authenticatedUser;
@@ -153,12 +159,21 @@ export default function AuthPage() {
           ...(signupRole === 'provider' && { organization: name }),
         };
 
-        authenticatedUser = await register(payload);
+        try {
+          authenticatedUser = await register(payload);
+        } catch (regErr) {
+          setResetSuccess(true);
+          return;
+        }
 
+        // 🔒 Correct Flow: Sign Up -> OnboardingForm with registered email state passed along
         if (signupRole === 'student') {
-          navigate('/onboarding', { replace: true });
+          navigate('/onboarding', { 
+            replace: true, 
+            state: { registeredEmail: emailTrimmed } 
+          });
         } else {
-          navigate('/dashboard/provider', { replace: true });
+          navigate('/provider/onboarding', { replace: true });
         }
       } else {
         authenticatedUser = await login(emailTrimmed, passwordTrimmed);
@@ -167,7 +182,6 @@ export default function AuthPage() {
         navigate(`/dashboard/${targetRole}`, { replace: true });
       }
     } catch (err) {
-      // Check for parental consent block status (403 status or specific backend flags)
       const isConsentPending = 
         err?.response?.status === 403 ||
         err?.requiresConsent || 
@@ -180,7 +194,8 @@ export default function AuthPage() {
           err?.message || 'Your account is pending parental consent. Please ask your parent/guardian to approve the verification email.'
         );
       } else {
-        setErrorMessage(err?.message || 'Authentication failed. Please check your credentials.');
+        setHasAuthError(true);
+        setErrorMessage('Invalid email or password. Please try again.');
       }
     } finally {
       setIsLoading(false);
@@ -188,6 +203,8 @@ export default function AuthPage() {
   };
 
   const isProvider = authMode === 'signup' && signupRole === 'provider';
+  const isPasswordValid = formData.password.length >= MIN_PASSWORD_LENGTH;
+  const isEmailFormatValid = EMAIL_REGEX.test(formData.email.trim().toLowerCase());
 
   return (
     <div className="min-h-screen bg-app-bg text-app-text flex flex-col justify-between relative overflow-hidden pt-20">
@@ -221,12 +238,12 @@ export default function AuthPage() {
                 </h2>
                 <p className="text-white/80 text-xs sm:text-sm leading-relaxed">
                   {authMode === 'forgot'
-                    ? 'Don’t worry! Enter your email address and we will help you reset your password to regain access.'
+                    ? 'Enter your registered email address and we will send instructions to regain access.'
                     : authMode === 'signup' 
                     ? (signupRole === 'provider' 
                         ? 'Register your organization to post listings, review applicants, and connect with deserving scholars.' 
                         : 'Create your account to match with verified scholarships based on your academic profile.') 
-                    : 'Sign in to access your personalized dashboard—whether you are a student, scholarship sponsor, or platform administrator.'}
+                    : 'Sign in to access your personalized dashboard.'}
                 </p>
               </div>
             </div>
@@ -314,6 +331,8 @@ export default function AuthPage() {
                 </div>
               )}
 
+             
+
               {/* Pending Consent Warning Banner */}
               {pendingConsentError ? (
                 <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-xs text-amber-800 space-y-2">
@@ -338,8 +357,8 @@ export default function AuthPage() {
                 )
               )}
 
-              {/* Password Reset Confirmation Screen */}
-              {authMode === 'forgot' && resetSuccess ? (
+              {/* Generic Privacy-Safe Confirmation Screen */}
+              {resetSuccess ? (
                 <div className="p-6 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-center space-y-4">
                   <div className="w-12 h-12 bg-emerald-500/20 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
                     <KeyRound className="h-6 w-6" />
@@ -347,7 +366,7 @@ export default function AuthPage() {
                   <div>
                     <h4 className="font-bold text-app-text text-base">Check your inbox</h4>
                     <p className="text-xs text-text-muted mt-1 leading-relaxed">
-                      We sent a password reset link to <span className="font-semibold text-app-text">{formData.email}</span>. Please check your email to continue.
+                      If an account exists with that email address, we have sent instructions to log in or reset your password.
                     </p>
                   </div>
                   <button
@@ -386,6 +405,7 @@ export default function AuthPage() {
                     </div>
                   )}
 
+                  {/* Email Field */}
                   <div>
                     <label className="block text-xs font-bold text-app-text mb-1.5">
                       Email Address
@@ -399,11 +419,23 @@ export default function AuthPage() {
                         value={formData.email}
                         onChange={handleChange}
                         placeholder="name@example.com"
-                        className="w-full pl-10 pr-4 py-3 rounded-xl bg-app-bg border border-app-text/10 text-sm text-app-text focus:outline-none focus:border-primary transition-colors"
+                        className={`w-full pl-10 pr-4 py-3 rounded-xl bg-app-bg border text-sm text-app-text focus:outline-none transition-colors ${
+                          hasAuthError
+                            ? 'border-rose-500 focus:border-rose-600 bg-rose-500/5'
+                            : 'border-app-text/10 focus:border-primary'
+                        }`}
                       />
                     </div>
+
+                    {/* Real-time Syntax Error Message */}
+                    {formData.email.length > 3 && !isEmailFormatValid && (
+                      <div className="mt-1.5 text-[11px] font-medium text-rose-500">
+                        Please enter a valid email address.
+                      </div>
+                    )}
                   </div>
 
+                  {/* Password Field */}
                   {authMode !== 'forgot' && (
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
@@ -428,8 +460,12 @@ export default function AuthPage() {
                           required
                           value={formData.password}
                           onChange={handleChange}
-                          placeholder="••••••••"
-                          className="w-full pl-10 pr-10 py-3 rounded-xl bg-app-bg border border-app-text/10 text-sm text-app-text focus:outline-none focus:border-primary transition-colors"
+                          placeholder="At least 15 characters long"
+                          className={`w-full pl-10 pr-10 py-3 rounded-xl bg-app-bg border text-sm text-app-text focus:outline-none transition-colors ${
+                            hasAuthError
+                              ? 'border-rose-500 focus:border-rose-600 bg-rose-500/5'
+                              : 'border-app-text/10 focus:border-primary'
+                          }`}
                         />
                         <button
                           type="button"
@@ -440,6 +476,19 @@ export default function AuthPage() {
                           {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                         </button>
                       </div>
+
+                      {/* Password Requirements Indicator for Sign Up */}
+                      {authMode === 'signup' && (
+                        <div className="mt-2 flex items-center justify-between text-[11px]">
+                          <span className={`inline-flex items-center gap-1 font-medium ${isPasswordValid ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'}`}>
+                            {isPasswordValid ? <Check className="h-3.5 w-3.5 shrink-0" /> : <X className="h-3.5 w-3.5 shrink-0" />}
+                            Password must be at least {MIN_PASSWORD_LENGTH} characters long
+                          </span>
+                          <span className="font-mono text-text-muted">
+                            {formData.password.length}/{MIN_PASSWORD_LENGTH}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
 

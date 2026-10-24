@@ -1,58 +1,56 @@
 import React, { useState, useEffect } from 'react';
 import { 
   AlertTriangle, 
-  ShieldAlert, 
   CheckCircle2, 
   Trash2, 
   Eye, 
   Search, 
   AlertCircle, 
-  Loader2,
-  X,
-  ExternalLink
+  Loader2
 } from 'lucide-react';
 
 import PageHeader from '../../../components/common/PageHeader';
 import StatusBadge from '../../../components/common/StatusBadge';
 import ConfirmModal from '../../../components/common/ConfirmModal';
-import PrototypeNotice from '../components/PrototypeNotice';
 
 export default function ContentModeration() {
   const [reports, setReports] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isUsingFallback, setIsUsingFallback] = useState(false);
+  const [error, setError] = useState(null);
   const [statusFilter, setStatusFilter] = useState('Pending Review');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAction, setSelectedAction] = useState(null); // { id, type: 'dismiss' | 'remove' }
   const [actionError, setActionError] = useState(null);
 
+  // Fetch Moderation Reports on Mount
   useEffect(() => {
     let isMounted = true;
 
     const fetchModerationReports = async () => {
       setIsLoading(true);
+      setError(null);
       try {
         const token = localStorage.getItem('token');
         const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
         const res = await fetch('/api/v1/admin/moderation/reports', { headers });
 
-        if (res.ok) {
-          const data = await res.json();
-          const list = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
-          if (isMounted) {
-            setReports(list);
-            setIsUsingFallback(false);
-          }
-        } else {
-          throw new Error('Content moderation is not connected to the database.');
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || errData.error || 'Failed to fetch moderation reports.');
+        }
+
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+        
+        if (isMounted) {
+          setReports(list);
         }
       } catch (err) {
         if (isMounted) {
-          console.warn('Content moderation is prototype-only:', err);
-          setReports([]);
-          setIsUsingFallback(true);
+          console.error('Content moderation fetch error:', err);
+          setError(err.message || 'Error loading moderation reports.');
         }
       } finally {
         if (isMounted) setIsLoading(false);
@@ -66,7 +64,7 @@ export default function ContentModeration() {
     };
   }, []);
 
-  // Handle Moderation Resolution safely
+  // Handle Action Resolution
   const handleConfirmAction = async () => {
     if (!selectedAction) return;
 
@@ -95,22 +93,30 @@ export default function ContentModeration() {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.message || errData.error || 'Moderation is prototype-only and was not saved.');
+        throw new Error(errData.message || errData.error || 'Failed to resolve report.');
       }
 
       setReports(prev => prev.map(r => r._id === id ? { ...r, status: newStatus, resolution: resolutionAction } : r));
       setSelectedAction(null);
     } catch (err) {
-      console.error('Moderation API Error:', err);
-      setActionError(err.message || 'This action was not saved. Content moderation is prototype-only.');
+      console.error('Moderation resolution error:', err);
+      setActionError(err.message || 'Failed to execute action. Please try again.');
     } finally {
       setIsProcessing(false);
     }
   };
 
+  // Filter Reports by Status and Search Query
   const filteredReports = reports.filter((r) => {
-    const matchesSearch = (r.listingTitle || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          (r.providerName || '').toLowerCase().includes(searchQuery.toLowerCase());
+    const title = r.listingTitle || r.postTitle || r.listingId?.title || '';
+    const provider = r.providerName || r.authorName || r.postedBy?.name || '';
+    const reporter = r.reporterName || r.reportedBy?.name || r.studentId?.name || '';
+
+    const matchesSearch = 
+      title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      provider.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      reporter.toLowerCase().includes(searchQuery.toLowerCase());
+
     const matchesStatus = statusFilter === 'All' || r.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -137,16 +143,10 @@ export default function ContentModeration() {
         subtitle="Review user reports, take down flagged scam listings, and enforce platform standards."
       />
 
-      <PrototypeNotice>
-        Content moderation is not connected to the database. No reports are stored, and resolve or remove actions are not saved.
-      </PrototypeNotice>
-
-      {isUsingFallback && (
-        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-800 p-3.5 rounded-xl flex items-center justify-between text-xs font-medium">
-          <span className="flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
-            Content moderation has no database records in this prototype.
-          </span>
+      {error && (
+        <div className="bg-rose-500/10 border border-rose-500/20 text-rose-800 p-3.5 rounded-xl flex items-center gap-2 text-xs font-medium">
+          <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
+          <span>{error}</span>
         </div>
       )}
 
@@ -174,7 +174,7 @@ export default function ContentModeration() {
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
             <input 
               type="text"
-              placeholder="Search listing or provider..."
+              placeholder="Search listing, student, or author..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="w-full pl-9 pr-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-hidden focus:border-emerald-500"
@@ -182,77 +182,90 @@ export default function ContentModeration() {
           </div>
         </div>
 
-        {/* Flagged Listings Queue */}
+        {/* Flagged Queue */}
         <div className="space-y-3 pt-2">
           {filteredReports.length === 0 ? (
             <p className="text-xs text-slate-500 py-8 text-center">No content moderation flags found.</p>
           ) : (
-            filteredReports.map((report) => (
-              <div key={report._id} className="border border-slate-200/80 rounded-xl p-4 space-y-3 bg-slate-50/50">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/60 pb-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h4 className="text-sm font-bold text-slate-900">{report.listingTitle}</h4>
-                      <StatusBadge status={report.status} />
-                      <span className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold uppercase ${
-                        report.severity === 'High' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'
-                      }`}>
-                        {report.severity} Severity
-                      </span>
+            filteredReports.map((report) => {
+              const itemTitle = report.listingTitle || report.postTitle || report.listingId?.title || 'Flagged Content';
+              const authorName = report.providerName || report.authorName || report.postedBy?.name || 'Unknown User';
+              const reporterName = report.reporterName || report.reportedBy?.name || report.studentId?.name || report.reporterRole || 'Student';
+              const flaggedDate = report.flaggedAt || (report.createdAt ? new Date(report.createdAt).toLocaleDateString() : 'N/A');
+              const targetId = report.listingId?._id || report.listingId || report.postId;
+
+              return (
+                <div key={report._id} className="border border-slate-200/80 rounded-xl p-4 space-y-3 bg-slate-50/50">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/60 pb-3">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="text-sm font-bold text-slate-900">{itemTitle}</h4>
+                        <StatusBadge status={report.status} />
+                        {report.severity && (
+                          <span className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold uppercase ${
+                            report.severity === 'High' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'
+                          }`}>
+                            {report.severity} Severity
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Posted by: <strong className="text-slate-700">{authorName}</strong>
+                      </p>
                     </div>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Posted by: <strong className="text-slate-700">{report.providerName}</strong>
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <a 
-                      href={`/scholarships/${report.listingId}`} 
-                      target="_blank" 
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 hover:text-emerald-700"
-                    >
-                      <Eye className="w-3.5 h-3.5" /> View Listing
-                    </a>
-                    <span className="text-[11px] text-slate-400 font-medium">Flagged: {report.flaggedAt}</span>
-                  </div>
-                </div>
 
-                {/* Report Reason Box */}
-                <div className="bg-rose-50/60 border border-rose-200/60 rounded-xl p-3 text-xs text-rose-900 flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-bold">Reported Reason ({report.reporterRole}):</p>
-                    <p className="mt-0.5 text-slate-700">{report.reason}</p>
+                    <div className="flex items-center gap-3">
+                      {targetId && (
+                        <a 
+                          href={`/scholarships/${targetId}`} 
+                          target="_blank" 
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 hover:text-emerald-700"
+                        >
+                          <Eye className="w-3.5 h-3.5" /> View Listing
+                        </a>
+                      )}
+                      <span className="text-[11px] text-slate-400 font-medium">Flagged: {flaggedDate}</span>
+                    </div>
                   </div>
-                </div>
 
-                {/* Action Buttons */}
-                {report.status === 'Pending Review' && (
-                  <div className="flex justify-end gap-2 pt-2 border-t border-slate-200/40">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActionError(null);
-                        setSelectedAction({ id: report._id, type: 'dismiss' });
-                      }}
-                      className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5 text-slate-500" /> Dismiss Report
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActionError(null);
-                        setSelectedAction({ id: report._id, type: 'remove' });
-                      }}
-                      className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs flex items-center gap-1"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" /> Remove Listing
-                    </button>
+                  {/* Report Reason Box */}
+                  <div className="bg-rose-50/60 border border-rose-200/60 rounded-xl p-3 text-xs text-rose-900 flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold">Reported Reason (by {reporterName}):</p>
+                      <p className="mt-0.5 text-slate-700">{report.reason || 'No description provided.'}</p>
+                    </div>
                   </div>
-                )}
-              </div>
-            ))
+
+                  {/* Action Buttons */}
+                  {report.status === 'Pending Review' && (
+                    <div className="flex justify-end gap-2 pt-2 border-t border-slate-200/40">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActionError(null);
+                          setSelectedAction({ id: report._id, type: 'dismiss' });
+                        }}
+                        className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 text-slate-500" /> Dismiss Report
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActionError(null);
+                          setSelectedAction({ id: report._id, type: 'remove' });
+                        }}
+                        className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs flex items-center gap-1"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Remove Listing
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
       </div>

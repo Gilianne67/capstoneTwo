@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { recordAuditLog } = require('./auditController');
 
 let gfsBucket;
 
@@ -35,6 +36,21 @@ exports.getFileByFilename = async (req, res) => {
     }
 
     const file = files[0];
+
+    // 📝 AUDIT LOG: Document Accessed by Filename
+    const actorName = req.user 
+      ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
+      : 'User / Visitor';
+    const actorRole = req.user ? req.user.role : 'Guest';
+
+    await recordAuditLog({
+      actor: actorName,
+      role: actorRole,
+      action: 'DOCUMENT_ACCESS',
+      details: `User accessed document (${file.filename}) [ID: ${file._id}]`,
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+      severity: 'Info'
+    });
 
     // Set proper response headers
     res.setHeader('Content-Type', file.contentType || 'application/octet-stream');
@@ -78,6 +94,13 @@ exports.getFileById = async (req, res) => {
       });
     }
 
+    if (!gfsBucket) {
+      return res.status(500).json({
+        success: false,
+        message: 'GridFS bucket not initialized yet.',
+      });
+    }
+
     const _id = new mongoose.Types.ObjectId(id);
     const files = await gfsBucket.find({ _id }).toArray();
 
@@ -89,6 +112,21 @@ exports.getFileById = async (req, res) => {
     }
 
     const file = files[0];
+
+    // 📝 AUDIT LOG: Document Accessed by ID
+    const actorName = req.user 
+      ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
+      : 'User / Visitor';
+    const actorRole = req.user ? req.user.role : 'Guest';
+
+    await recordAuditLog({
+      actor: actorName,
+      role: actorRole,
+      action: 'DOCUMENT_ACCESS',
+      details: `User accessed document (${file.filename}) [ID: ${file._id}]`,
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+      severity: 'Info'
+    });
 
     res.setHeader('Content-Type', file.contentType || 'application/octet-stream');
     res.setHeader('Content-Disposition', `inline; filename="${file.filename}"`);

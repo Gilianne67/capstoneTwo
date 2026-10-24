@@ -1,51 +1,44 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useMemo } from 'react';
 import { 
   ShieldAlert, 
   GraduationCap, 
   ArrowRight, 
   Loader2, 
-  MailCheck, 
-  Mail, 
-  Send, 
-  AlertCircle,
   FileText,
-  Sparkles,
-  X
+  Sparkles
 } from 'lucide-react';
-import { useAuth } from '../../../context/AuthContext';
-import { REGIONS } from "../../../data/locationData";
-import { API_BASE_URL } from '../../../config/api';
+import { REGIONS, PROVINCES, MUNICIPALITIES } from "../../../data/locationData";
 
-export function OnboardingForm({ onComplete }) {
-  const navigate = useNavigate();
-  const { user, token: contextToken, updateUser } = useAuth();
-
+export function OnboardingForm({ onSubmit, isSubmitting = false, registeredEmail = '' }) {
   const [formData, setFormData] = useState({
-  dob: '',
-  course: '',
-  academicLevel: 'College',
-  yearLevel: '1st Year',
-  gpa: '',
-  region: '',
-  householdIncome: 'Below ₱10,000 / month',
-  guardianName: '',
-  guardianEmail: '',
-  dpaConsent: false
-});;
+    dob: '',
+    course: '',
+    academicLevel: 'College',
+    yearLevel: '1st Year',
+    gpa: '',
+    region: '',
+    province: '',
+    municipality: '',
+    householdIncome: 'Below ₱10,000 / month',
+    guardianName: '',
+    guardianEmail: '',
+    dpaConsent: false
+  });
 
   const [isMinor, setIsMinor] = useState(false);
   const [calculatedAge, setCalculatedAge] = useState(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [consentSent, setConsentSent] = useState(false);
   const [error, setError] = useState(null);
 
-  const [isResending, setIsResending] = useState(false);
-  const [resendStatus, setResendStatus] = useState(null);
-  const [showProfilePrompt, setShowProfilePrompt] = useState(false);
+  // Cascading location options derived from data
+  const availableProvinces = useMemo(() => {
+    if (!formData.region || !PROVINCES) return [];
+    return PROVINCES[formData.region] || [];
+  }, [formData.region]);
 
-  const PROFILE_ROUTE = '/dashboard/student/profile';
-  const DASHBOARD_ROUTE = '/dashboard/student';
+  const availableMunicipalities = useMemo(() => {
+    if (!formData.province || !MUNICIPALITIES) return [];
+    return MUNICIPALITIES[formData.province] || [];
+  }, [formData.province]);
 
   const handleDobChange = (e) => {
     const dobValue = e.target.value;
@@ -68,21 +61,25 @@ export function OnboardingForm({ onComplete }) {
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setFormData(prev => ({ 
-      ...prev, 
-      [name]: type === 'checkbox' ? checked : value 
-    }));
+    setFormData(prev => {
+      const updated = { 
+        ...prev, 
+        [name]: type === 'checkbox' ? checked : value 
+      };
+
+      // Reset dependent location fields on parent change
+      if (name === 'region') {
+        updated.province = '';
+        updated.municipality = '';
+      } else if (name === 'province') {
+        updated.municipality = '';
+      }
+
+      return updated;
+    });
   };
 
-  const getCleanToken = () => {
-    let rawToken = contextToken || localStorage.getItem('token') || localStorage.getItem('accessToken');
-    if (rawToken) {
-      return rawToken.replace(/^"|"$/g, '').replace('Bearer ', '').trim();
-    }
-    return null;
-  };
-
-  const handleSubmit = async (e) => {
+  const handleSubmitForm = (e) => {
     e.preventDefault();
     setError(null);
 
@@ -92,7 +89,6 @@ export function OnboardingForm({ onComplete }) {
     }
 
     if (isMinor) {
-      const studentEmail = user?.email?.trim().toLowerCase();
       const guardianEmail = formData.guardianEmail.trim().toLowerCase();
 
       if (!guardianEmail) {
@@ -100,21 +96,19 @@ export function OnboardingForm({ onComplete }) {
         return;
       }
 
-      if (studentEmail && guardianEmail === studentEmail) {
+      if (registeredEmail && guardianEmail === registeredEmail.trim().toLowerCase()) {
         setError('Parent/Guardian email cannot be the same as your student account email.');
         return;
       }
     }
 
     const gwa = parseFloat(formData.gpa);
-
     if (isNaN(gwa)) {
       setError('Please enter a valid GWA.');
       return;
     }
 
     let gwaScale;
-
     if (gwa >= 1 && gwa <= 5) {
       gwaScale = '1.00-5.00';
     } else if (gwa >= 60 && gwa <= 100) {
@@ -124,168 +118,20 @@ export function OnboardingForm({ onComplete }) {
       return;
     }
 
-    setIsSubmitting(true);
-    const token = getCleanToken();
-
-    try {
-      const response = await fetch(`/api/v1/user/onboarding`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token && { 'Authorization': `Bearer ${token}` })
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          dob: formData.dob,
-          course: formData.course,
-          academicLevel: formData.academicLevel,
-          yearLevel: formData.yearLevel,
-          gpa: gwa,
-          gwaScale: gwaScale,
-          region: formData.region,
-          householdIncome: formData.householdIncome,
-          guardianName: isMinor ? formData.guardianName : undefined,
-          guardianEmail: isMinor ? formData.guardianEmail : undefined,
-          isMinor,
-          age: calculatedAge
-        })
+    // Pass packaged data up to the parent component / backend submission handler
+    if (typeof onSubmit === 'function') {
+      onSubmit({
+        ...formData,
+        gpa: gwa,
+        gwaScale,
+        isMinor,
+        age: calculatedAge
       });
-
-      const contentType = response.headers.get('content-type');
-      let data = {};
-      
-      if (contentType && contentType.includes('application/json')) {
-        data = await response.json();
-      } else {
-        const rawText = await response.text();
-        console.error('Non-JSON Server Response:', rawText);
-        throw new Error(`Server returned non-JSON response (${response.status})`);
-      }
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Onboarding submission failed.');
-      }
-
-      // Update local state in AuthContext with fresh DB user
-      if (typeof updateUser === 'function') {
-        updateUser(data.user);
-      }
-
-      if (isMinor) {
-        setConsentSent(true);
-      } else {
-        if (typeof onComplete === 'function') {
-          onComplete(data.user);
-        }
-        setShowProfilePrompt(true);
-      }
-    } catch (err) {
-      console.error('Onboarding Submission Error:', err);
-      setError(err.message || 'Connection Failed: Could not complete onboarding.');
-    } finally {
-      setIsSubmitting(false);
+    } else {
+      console.error('onSubmit prop is missing or not a function');
+      setError('Submission handler is not connected.');
     }
   };
-
-  const handleResendConsentEmail = async () => {
-    setIsResending(true);
-    setResendStatus(null);
-    const token = getCleanToken();
-
-    try {
-      const res = await fetch(`${API_BASE_URL}/user/consent/resend`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          ...(token && { 'Authorization': `Bearer ${token}` })
-        },
-        credentials: 'include',
-        body: JSON.stringify({ 
-          userId: user?.id || user?._id, 
-          guardianEmail: formData.guardianEmail || user?.guardianEmail 
-        })
-      });
-      
-      const data = await res.json();
-      if (res.ok && data.success !== false) {
-        setResendStatus({ type: 'success', text: 'Consent email sent successfully! Please check spam folder.' });
-      } else {
-        setResendStatus({ type: 'error', text: data.message || 'Failed to resend email.' });
-      }
-    } catch (err) {
-      console.error('Resend Error:', err);
-      setResendStatus({ type: 'error', text: 'Network error. Please try again.' });
-    } finally {
-      setIsResending(false);
-    }
-  };
-
-  // Screening for Pending Consent Status
-  if (user?.isOnboarded && user?.status === 'pending_consent') {
-    return (
-      <div className="max-w-md mx-auto my-12 p-6 bg-card-bg border border-app-text/10 rounded-2xl text-center space-y-4 shadow-lg">
-        <div className="w-12 h-12 bg-amber-500/10 text-amber-600 rounded-full flex items-center justify-center mx-auto">
-          <Mail className="w-6 h-6" />
-        </div>
-        <h3 className="text-lg font-black text-app-text">Parental Approval Needed</h3>
-        <p className="text-xs text-text-muted leading-relaxed">
-          A verification link was sent to your parent/guardian's email address (<strong>{user?.guardianEmail}</strong>).
-        </p>
-
-        {resendStatus && (
-          <div className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
-            resendStatus.type === 'success' 
-              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
-              : 'bg-rose-50 text-rose-700 border border-rose-200'
-          }`}>
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{resendStatus.text}</span>
-          </div>
-        )}
-
-        <div className="pt-2 space-y-2">
-          <button
-            type="button"
-            onClick={handleResendConsentEmail}
-            disabled={isResending}
-            className="w-full py-3 bg-primary text-white font-bold text-xs rounded-xl shadow-md flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer"
-          >
-            {isResending ? <Loader2 className="w-4 h-4 animate-spin" /> : (
-              <>
-                <Send className="w-4 h-4" />
-                <span>Resend Consent Email</span>
-              </>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => navigate('/auth?mode=signin')}
-            className="w-full py-2 text-xs font-semibold text-text-muted hover:text-app-text cursor-pointer"
-          >
-            Return to Login
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (consentSent) {
-    return (
-      <div className="max-w-md mx-auto my-12 p-8 bg-card-bg border border-app-text/10 rounded-2xl text-center space-y-4 shadow-lg">
-        <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto">
-          <MailCheck className="w-6 h-6" />
-        </div>
-        <h2 className="text-lg font-bold text-app-text">Parental Consent Required</h2>
-        <p className="text-xs text-text-muted leading-relaxed">
-          Because you are under 18, we sent a verification link to <strong className="text-app-text">{formData.guardianEmail}</strong>.
-        </p>
-        <div className="p-3 bg-amber-50 text-amber-800 rounded-xl text-xs font-semibold border border-amber-200">
-          🔒 Account Status: <strong>Pending Consent</strong>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="max-w-2xl mx-auto my-10 p-6 sm:p-8 bg-card-bg border border-app-text/10 rounded-2xl shadow-md">
@@ -294,7 +140,6 @@ export function OnboardingForm({ onComplete }) {
           <GraduationCap className="w-6 h-6 text-primary" />
           Complete Your Student Profile
         </h2>
-        
         <div className="flex items-start gap-2 p-3 bg-blue-50/60 border border-blue-200 rounded-xl text-blue-900 text-xs">
           <Sparkles className="w-4 h-4 shrink-0 text-blue-600 mt-0.5" />
           <span>
@@ -309,7 +154,7 @@ export function OnboardingForm({ onComplete }) {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-5">
+      <form onSubmit={handleSubmitForm} className="space-y-5">
         <div>
           <div className="flex justify-between items-center mb-1">
             <label className="block text-xs font-bold text-app-text">Date of Birth</label>
@@ -345,7 +190,6 @@ export function OnboardingForm({ onComplete }) {
                   className="w-full px-3 py-2 bg-white rounded-lg border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none"
                 />
               </div>
-
               <div>
                 <label className="block text-xs font-bold text-app-text mb-1">Guardian Email Address</label>
                 <input
@@ -375,70 +219,61 @@ export function OnboardingForm({ onComplete }) {
           </div>
 
           <div>
-  <label className="block text-xs font-bold text-app-text mb-1">
-  Academic Level
-</label>
+            <label className="block text-xs font-bold text-app-text mb-1">Academic Level</label>
+            <select
+              name="academicLevel"
+              value={formData.academicLevel}
+              onChange={(e) => {
+                const academicLevel = e.target.value;
+                setFormData(prev => ({
+                  ...prev,
+                  academicLevel,
+                  yearLevel:
+                    academicLevel === 'Senior High School'
+                      ? 'Grade 11'
+                      : academicLevel === 'College'
+                      ? '1st Year'
+                      : 'Masteral'
+                }));
+              }}
+              className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none cursor-pointer"
+            >
+              <option value="Senior High School">Senior High School</option>
+              <option value="College">College</option>
+              <option value="Graduate Studies">Post Graduate Studies</option>
+            </select>
+          </div>
 
-<select
-  name="academicLevel"
-  value={formData.academicLevel}
-  onChange={(e) => {
-    const academicLevel = e.target.value;
-
-    setFormData(prev => ({
-      ...prev,
-      academicLevel,
-      yearLevel:
-        academicLevel === 'Senior High School'
-          ? 'Grade 11'
-          : academicLevel === 'College'
-            ? '1st Year'
-            : 'Masteral'
-    }));
-  }}
-  className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none cursor-pointer"
->
-  <option value="Senior High School">Senior High School</option>
-  <option value="College">College</option>
-  <option value="Graduate Studies">Post Graduate Studies</option>
-</select>
-</div>
-
-<div>
-  <label className="block text-xs font-bold text-app-text mb-1">
-    {formData.academicLevel === 'Senior High School'
-      ? 'Grade Level'
-      : formData.academicLevel === 'Graduate Studies'
-        ? 'Program Level'
-        : 'Year Level'}
-  </label>
-
-  <select
-    name="yearLevel"
-    value={formData.yearLevel}
-    onChange={handleChange}
-    className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none cursor-pointer"
-  >
-    {formData.academicLevel === 'Senior High School' ? (
-      <>
-        <option value="Grade 11">Grade 11</option>
-        <option value="Grade 12">Grade 12</option>
-      </>
-    ) : formData.academicLevel === 'Graduate Studies' ? (
-      <>
-        <option value="Masteral">Master's</option>
-        <option value="Doctoral">Doctoral</option>
-      </>
-    ) : (
-      <>
-        <option value="1st Year">1st Year</option>
-        <option value="2nd Year">2nd Year</option>
-        <option value="3rd Year">3rd Year</option>
-        <option value="4th Year">4th Year</option>
-      </>
-    )}
-  </select>
-</div>
+          <div>
+            <label className="block text-xs font-bold text-app-text mb-1">
+              {formData.academicLevel === 'Senior High School' ? 'Grade Level' : formData.academicLevel === 'Graduate Studies' ? 'Program Level' : 'Year Level'}
+            </label>
+            <select
+              name="yearLevel"
+              value={formData.yearLevel}
+              onChange={handleChange}
+              className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none cursor-pointer"
+            >
+              {formData.academicLevel === 'Senior High School' ? (
+                <>
+                  <option value="Grade 11">Grade 11</option>
+                  <option value="Grade 12">Grade 12</option>
+                </>
+              ) : formData.academicLevel === 'Graduate Studies' ? (
+                <>
+                  <option value="Masteral">Master's</option>
+                  <option value="Doctoral">Doctoral</option>
+                </>
+              ) : (
+                <>
+                  <option value="1st Year">1st Year</option>
+                  <option value="2nd Year">2nd Year</option>
+                  <option value="3rd Year">3rd Year</option>
+                  <option value="4th Year">4th Year</option>
+                </>
+              )}
+            </select>
+          </div>
 
           <div>
             <label className="block text-xs font-bold text-app-text mb-1">Current GWA / GPA</label>
@@ -454,29 +289,56 @@ export function OnboardingForm({ onComplete }) {
               placeholder="e.g. 1.75 or 85"
               className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none"
             />
-
-            <p className="text-[10px] text-slate-500 mt-1">
-              Enter your GWA using your school's grading scale (1.00–5.00 or 60–100).
-            </p>
           </div>
 
           <div>
             <label className="block text-xs font-bold text-app-text mb-1">Region</label>
-              <select
-                  name="region"
-                  value={formData.region}
-                  onChange={handleChange}
-                  required
-                  className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none cursor-pointer"
-                >
-                  <option value="">Select region</option>
+            <select
+              name="region"
+              value={formData.region}
+              onChange={handleChange}
+              required
+              className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none cursor-pointer"
+            >
+              <option value="">Select Region</option>
+              {REGIONS.map((region) => (
+                <option key={region} value={region}>{region}</option>
+              ))}
+            </select>
+          </div>
 
-                  {REGIONS.map((region) => (
-                    <option key={region} value={region}>
-                      {region}
-                    </option>
-                  ))}
-                </select>
+          <div>
+            <label className="block text-xs font-bold text-app-text mb-1">Province</label>
+            <select
+              name="province"
+              value={formData.province}
+              onChange={handleChange}
+              required
+              disabled={!formData.region}
+              className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none cursor-pointer disabled:opacity-50"
+            >
+              <option value="">Select Province</option>
+              {availableProvinces.map((prov) => (
+                <option key={prov} value={prov}>{prov}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-bold text-app-text mb-1">Municipality / City</label>
+            <select
+              name="municipality"
+              value={formData.municipality}
+              onChange={handleChange}
+              required
+              disabled={!formData.province}
+              className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none cursor-pointer disabled:opacity-50"
+            >
+              <option value="">Select Municipality / City</option>
+              {availableMunicipalities.map((mun) => (
+                <option key={mun} value={mun}>{mun}</option>
+              ))}
+            </select>
           </div>
 
           <div className="sm:col-span-2">
@@ -518,67 +380,19 @@ export function OnboardingForm({ onComplete }) {
 
         <button
           type="submit"
-          disabled={isSubmitting}
-          className="w-full mt-4 py-3 bg-primary text-white hover:bg-primary/90 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-2 shadow-xs cursor-pointer disabled:opacity-50"
+          disabled={Boolean(isSubmitting)}
+          className="w-full mt-4 py-3 bg-primary text-white hover:bg-primary/90 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-2 shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isSubmitting ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
             <>
-              <span>{isMinor ? 'Submit & Send Guardian Email' : 'Activate Profile'}</span>
+              <span>{isMinor ? 'Submit & Send Guardian Email' : 'Activate Profile & Verify Email'}</span>
               <ArrowRight className="w-4 h-4" />
             </>
           )}
         </button>
       </form>
-
-      {showProfilePrompt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-card-bg border border-slate-200/80 rounded-3xl max-w-md w-full p-6 shadow-xl space-y-4">
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-2xl bg-blue-50 text-primary">
-                  <GraduationCap className="h-5 w-5" />
-                </div>
-                <h3 className="text-base font-extrabold text-app-text">
-                  Get Better Scholarship Matches
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => navigate(DASHBOARD_ROUTE)}
-                className="p-1 rounded-lg text-text-muted hover:text-app-text"
-                aria-label="Close"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs text-text-muted leading-relaxed">
-              <p>
-                Your basic profile is ready! To help us find the most relevant scholarship opportunities for you, please complete your student profile accurately.
-              </p>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => navigate(DASHBOARD_ROUTE)}
-                className="px-4 py-2 rounded-xl text-xs font-bold border border-slate-200 text-app-text hover:bg-slate-50 transition-colors cursor-pointer"
-              >
-                Maybe Later
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate(PROFILE_ROUTE)}
-                className="px-4 py-2 rounded-xl text-xs font-extrabold text-white shadow-sm transition-all active:scale-95 bg-primary hover:bg-blue-700 cursor-pointer"
-              >
-                Complete My Profile
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

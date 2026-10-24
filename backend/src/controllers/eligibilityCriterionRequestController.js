@@ -1,5 +1,6 @@
 const Provider = require('../models/Provider');
 const EligibilityCriterionRequest = require('../models/EligibilityCriterionRequest');
+const { recordAuditLog } = require('./auditController');
 const { CRITERION_TYPES } = EligibilityCriterionRequest;
 
 const SUPPORTED_CRITERION_NAMES = [
@@ -140,6 +141,20 @@ exports.createEligibilityCriterionRequest = async (req, res) => {
       criterionType,
       description,
       status: 'Pending',
+    });
+
+    // 📝 AUDIT LOG: Eligibility Criterion Request Submitted
+    const actorName = req.user 
+      ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
+      : provider.institutionName || 'Provider User';
+
+    await recordAuditLog({
+      actor: actorName,
+      role: 'Provider',
+      action: 'ELIGIBILITY_REQUEST_SUBMIT',
+      details: `Provider requested custom eligibility criterion: "${criterionName}" (${criterionType})`,
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+      severity: 'Info'
     });
 
     res.status(201).json({

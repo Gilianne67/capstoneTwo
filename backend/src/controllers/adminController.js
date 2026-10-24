@@ -3,7 +3,8 @@ const User = require('../models/User');
 const ParentalConsent = require('../models/ParentalConsent');
 const asyncHandler = require('../utils/asyncHandler');
 const ErrorResponse = require('../utils/errorResponse');
-const { sendEmail } = require('../utils/sendEmail');
+const { sendEmail } = require('../utils/emailService');
+const { recordAuditLog } = require('./auditController');
 
 // Safe import for Scholarship
 let Scholarship;
@@ -164,6 +165,22 @@ exports.updateProviderVerification = asyncHandler(async (req, res, next) => {
     await User.findByIdAndUpdate(targetUserId, { isVerified: isApproved });
   }
 
+  // 📝 AUDIT LOG: Provider Verification Review
+  const adminActor = req.user 
+    ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
+    : 'Admin User';
+
+  await recordAuditLog({
+    actor: adminActor,
+    role: 'Admin',
+    action: isApproved ? 'PROVIDER_VERIFIED' : 'PROVIDER_REJECTED',
+    details: isApproved 
+      ? `Admin verified provider application for "${provider.institutionName || 'Provider'}" (ID: ${provider._id}).`
+      : `Admin rejected provider application for "${provider.institutionName || 'Provider'}" (ID: ${provider._id}). Reason: ${finalReason}`,
+    ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+    severity: isApproved ? 'Info' : 'Warning'
+  });
+
   // Safe recipient email resolution across schema options
   const recipientEmail = provider.representative?.workEmail || provider.contactEmail || getUserField(provider.userId, 'email');
   const recipientName = provider.representative?.name || getUserField(provider.userId, 'name') || 'Partner';
@@ -237,6 +254,20 @@ exports.updateScholarshipStatus = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse(`Scholarship listing not found with ID ${id}`, 404));
   }
 
+  // 📝 AUDIT LOG: Scholarship Moderation Action
+  const adminActor = req.user 
+    ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
+    : 'Admin User';
+
+  await recordAuditLog({
+    actor: adminActor,
+    role: 'Admin',
+    action: 'SCHOLARSHIP_MODERATED',
+    details: `Admin set status of scholarship listing "${scholarship.title}" (ID: ${scholarship._id}) to ${updatedStatus}.`,
+    ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+    severity: isApproved ? 'Info' : 'Warning'
+  });
+
   res.status(200).json({
     success: true,
     message: `Scholarship listing updated to ${updatedStatus}`,
@@ -258,6 +289,20 @@ exports.updateConsentStatus = asyncHandler(async (req, res, next) => {
   if (!consent) {
     return next(new ErrorResponse(`Consent record not found with ID ${id}`, 404));
   }
+
+  // 📝 AUDIT LOG: Consent Moderation Action
+  const adminActor = req.user 
+    ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
+    : 'Admin User';
+
+  await recordAuditLog({
+    actor: adminActor,
+    role: 'Admin',
+    action: 'CONSENT_MODERATED',
+    details: `Admin updated parental consent status for Student "${consent.studentName || 'N/A'}" to ${updatedStatus}.`,
+    ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+    severity: isApproved ? 'Info' : 'Warning'
+  });
 
   res.status(200).json({
     success: true,
