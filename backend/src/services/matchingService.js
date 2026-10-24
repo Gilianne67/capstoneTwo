@@ -5,6 +5,7 @@ const {
   toMatchIds,
   setsIntersect
 } = require('../utils/courseCanonical');
+const { runMatchingWorker } = require('./matchingWorkerRunner');
 
 /**
  * Student income brackets, in ascending order.
@@ -795,7 +796,12 @@ const getRankedScholarships = async (
     loadAliasIndex()
   ]);
 
-  return rankScholarships(studentProfile, scholarships, aliasIndex, now);
+  return runMatchingWorker({
+    studentProfile,
+    scholarships,
+    aliasIndex,
+    now
+  });
 };
 
 module.exports = {
