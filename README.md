@@ -284,6 +284,53 @@ Replace the placeholder values with your own MongoDB Atlas configuration.
 
 ---
 
+# Local Elasticsearch
+
+Elasticsearch is an optional search index. MongoDB Atlas remains the source of scholarship records. With `ELASTICSEARCH_ENABLED` unset or `false`, the API starts as it does today and does not connect to Elasticsearch.
+
+The Docker Compose service is for local development only. It publishes port 9200 on `127.0.0.1` and runs a single Elasticsearch 8 node with security disabled. Do not use that configuration on a public host. For a hosted cluster, set `ELASTICSEARCH_NODE` to the HTTPS endpoint and put the API key in `backend/.env`.
+
+Start the local node from the repository root:
+
+```bash
+docker compose up -d elasticsearch
+docker compose ps
+```
+
+Wait until the container is healthy, then add these values to `backend/.env`:
+
+```env
+ELASTICSEARCH_ENABLED=true
+ELASTICSEARCH_NODE=http://127.0.0.1:9200
+ELASTICSEARCH_API_KEY=
+ELASTICSEARCH_INDEX=scholarships
+```
+
+Rebuild the index from current MongoDB scholarships:
+
+```bash
+npm run reindex:scholarships --prefix backend
+```
+
+The command is safe to run more than once. It indexes open scholarships only, skips closed and archived records, and replaces the `scholarships` alias after the new index is built. A failed build leaves the previous alias in place. Creating, editing, opening, closing, or archiving a scholarship saves MongoDB first and then synchronizes that saved record. A search-index failure is logged, and the saved scholarship stays in MongoDB. Use this reindex command to rebuild the alias when it is missing or stale.
+
+Run the search tests against the local node:
+
+```bash
+npm run test:search --prefix backend
+npm run test:matching-search --prefix backend
+```
+
+Signed-in students search through `GET /api/v1/matching?q=`. An empty query still ranks every open scholarship. A keyword query asks Elasticsearch for candidate ids, reloads those open scholarships from MongoDB, and ranks them with the existing matcher. If Elasticsearch is disabled or unreachable, that keyword request returns HTTP 503 and the student page does not fall back to a local text filter.
+
+Stop the local node with:
+
+```bash
+docker compose stop elasticsearch
+```
+
+---
+
 # Running the Application
 
 The frontend and backend should be run in separate terminals.

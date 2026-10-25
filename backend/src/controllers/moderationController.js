@@ -1,5 +1,6 @@
-const Report = require('../models/Report'); 
+const Report = require('../models/Report');
 const Scholarship = require('../models/Scholarship');
+const searchSync = require('../services/scholarshipSearchSync');
 
 const getModerationReports = async (req, res) => {
   try {
@@ -54,10 +55,18 @@ const updateModerationReport = async (req, res) => {
     }
 
     if (action === 'REMOVE_LISTING' && report.listingId) {
-      await Scholarship.findByIdAndUpdate(report.listingId, {
-        status: 'Closed',
-        isArchived: true,
-      });
+      const scholarship = await Scholarship.findByIdAndUpdate(
+        report.listingId,
+        {
+          status: 'Closed',
+          isArchived: true,
+        },
+        { new: true }
+      );
+
+      if (scholarship) {
+        await searchSync.syncScholarshipSearch(scholarship);
+      }
     }
 
     report.status = status || 'Resolved';
