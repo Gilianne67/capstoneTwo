@@ -3,6 +3,7 @@ const Scholarship = require('../models/Scholarship');
 const {
   closeExpiredScholarships
 } = require('../services/scholarshipExpirationService');
+const searchSync = require('../services/scholarshipSearchSync');
 
 const normalizeBenefits = (benefits) => {
   if (!Array.isArray(benefits)) {
@@ -49,6 +50,7 @@ exports.createScholarship = async (req, res) => {
     }
 
     const scholarship = await Scholarship.create(scholarshipData);
+    await searchSync.syncScholarshipSearch(scholarship);
 
     res.status(201).json({
       success: true,
@@ -214,6 +216,7 @@ exports.updateScholarship = async (req, res) => {
     });
 
     await scholarship.save();
+    await searchSync.syncScholarshipSearch(scholarship);
 
     res.status(200).json({
       success: true,
@@ -269,6 +272,7 @@ exports.updateScholarshipStatus = async (req, res) => {
     scholarship.status = status;
 
     await scholarship.save();
+    await searchSync.syncScholarshipSearch(scholarship);
 
     res.status(200).json({
       success: true,
@@ -323,6 +327,7 @@ exports.archiveScholarship = async (req, res) => {
     scholarship.isArchived = true;
 
     await scholarship.save();
+    await searchSync.syncScholarshipSearch(scholarship);
 
     res.status(200).json({
       success: true,
