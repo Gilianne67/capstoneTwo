@@ -211,7 +211,15 @@ const runControllerTests = async () => {
   Scholarship.create = async (data) => ({ ...created, ...data });
   const createRes = mockRes();
   await scholarshipController.createScholarship(
-    { user: { id: 'user-1' }, body: { name: created.name } },
+    {
+      user: { id: 'user-1' },
+      body: {
+        name: created.name,
+        deadline: '2026-12-31',
+        applicationURL: 'https://example.test/apply',
+        hardFilters: created.hardFilters
+      }
+    },
     createRes
   );
   assert.strictEqual(createRes.statusCode, 201);
@@ -334,7 +342,15 @@ const runControllerTests = async () => {
   Scholarship.create = async () => openRecord();
   const failedRes = mockRes();
   await scholarshipController.createScholarship(
-    { user: { id: 'user-1' }, body: { name: 'Still saved' } },
+    {
+      user: { id: 'user-1' },
+      body: {
+        name: 'Still saved',
+        deadline: '2026-12-31',
+        applicationURL: 'https://example.test/apply',
+        hardFilters: openRecord().hardFilters
+      }
+    },
     failedRes
   );
   assert.strictEqual(failedRes.statusCode, 201);

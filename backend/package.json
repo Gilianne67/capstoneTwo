@@ -4,7 +4,7 @@
   "description": "",
   "main": "src/server.js",
   "scripts": {
-    "test": "node src/scripts/testCourseCanonical.js && node src/scripts/testMatchingEngine.js && node src/scripts/testMatchingWorker.js && node src/scripts/testMatchingWorkerPool.js && node src/scripts/testScholarshipExpiration.js && node src/scripts/testLocationData.js && node src/scripts/testPendingConsentAccess.js && node src/scripts/testLogoutSession.js && node src/scripts/testApiBaseUrl.js && node src/scripts/testProviderAnalytics.js && node src/scripts/testEmailVerification.js && node src/scripts/testMatchingSearch.js && node src/scripts/testScholarshipSearchSync.js",
+    "test": "node src/scripts/testCourseCanonical.js && node src/scripts/testMatchingEngine.js && node src/scripts/testMatchingWorker.js && node src/scripts/testMatchingWorkerPool.js && node src/scripts/testScholarshipExpiration.js && node src/scripts/testLocationData.js && node src/scripts/testPendingConsentAccess.js && node src/scripts/testLogoutSession.js && node src/scripts/testApiBaseUrl.js && node src/scripts/testProviderAnalytics.js && node src/scripts/testEmailVerification.js && node src/scripts/testMatchingSearch.js && node src/scripts/testScholarshipSearchSync.js && node src/scripts/testScholarshipInputValidation.js && node src/scripts/testScholarshipAccess.js && node src/scripts/testScholarshipDbIntegration.js",
     "benchmark:matching": "node src/scripts/benchmarkMatchingWorker.js",
     "seed:courses": "node src/scripts/seedCourseAliases.js",
     "reindex:scholarships": "node src/scripts/reindexScholarships.js",

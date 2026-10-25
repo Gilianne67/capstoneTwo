@@ -155,7 +155,8 @@ const main = async () => {
   );
   const { resolveRedirectPath } = await import(pathToFileURL(frontendPath).href);
 
-  assert.strictEqual(resolveRedirectPath(pendingStudent), '/onboarding');
+  // Pending minors wait on the parental consent screen, not the student onboarding form.
+  assert.strictEqual(resolveRedirectPath(pendingStudent), '/consent/verify');
   assert.strictEqual(
     resolveRedirectPath({
       role: 'provider',
@@ -211,7 +212,7 @@ const main = async () => {
   const rejectedSession = await runMiddleware(protect, rejectedRequest);
   assert.strictEqual(rejectedSession.nextCalled, false);
   assert.strictEqual(rejectedSession.statusCode, 403);
-  assert.match(rejectedSession.body.message, /rejected/i);
+  assert.match(rejectedSession.body.message, /declined|rejected/i);
 
   const rejectedLogout = await runMiddleware(protect, {
     ...rejectedRequest,
@@ -231,7 +232,11 @@ const main = async () => {
   console.log('pending consent access tests passed');
 };
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+main()
+  .then(() => {
+    process.exit(0);
+  })
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
