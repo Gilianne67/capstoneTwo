@@ -739,6 +739,15 @@ const handleExecutePublish = async () => {
 // Navigate to Scholarship Listings only after a successful save.
 // Edit is rendered inside the listings page, so a same-route navigate
 // does not leave the form. onSuccess clears that embedded view.
+const handleBack = () => {
+  if (typeof onBack === 'function') {
+    onBack();
+    return;
+  }
+
+  navigate('/dashboard/provider/listings');
+};
+
 const handleSuccessClose = () => {
   setShowSuccessModal(false);
 
@@ -755,7 +764,7 @@ const handleSuccessClose = () => {
       <div className="flex items-center gap-3">
         <button
           type="button"
-          onClick={onBack}
+          onClick={handleBack}
           className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-colors cursor-pointer"
           title="Go back"
         >
@@ -1472,7 +1481,7 @@ const handleSuccessClose = () => {
       {/* CANCEL */}
       <button
         type="button"
-        onClick={onBack}
+        onClick={handleBack}
         className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
       >
         Cancel
