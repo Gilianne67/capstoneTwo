@@ -1,7 +1,6 @@
-const path = require('path');
-const { pathToFileURL } = require('url');
 const mongoose = require('mongoose');
 
+const { REGIONS } = require('../data/regions');
 const { COURSE_CATALOG, resolveCanonical } = require('../utils/courseCanonicalCore');
 const {
   createElasticsearchClient,
@@ -31,7 +30,8 @@ const ELIGIBILITY_SYNONYM_GROUPS = [
 ];
 
 /**
- * Canonical names are the REGIONS list in frontend/src/data/locationData.js.
+ * Canonical names match REGIONS in frontend/src/data/locationData.js
+ * and the backend copy in src/data/regions.js.
  * Extra labels reuse the region aliases already present in ScholarshipSearch.jsx
  * and the standard Philippine region codes for the remaining regions.
  */
@@ -186,14 +186,8 @@ const loadDbCourseEntries = async () => {
 };
 
 const loadCanonicalRegions = async () => {
-  const locationPath = path.resolve(
-    __dirname,
-    '../../../frontend/src/data/locationData.js'
-  );
-  const { REGIONS } = await import(pathToFileURL(locationPath).href);
-
   if (!Array.isArray(REGIONS) || REGIONS.length === 0) {
-    throw new Error('locationData.js did not export a region list.');
+    throw new Error('regions.js did not export a region list.');
   }
 
   return REGIONS;

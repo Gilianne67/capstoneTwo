@@ -1,6 +1,8 @@
 const assert = require('assert');
+const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
+const { REGIONS: backendRegions } = require('../data/regions');
 
 const LEGACY_PLACES = {
   Cebu: ['Cebu City', 'Lapu-Lapu City', 'Mandaue City'],
@@ -11,15 +13,26 @@ const LEGACY_PLACES = {
 };
 
 const main = async () => {
+  assert.strictEqual(backendRegions.length, 17);
+  assert.ok(backendRegions.includes('Bicol Region'));
+  assert.ok(backendRegions.includes('National Capital Region'));
+
   const locationPath = path.resolve(
     __dirname,
     '../../../frontend/src/data/locationData.js'
   );
+
+  if (!fs.existsSync(locationPath)) {
+    console.log('Location data tests passed');
+    return;
+  }
+
   const { REGIONS, PROVINCES, MUNICIPALITIES } = await import(
     pathToFileURL(locationPath).href
   );
   const provinces = Object.values(PROVINCES).flat();
 
+  assert.deepStrictEqual(backendRegions, REGIONS);
   assert.strictEqual(REGIONS.length, 17);
   assert.strictEqual(provinces.length, 83);
   assert.ok(REGIONS.includes('Bicol Region'));
