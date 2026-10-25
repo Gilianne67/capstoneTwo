@@ -408,3 +408,5 @@ This project was developed for academic and educational purposes as part of a Ca
 # Acknowledgment
 
 The development of ISKOLARMATCH is guided by the goal of improving access to scholarship information for Filipino students through centralized scholarship information, structured eligibility criteria, secure authentication, and explainable scholarship matching.
+
+Group 6
