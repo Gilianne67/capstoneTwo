@@ -92,7 +92,12 @@ export function AuthProvider({ children }) {
     });
 
     const data = await response.json();
-    if (!response.ok) throw new Error(data.message || 'Invalid email or password.');
+    if (!response.ok) {
+      const err = new Error(data.message || data.error || 'Invalid email or password.');
+      err.verificationDeclined = Boolean(data.verificationDeclined);
+      err.requiresConsent = Boolean(data.requiresConsent);
+      throw err;
+    }
 
     const jwtToken = (data.token || data.accessToken || '').replace(/^"|"$/g, '').trim();
     if (jwtToken) {
@@ -115,7 +120,12 @@ export function AuthProvider({ children }) {
     });
 
     const data = await response.json();
-    if (!response.ok) throw new Error(data.message || 'Registration failed.');
+    if (!response.ok) {
+      const err = new Error(data.message || data.error || 'Registration failed.');
+      err.verificationDeclined = Boolean(data.verificationDeclined);
+      err.canResubmit = Boolean(data.canResubmit);
+      throw err;
+    }
 
     const jwtToken = (data.token || data.accessToken || '').replace(/^"|"$/g, '').trim();
     if (jwtToken) {

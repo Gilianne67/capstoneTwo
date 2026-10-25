@@ -72,7 +72,13 @@ export default function ProtectedRoute({
       return <Navigate to="/provider/pending-approval" replace />;
     }
     if (status === 'rejected' && !location.pathname.startsWith('/auth')) {
-      return <Navigate to="/auth?mode=signin" replace />;
+      const isFinalRejection = Boolean(user?.isFinalRejection ?? user?.is_final_rejection);
+      return (
+        <Navigate
+          to={isFinalRejection ? '/auth?mode=signin' : '/dashboard/provider/verification'}
+          replace
+        />
+      );
     }
   }
 

@@ -163,6 +163,15 @@ const main = async () => {
       isOnboarded: true,
       verificationStatus: 'Rejected',
     }),
+    '/dashboard/provider/verification'
+  );
+  assert.strictEqual(
+    resolveRedirectPath({
+      role: 'provider',
+      isOnboarded: true,
+      verificationStatus: 'Rejected',
+      isFinalRejection: true,
+    }),
     '/auth?mode=signin'
   );
 
@@ -207,6 +216,17 @@ const main = async () => {
     select: async () => ({
       verificationStatus: 'Rejected',
       rejectionReason: 'Missing permit',
+      isFinalRejection: false,
+    }),
+  });
+  const resubmittableSession = await runMiddleware(protect, rejectedRequest);
+  assert.strictEqual(resubmittableSession.nextCalled, true);
+
+  Provider.findOne = () => ({
+    select: async () => ({
+      verificationStatus: 'Rejected',
+      rejectionReason: 'Missing permit',
+      isFinalRejection: true,
     }),
   });
   const rejectedSession = await runMiddleware(protect, rejectedRequest);

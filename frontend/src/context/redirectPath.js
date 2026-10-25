@@ -3,6 +3,20 @@
  * Pending guardian consent stays on the parental consent waiting screen. 
  * It does not open the dashboard or the onboarding form.
  */
+export function isFinalProviderRejection(userData) {
+  return Boolean(userData?.isFinalRejection ?? userData?.is_final_rejection);
+}
+
+export function canProviderResubmit(userData) {
+  const role = userData?.role?.toLowerCase();
+  const verificationStatus = (
+    userData?.verificationStatus ||
+    userData?.verification_status ||
+    ''
+  ).toLowerCase();
+  return role === 'provider' && verificationStatus === 'rejected' && !isFinalProviderRejection(userData);
+}
+
 export function resolveRedirectPath(userData) {
   if (!userData) return '/auth?mode=signin';
 
@@ -20,7 +34,10 @@ export function resolveRedirectPath(userData) {
       return '/provider/onboarding';
     }
     if (verificationStatus === 'rejected') {
-      return '/auth?mode=signin';
+      if (isFinalProviderRejection(userData)) {
+        return '/auth?mode=signin';
+      }
+      return '/dashboard/provider/verification';
     }
     const isVerified =
       verificationStatus === 'verified' || verificationStatus === 'approved';
