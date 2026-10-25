@@ -1,0 +1,16 @@
+FROM docker.elastic.co/elasticsearch/elasticsearch:8.17.4
+
+# Start as root only to correct a volume mounted at runtime.
+# Elasticsearch is executed afterward as uid 1000 and gid 0.
+USER root
+
+RUN printf '%s\n' \
+    '#!/bin/bash' \
+    'set -euo pipefail' \
+    'chown -R 1000:0 /usr/share/elasticsearch/data' \
+    'exec /usr/bin/setpriv --reuid=1000 --regid=0 --clear-groups /bin/tini -- /usr/local/bin/docker-entrypoint.sh "$@"' \
+    > /usr/local/bin/fix-data-perms.sh \
+    && chmod 0555 /usr/local/bin/fix-data-perms.sh
+
+ENTRYPOINT ["/usr/local/bin/fix-data-perms.sh"]
+CMD ["eswrapper"]
