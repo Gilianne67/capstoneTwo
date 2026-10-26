@@ -18,6 +18,7 @@ import ParentConsentPage from './features/public-landing/pages/ParentConsentPage
 import VerifyHoldingPage from './features/public-landing/pages/VerifyHoldingPage';
 import VerifyEmailPage from './features/public-landing/pages/VerifyEmailPage';
 import OnboardingPage from './features/auth/OnboardingPage';
+import ResetPasswordPage from './features/public-landing/pages/ResetPasswordPage';
 
 // Student Module Pages
 import StudentDashboard from './features/student/pages/StudentDashboard';
@@ -184,6 +185,7 @@ export default function App() {
             {/* Verification Gatekeeper Public Routes */}
             <Route path="/verify-holding" element={<VerifyHoldingPage />} />
             <Route path="/verify-email/:token" element={<VerifyEmailPage />} />
+            <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
           </Route>
 
           {/* 2. STANDALONE ONBOARDING ROUTES */}

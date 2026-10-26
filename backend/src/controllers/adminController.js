@@ -5,6 +5,8 @@ const asyncHandler = require('../utils/asyncHandler');
 const ErrorResponse = require('../utils/errorResponse');
 const { sendEmail } = require('../utils/emailService');
 const { recordAuditLog } = require('./auditController');
+const SystemConfig = require('../models/SystemConfig');
+const crypto = require('crypto');
 
 // Safe import for Scholarship
 let Scholarship;
@@ -427,6 +429,114 @@ exports.getVerifications = asyncHandler(async (req, res, next) => {
   res.status(200).json({
     success: true,
     data: verifications
+  });
+});
+
+
+
+// @desc    Get Global System Configuration
+// @route   GET /api/v1/admin/config
+// @access  Private (Admin / Super Admin)
+exports.getSystemConfig = asyncHandler(async (req, res, next) => {
+  let config = await SystemConfig.findOne();
+  if (!config) {
+    config = await SystemConfig.create({ maintenanceMode: false, autoApproveProviders: false });
+  }
+
+  res.status(200).json({
+    success: true,
+    data: config,
+  });
+});
+
+// @desc    Update Global System Configuration
+// @route   PUT /api/v1/admin/config
+// @access  Private (Admin / Super Admin)
+exports.updateSystemConfig = asyncHandler(async (req, res, next) => {
+  const { maintenanceMode, autoApproveProviders } = req.body;
+
+  let config = await SystemConfig.findOne();
+  if (!config) {
+    config = new SystemConfig();
+  }
+
+  config.maintenanceMode = maintenanceMode !== undefined ? maintenanceMode : config.maintenanceMode;
+  config.autoApproveProviders = autoApproveProviders !== undefined ? autoApproveProviders : config.autoApproveProviders;
+  config.updatedBy = req.user._id;
+
+  await config.save();
+
+  // 📝 AUDIT LOG
+  const adminActor = req.user 
+    ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
+    : 'Admin User';
+
+  await recordAuditLog({
+    actor: adminActor,
+    role: 'Admin',
+    action: 'SYSTEM_CONFIG_UPDATED',
+    details: `Updated settings: maintenanceMode=${config.maintenanceMode}, autoApproveProviders=${config.autoApproveProviders}`,
+    ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+    severity: 'Info'
+  });
+
+  res.status(200).json({
+    success: true,
+    data: config,
+    message: 'System configuration saved successfully.',
+  });
+});
+
+// @desc    Invite / Provision New Admin Account
+// @route   POST /api/v1/admin/invite
+// @access  Private (Admin / Super Admin)
+exports.inviteAdmin = asyncHandler(async (req, res, next) => {
+  const { fullName, email, adminRole } = req.body;
+
+  if (!fullName || !email) {
+    return next(new ErrorResponse('Please provide full name and official email address.', 400));
+  }
+
+  const existingUser = await User.findOne({ email: email.toLowerCase() });
+  if (existingUser) {
+    return next(new ErrorResponse('An account with this email address already exists.', 400));
+  }
+
+  const roleToAssign = ['admin', 'super_admin'].includes(adminRole) ? adminRole : 'admin';
+  const tempPassword = crypto.randomBytes(8).toString('hex') + '!1A';
+
+  const newAdminUser = await User.create({
+    name: fullName,
+    email: email.toLowerCase(),
+    password: tempPassword,
+    role: roleToAssign,
+    isVerified: true,
+  });
+
+  // 📝 AUDIT LOG
+  const adminActor = req.user 
+    ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
+    : 'Admin User';
+
+  await recordAuditLog({
+    actor: adminActor,
+    role: 'Admin',
+    action: 'ADMIN_ACCOUNT_PROVISIONED',
+    details: `Provisioned new ${roleToAssign} account for ${email}`,
+    ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+    severity: 'Warning'
+  });
+
+  res.status(201).json({
+    success: true,
+    message: `Admin account provisioned successfully for ${email}.`,
+    data: {
+      id: newAdminUser._id,
+      name: newAdminUser.name,
+      email: newAdminUser.email,
+      role: newAdminUser.role,
+      tempPassword,
+    },
   });
 });
 

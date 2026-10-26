@@ -51,8 +51,7 @@ exports.handleOnboarding = async (req, res) => {
       municipality,
       householdIncome,
       guardianName,
-      guardianEmail,
-      isMinor
+      guardianEmail
     } = req.body;
 
     const studentUser = await User.findById(userId);
@@ -60,13 +59,47 @@ exports.handleOnboarding = async (req, res) => {
       return res.status(404).json({ success: false, message: "User account not found." });
     }
 
-    // 🔒 Role Enforcement: Ensure only users with a student role go through student onboarding
+    // Role Enforcement: Ensure only users with a student role go through student onboarding
     if (studentUser.role !== 'student') {
       return res.status(403).json({ 
         success: false, 
         message: "Onboarding flow is restricted to student accounts." 
       });
     }
+
+    // Security Fix 1.1: Guard against re-onboarding or pending consent bypassing
+    if (studentUser.status === 'pending_consent') {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Account is pending parental consent. Onboarding cannot be re-submitted." 
+      });
+    }
+
+    if (studentUser.isOnboarded) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Account onboarding has already been completed." 
+      });
+    }
+
+    if (!dob) {
+      return res.status(400).json({ success: false, message: "Date of birth is required." });
+    }
+
+    // Authoritative Server-Side Age & Minor Computation from DOB
+    const birthDate = new Date(dob);
+    if (isNaN(birthDate.getTime())) {
+      return res.status(400).json({ success: false, message: "Invalid date of birth format." });
+    }
+
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+
+    const isMinor = age < 18; // Computed server-side
 
     if (isMinor) {
       if (!guardianEmail) {
@@ -104,7 +137,7 @@ exports.handleOnboarding = async (req, res) => {
     studentUser.status = isMinor ? 'pending_consent' : 'active';
     studentUser.isOnboarded = true;
 
-    // 🔒 Generate Email Verification Token post-onboarding for adult students
+    // Generate Email Verification Token post-onboarding for adult students
     let rawVerifyToken = null;
     if (!isMinor) {
       rawVerifyToken = crypto.randomBytes(32).toString('hex');
@@ -117,14 +150,14 @@ exports.handleOnboarding = async (req, res) => {
 
     await studentUser.save();
 
-    // 2. Create or update the StudentProfile using designated model (Aligned to schema: gwa & municipalityCity)
+    // 2. Create or update the StudentProfile using designated model
     const resolvedGwaScale = resolveOnboardingGwaScale(gwaScale, gpa);
 
     await StudentProfile.findOneAndUpdate(
       { userId: userId },
       {
         userId: userId,
-        dateOfBirth: dob,
+        dateOfBirth: birthDate,
         academicLevel: academicLevel,
         yearLevel: yearLevel,
         course: course,
@@ -144,7 +177,7 @@ exports.handleOnboarding = async (req, res) => {
       }
     );
 
-    // 3. Create or update record in designated ParentConsent model if minor (Safe guardianName handling)
+    // 3. Create or update record in designated ParentConsent model if minor
     if (isMinor) {
       const safeGuardianName = guardianName ? guardianName.trim() : 'Parent/Guardian';
 
@@ -165,7 +198,7 @@ exports.handleOnboarding = async (req, res) => {
       );
     }
 
-    // 📝 AUDIT LOG: Onboarding Completed
+    // AUDIT LOG: Onboarding Completed
     const actorName = studentUser.name || studentUser.email;
     await recordAuditLog({
       actor: actorName,
@@ -176,7 +209,7 @@ exports.handleOnboarding = async (req, res) => {
       severity: 'Info'
     });
 
-    // 📧 Dispatch Verification Email for Adult Students
+    // Dispatch Verification Email for Adult Students
     if (!isMinor && rawVerifyToken) {
       const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
       const verifyUrl = `${clientUrl}/verify-email/${rawVerifyToken}`;
@@ -192,7 +225,7 @@ exports.handleOnboarding = async (req, res) => {
       }
     }
 
-    // 📧 Dispatch Consent Email for Minor Students using Designated Model attributes
+    // Dispatch Consent Email for Minor Students using Designated Model attributes
     if (isMinor) {
       const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
       const consentLink = `${clientUrl}/consent/verify?token=${consentToken}`;

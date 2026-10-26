@@ -129,14 +129,19 @@ export function AuthProvider({ children }) {
   };
 
   // Password Reset Request
-  const resetPassword = async (email) => {
+const resetPassword = async (email) => {
+    console.log(`🌐 [AuthContext] Sending forgotpassword fetch request to: ${API_BASE_URL}/auth/forgotpassword`);
+    
     const res = await fetch(`${API_BASE_URL}/auth/forgotpassword`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
+      credentials: 'include',
+      body: JSON.stringify({ email: email.trim().toLowerCase() }),
     });
 
     const data = await res.json();
+    console.log(`📩 [AuthContext] forgotpassword API Response:`, data);
+
     if (!res.ok) throw new Error(data.message || data.error || 'Failed to send reset email');
     return data;
   };

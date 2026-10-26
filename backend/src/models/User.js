@@ -44,7 +44,7 @@ const UserSchema = new mongoose.Schema(
       default: '',
     },
 
-    // 🔒 Verification Gatekeeper Fields
+    // Verification Gatekeeper Fields
     isVerified: {
       type: Boolean,
       default: false,
@@ -56,6 +56,14 @@ const UserSchema = new mongoose.Schema(
       type: Date,
     },
 
+    // Password Reset Recovery Fields 
+    resetPasswordToken: {
+      type: String,
+    },
+    resetPasswordExpire: {
+      type: Date,
+    },
+
     // Account Protection & Security Lockout fields
     failedLoginAttempts: {
       type: Number,
@@ -63,6 +71,9 @@ const UserSchema = new mongoose.Schema(
     },
     lockUntil: {
       type: Date,
+    },
+    lastFailedIp: {
+      type: String,
     },
 
     // Onboarding & Parental Consent fields

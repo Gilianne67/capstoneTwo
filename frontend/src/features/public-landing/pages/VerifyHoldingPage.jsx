@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Mail, RefreshCw, Edit3, ArrowLeft, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Mail, RefreshCw, Edit3, ArrowLeft, CheckCircle, AlertCircle, Loader2, Lock, Eye, EyeOff } from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 
@@ -11,6 +11,8 @@ export default function VerifyHoldingPage() {
   const [email, setEmail] = useState(searchParams.get('email') || user?.email || '');
   const [isEditing, setIsEditing] = useState(false);
   const [newEmail, setNewEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false); // 👁️ Password visibility toggle state
   
   const [resendCooldown, setResendCooldown] = useState(0);
   const [message, setMessage] = useState('');
@@ -29,7 +31,7 @@ export default function VerifyHoldingPage() {
     return () => clearInterval(timer);
   }, [resendCooldown]);
 
-  // Handle Resend Verification Request (Dispatched via Nodemailer on backend)
+  // Handle Resend Verification Request (Dispatched via Nodemailer/Resend on backend)
   const handleResend = async () => {
     if (resendCooldown > 0 || isLoading || !email) return;
     setIsLoading(true);
@@ -37,7 +39,7 @@ export default function VerifyHoldingPage() {
     setError('');
 
     try {
-      await axios.post('/api/v1/auth/resend-verification', { email });
+      await axios.post('/api/v1/auth/resend-verification', { email }, { withCredentials: true });
       setMessage('A verification link has been dispatched to your email.');
       setResendCooldown(60); // 60s cooldown
     } catch (err) {
@@ -47,7 +49,7 @@ export default function VerifyHoldingPage() {
     }
   };
 
-  // 🚀 Automatically trigger Nodemailer dispatch once when arriving on the holding page
+  // Automatically trigger dispatch once when arriving on the holding page
   useEffect(() => {
     if (email && !hasTriggeredInitialSend.current) {
       hasTriggeredInitialSend.current = true;
@@ -55,13 +57,20 @@ export default function VerifyHoldingPage() {
     }
   }, [email]);
 
-  // Handle Email Typo Correction
+  // Handle Email Typo Correction with Password Re-Verification (Fix 1.4)
   const handleUpdateEmail = async (e) => {
     e.preventDefault();
     const emailTrimmed = newEmail.trim().toLowerCase();
     
     if (!emailTrimmed || emailTrimmed === email.toLowerCase()) {
       setIsEditing(false);
+      setPassword('');
+      setShowPassword(false);
+      return;
+    }
+
+    if (!password) {
+      setError('Please enter your password to confirm email change.');
       return;
     }
 
@@ -70,12 +79,16 @@ export default function VerifyHoldingPage() {
     setError('');
 
     try {
-      const res = await axios.put('/api/v1/auth/update-unverified-email', {
-        oldEmail: email,
-        newEmail: emailTrimmed
-      });
+      const res = await axios.put(
+        '/api/v1/auth/update-unverified-email', 
+        { oldEmail: email, newEmail: emailTrimmed, password },
+        { withCredentials: true }
+      );
+      
       setEmail(res.data.email);
       setIsEditing(false);
+      setPassword('');
+      setShowPassword(false);
       setMessage('Email address updated! A new verification link has been sent.');
       setResendCooldown(60);
     } catch (err) {
@@ -110,6 +123,8 @@ export default function VerifyHoldingPage() {
               type="button"
               onClick={() => {
                 setNewEmail(email);
+                setPassword('');
+                setShowPassword(false);
                 setIsEditing(true);
               }}
               className="text-primary hover:underline text-xs flex items-center gap-1 ml-1 font-semibold focus:outline-none cursor-pointer shrink-0"
@@ -174,21 +189,54 @@ export default function VerifyHoldingPage() {
           <div className="max-w-sm w-full bg-card-bg border border-app-text/10 rounded-3xl p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in duration-200">
             <h3 className="font-bold text-lg text-app-text">Update Email Address</h3>
             <p className="text-xs text-text-muted leading-relaxed">
-              If you made a typo during registration, enter your correct email below. We will send a fresh verification link right away.
+              If you made a typo during registration, enter your correct email address and current password below to confirm.
             </p>
             <form onSubmit={handleUpdateEmail} className="space-y-3">
-              <input
-                type="email"
-                required
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-                placeholder="new.email@example.com"
-                className="w-full px-3.5 py-2.5 rounded-xl bg-app-bg border border-app-text/10 text-sm text-app-text focus:outline-none focus:border-primary transition-colors"
-              />
+              <div>
+                <label className="block text-xs font-bold text-app-text mb-1">New Email Address</label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-muted" />
+                  <input
+                    type="email"
+                    required
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    placeholder="new.email@example.com"
+                    className="w-full pl-9 pr-3.5 py-2.5 rounded-xl bg-app-bg border border-app-text/10 text-xs text-app-text focus:outline-none focus:border-primary transition-colors"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-app-text mb-1">Current Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-muted" />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter current password"
+                    className="w-full pl-9 pr-10 py-2.5 rounded-xl bg-app-bg border border-app-text/10 text-xs text-app-text focus:outline-none focus:border-primary transition-colors"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-app-text focus:outline-none cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+
               <div className="flex gap-2 pt-1">
                 <button
                   type="button"
-                  onClick={() => setIsEditing(false)}
+                  onClick={() => {
+                    setIsEditing(false);
+                    setPassword('');
+                    setShowPassword(false);
+                  }}
                   className="w-1/2 py-2.5 bg-app-bg border border-app-text/10 text-app-text rounded-xl text-xs font-bold hover:bg-app-text/5 transition-colors cursor-pointer"
                 >
                   Cancel

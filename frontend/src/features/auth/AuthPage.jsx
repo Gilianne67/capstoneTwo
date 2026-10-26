@@ -26,7 +26,7 @@ const MIN_PASSWORD_LENGTH = 15;
 export default function AuthPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { login, register, resetPassword} = useAuth();
+  const { login, register, forgotPassword } = useAuth();
 
   // Mode management: 'signin' | 'signup' | 'forgot'
   const [authMode, setAuthMode] = useState('signin');
@@ -37,7 +37,7 @@ export default function AuthPage() {
   const [pendingConsentError, setPendingConsentError] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
   const [hasAuthError, setHasAuthError] = useState(false);
-
+  
   const [formData, setFormData] = useState({
     fullName: '',
     organizationName: '',
@@ -82,10 +82,9 @@ export default function AuthPage() {
     });
   };
 
-
-  // Handle Password Reset Request (Account Recovery Privacy Best Practice)
-  const handleForgotPassword = async (e) => {
-    e.preventDefault();
+  // Handle Password Reset Request
+  const handleForgotPassword = async () => {
+    if (isLoading) return;
     setIsLoading(true);
     setErrorMessage('');
 
@@ -98,13 +97,24 @@ export default function AuthPage() {
     }
 
     try {
-      if (resetPassword) {
-        await resetPassword(emailTrimmed);
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/v1/auth/forgotpassword`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email: emailTrimmed }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to send reset email.');
       }
-    } catch (err) {
-      console.warn('Password reset request processed.');
-    } finally {
+
       setResetSuccess(true);
+    } catch (err) {
+      console.error('❌ Forgot Password Error:', err);
+      setErrorMessage(err.message || 'Failed to dispatch reset email. Please try again.');
+    } finally {
       setIsLoading(false);
     }
   };
@@ -113,9 +123,8 @@ export default function AuthPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (authMode === 'forgot') {
-      return handleForgotPassword(e);
-    }
+    // Prevent double submissions/race conditions
+    if (isLoading) return;
 
     setIsLoading(true);
     setErrorMessage('');
@@ -140,8 +149,6 @@ export default function AuthPage() {
     }
 
     try {
-      let authenticatedUser;
-
       if (authMode === 'signup') {
         const name = signupRole === 'provider' 
           ? formData.organizationName.trim() 
@@ -159,14 +166,9 @@ export default function AuthPage() {
           ...(signupRole === 'provider' && { organization: name }),
         };
 
-        try {
-          authenticatedUser = await register(payload);
-        } catch (regErr) {
-          setResetSuccess(true);
-          return;
-        }
+        await register(payload);
 
-        // 🔒 Correct Flow: Sign Up -> OnboardingForm with registered email state passed along
+        // Correct Flow: Sign Up -> OnboardingForm with registered email state passed along
         if (signupRole === 'student') {
           navigate('/onboarding', { 
             replace: true, 
@@ -176,12 +178,22 @@ export default function AuthPage() {
           navigate('/provider/onboarding', { replace: true });
         }
       } else {
-        authenticatedUser = await login(emailTrimmed, passwordTrimmed);
-
+        const authenticatedUser = await login(emailTrimmed, passwordTrimmed);
         const targetRole = authenticatedUser?.user?.role || authenticatedUser?.role || 'student';
         navigate(`/dashboard/${targetRole}`, { replace: true });
       }
     } catch (err) {
+      // 🔒 FIX 1.3: Intercept unverified account login attempts and redirect to holding page
+      const isUnverified = 
+        err?.requiresVerification || 
+        err?.response?.data?.requiresVerification ||
+        err?.message?.toLowerCase().includes('verify your email');
+
+      if (isUnverified) {
+        const targetEmail = err?.email || err?.response?.data?.email || emailTrimmed;
+        return navigate(`/verify-holding?email=${encodeURIComponent(targetEmail)}`, { replace: true });
+      }
+
       const isConsentPending = 
         err?.response?.status === 403 ||
         err?.requiresConsent || 
@@ -195,7 +207,7 @@ export default function AuthPage() {
         );
       } else {
         setHasAuthError(true);
-        setErrorMessage('Invalid email or password. Please try again.');
+        setErrorMessage(err?.response?.data?.message || err?.message || 'Invalid email or password. Please try again.');
       }
     } finally {
       setIsLoading(false);
@@ -331,8 +343,6 @@ export default function AuthPage() {
                 </div>
               )}
 
-             
-
               {/* Pending Consent Warning Banner */}
               {pendingConsentError ? (
                 <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-xs text-amber-800 space-y-2">
@@ -378,8 +388,44 @@ export default function AuthPage() {
                     <span>Return to Sign In</span>
                   </button>
                 </div>
+              ) : authMode === 'forgot' ? (
+                /* Dedicated Forgot Password Form */
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-app-text mb-1.5">
+                      Email Address
+                    </label>
+                    <div className="relative">
+                      <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
+                      <input
+                        type="email"
+                        name="email"
+                        value={formData.email}
+                        onChange={handleChange}
+                        placeholder="name@example.com"
+                        className="w-full pl-10 pr-4 py-3 rounded-xl bg-app-bg border border-app-text/10 text-sm text-app-text focus:outline-none focus:border-primary transition-colors"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleForgotPassword}
+                    disabled={isLoading}
+                    className="w-full py-3.5 px-6 rounded-xl text-white font-bold text-sm shadow-lg transition-all flex items-center justify-center gap-2 mt-2 bg-primary hover:opacity-90 disabled:opacity-70 disabled:cursor-not-allowed"
+                  >
+                    {isLoading ? (
+                      <span className="inline-block animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+                    ) : (
+                      <>
+                        <span>Send Reset Link</span>
+                        <ArrowRight className="h-4 w-4" />
+                      </>
+                    )}
+                  </button>
+                </div>
               ) : (
-                /* Main Form Body */
+                /* Main Sign In / Sign Up Form */
                 <form onSubmit={handleSubmit} className="space-y-4">
                   {authMode === 'signup' && (
                     <div>
@@ -436,61 +482,59 @@ export default function AuthPage() {
                   </div>
 
                   {/* Password Field */}
-                  {authMode !== 'forgot' && (
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <label className="block text-xs font-bold text-app-text">
-                          Password
-                        </label>
-                        {authMode === 'signin' && (
-                          <button
-                            type="button"
-                            onClick={() => switchMode('forgot')}
-                            className="text-xs font-medium text-primary hover:underline focus:outline-none"
-                          >
-                            Forgot password?
-                          </button>
-                        )}
-                      </div>
-                      <div className="relative">
-                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-                        <input
-                          type={showPassword ? 'text' : 'password'}
-                          name="password"
-                          required
-                          value={formData.password}
-                          onChange={handleChange}
-                          placeholder="At least 15 characters long"
-                          className={`w-full pl-10 pr-10 py-3 rounded-xl bg-app-bg border text-sm text-app-text focus:outline-none transition-colors ${
-                            hasAuthError
-                              ? 'border-rose-500 focus:border-rose-600 bg-rose-500/5'
-                              : 'border-app-text/10 focus:border-primary'
-                          }`}
-                        />
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-xs font-bold text-app-text">
+                        Password
+                      </label>
+                      {authMode === 'signin' && (
                         <button
                           type="button"
-                          aria-label={showPassword ? 'Hide password' : 'Show password'}
-                          onClick={() => setShowPassword((prev) => !prev)}
-                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-app-text"
+                          onClick={() => switchMode('forgot')}
+                          className="text-xs font-medium text-primary hover:underline focus:outline-none"
                         >
-                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          Forgot password?
                         </button>
-                      </div>
-
-                      {/* Password Requirements Indicator for Sign Up */}
-                      {authMode === 'signup' && (
-                        <div className="mt-2 flex items-center justify-between text-[11px]">
-                          <span className={`inline-flex items-center gap-1 font-medium ${isPasswordValid ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'}`}>
-                            {isPasswordValid ? <Check className="h-3.5 w-3.5 shrink-0" /> : <X className="h-3.5 w-3.5 shrink-0" />}
-                            Password must be at least {MIN_PASSWORD_LENGTH} characters long
-                          </span>
-                          <span className="font-mono text-text-muted">
-                            {formData.password.length}/{MIN_PASSWORD_LENGTH}
-                          </span>
-                        </div>
                       )}
                     </div>
-                  )}
+                    <div className="relative">
+                      <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        name="password"
+                        required
+                        value={formData.password}
+                        onChange={handleChange}
+                        placeholder="At least 15 characters long"
+                        className={`w-full pl-10 pr-10 py-3 rounded-xl bg-app-bg border text-sm text-app-text focus:outline-none transition-colors ${
+                          hasAuthError
+                            ? 'border-rose-500 focus:border-rose-600 bg-rose-500/5'
+                            : 'border-app-text/10 focus:border-primary'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        onClick={() => setShowPassword((prev) => !prev)}
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-app-text"
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+
+                    {/* Password Requirements Indicator for Sign Up */}
+                    {authMode === 'signup' && (
+                      <div className="mt-2 flex items-center justify-between text-[11px]">
+                        <span className={`inline-flex items-center gap-1 font-medium ${isPasswordValid ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'}`}>
+                          {isPasswordValid ? <Check className="h-3.5 w-3.5 shrink-0" /> : <X className="h-3.5 w-3.5 shrink-0" />}
+                          Password must be at least {MIN_PASSWORD_LENGTH} characters long
+                        </span>
+                        <span className="font-mono text-text-muted">
+                          {formData.password.length}/{MIN_PASSWORD_LENGTH}
+                        </span>
+                      </div>
+                    )}
+                  </div>
 
                   <button
                     type="submit"
@@ -505,13 +549,7 @@ export default function AuthPage() {
                       <span className="inline-block animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
                     ) : (
                       <>
-                        <span>
-                          {authMode === 'forgot'
-                            ? 'Send Reset Link'
-                            : authMode === 'signup'
-                            ? 'Create Account'
-                            : 'Sign In'}
-                        </span>
+                        <span>{authMode === 'signup' ? 'Create Account' : 'Sign In'}</span>
                         <ArrowRight className="h-4 w-4" />
                       </>
                     )}
