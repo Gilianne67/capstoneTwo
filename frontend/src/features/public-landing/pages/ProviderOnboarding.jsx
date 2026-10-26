@@ -1,6 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '../../../context/AuthContext';
+import { REGIONS, PROVINCES, MUNICIPALITIES } from '../../../data/locationData';
+import {
+  EMPTY_ONBOARDING_FORM,
+  mapOnboardingForm,
+  requiresNewVerificationDocument
+} from '../../provider/organizationProfile';
 import {
   GraduationCap,
   Building2,
@@ -9,7 +16,6 @@ import {
   User,
   Briefcase,
   Mail,
-  FileCheck,
   Upload,
   AlertCircle,
   ArrowRight,
@@ -21,28 +27,94 @@ import {
 
 const ProviderOnboarding = () => {
   const navigate = useNavigate();
-  const [formData, setFormData] = useState({
-    institutionName: '',
-    institutionType: 'Non-Profit',
-    website: '',
-    contactNumber: '',
-    street: '',
-    city: '',
-    province: '',
-    region: '',
-    repName: '',
-    repTitle: '',
-    repEmail: '',
-  });
-
+  const { updateUser } = useAuth();
+  const prefilledRef = useRef(false);
+  const [formData, setFormData] = useState({ ...EMPTY_ONBOARDING_FORM });
   const [docType, setDocType] = useState('SEC_DTI');
   const [documentFile, setDocumentFile] = useState(null);
+  const [existingDocuments, setExistingDocuments] = useState([]);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [isResubmission, setIsResubmission] = useState(false);
+  const [isFinal, setIsFinal] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const availableProvinces = useMemo(() => {
+    if (!formData.region) return [];
+    return PROVINCES[formData.region] || [];
+  }, [formData.region]);
+
+  const availableCities = useMemo(() => {
+    if (!formData.province) return [];
+    return MUNICIPALITIES[formData.province] || [];
+  }, [formData.province]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadSavedProfile = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        const res = await axios.get('/api/v1/providers/profile', {
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 8000,
+        });
+        if (cancelled || prefilledRef.current) return;
+
+        const mapped = mapOnboardingForm(res.data?.provider);
+        if (!mapped.hasExistingRecord) return;
+
+        setFormData({
+          institutionName: mapped.institutionName,
+          institutionType: mapped.institutionType,
+          website: mapped.website,
+          contactNumber: mapped.contactNumber,
+          street: mapped.street,
+          city: mapped.city,
+          province: mapped.province,
+          region: mapped.region,
+          repName: mapped.repName,
+          repTitle: mapped.repTitle,
+          repEmail: mapped.repEmail,
+        });
+        setDocType(mapped.documentType);
+        setExistingDocuments(mapped.documents);
+        setRejectionReason(mapped.rejectionReason);
+        setIsFinal(mapped.isFinalRejection);
+        setIsResubmission(mapped.verificationStatus === 'Rejected' && !mapped.isFinalRejection);
+        prefilledRef.current = true;
+      } catch (err) {
+        if (cancelled) return;
+        if (err.response?.status && ![401, 404].includes(err.response.status)) {
+          setError(err.response?.data?.message || 'Unable to load your saved organization details.');
+        }
+      } finally {
+        if (!cancelled) setProfileLoading(false);
+      }
+    };
+
+    loadSavedProfile();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const handleChange = (e) => {
     if (error) setError('');
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setFormData((prev) => {
+      const updated = { ...prev, [name]: value };
+      if (name === 'region') {
+        updated.province = '';
+        updated.city = '';
+      } else if (name === 'province') {
+        updated.city = '';
+      }
+      return updated;
+    });
   };
 
   const handleFileChange = (e) => {
@@ -54,7 +126,11 @@ const ProviderOnboarding = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!documentFile) {
+    if (isFinal) {
+      setError('Your organization verification was declined and this decision is final.');
+      return;
+    }
+    if (requiresNewVerificationDocument(existingDocuments, documentFile)) {
       setError('Please upload a verification document (SEC/DTI/CHED permit or Auth Letter).');
       return;
     }
@@ -65,7 +141,9 @@ const ProviderOnboarding = () => {
     const payload = new FormData();
     Object.keys(formData).forEach((key) => payload.append(key, formData[key]));
     payload.append('documentType', docType);
-    payload.append('verificationDoc', documentFile);
+    if (documentFile) {
+      payload.append('verificationDoc', documentFile);
+    }
 
     try {
       const token = localStorage.getItem('token');
@@ -75,6 +153,16 @@ const ProviderOnboarding = () => {
           Authorization: `Bearer ${token}`,
         },
       });
+
+      const representativeName = String(formData.repName || '').trim();
+      if (typeof updateUser === 'function') {
+        updateUser({
+          ...(representativeName ? { representativeName } : {}),
+          isOnboarded: true,
+          verificationStatus: 'Pending Review',
+          isFinalRejection: false,
+        });
+      }
 
       navigate('/provider/pending-approval');
     } catch (err) {
@@ -108,10 +196,12 @@ const ProviderOnboarding = () => {
 
               <div className="space-y-3 pt-4">
                 <h2 className="text-2xl sm:text-3xl font-black tracking-tight leading-tight">
-                  Provider Verification
+                  {isResubmission ? 'Update and Resubmit' : 'Provider Verification'}
                 </h2>
                 <p className="text-white/80 text-xs sm:text-sm leading-relaxed">
-                  Complete your organization profile and submit proof of legitimacy to unlock full access to posting and managing scholarship opportunities.
+                  {isResubmission
+                    ? 'Review the details you submitted previously, make any needed corrections, and resubmit for admin review.'
+                    : 'Complete your organization profile and submit proof of legitimacy to unlock full access to posting and managing scholarship opportunities.'}
                 </p>
               </div>
             </div>
@@ -142,11 +232,39 @@ const ProviderOnboarding = () => {
               
               {/* Header */}
               <div>
-                <h3 className="text-2xl font-black text-app-text">Organization Profile</h3>
+                <h3 className="text-2xl font-black text-app-text">
+                  {isResubmission ? 'Review Organization Profile' : 'Organization Profile'}
+                </h3>
                 <p className="text-xs text-text-muted mt-1">
-                  Fill in your official organization details and representative contact information.
+                  {isResubmission
+                    ? 'Saved values are prefilled. Edit only what needs to change, then resubmit for review.'
+                    : 'Fill in your official organization details and representative contact information.'}
                 </p>
               </div>
+
+              {profileLoading && (
+                <div className="p-4 rounded-xl bg-app-bg border border-app-text/10 text-xs text-text-muted flex items-center gap-2.5">
+                  <span className="inline-block animate-spin rounded-full h-4 w-4 border-2 border-emerald-800 border-t-transparent" />
+                  Loading your saved organization details...
+                </div>
+              )}
+
+              {isResubmission && rejectionReason && (
+                <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-start gap-2.5 text-xs text-rose-700">
+                  <AlertCircle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span>
+                    <span className="font-bold">Admin feedback: </span>
+                    {rejectionReason}
+                  </span>
+                </div>
+              )}
+
+              {isFinal && (
+                <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-center gap-2.5 text-xs text-rose-700">
+                  <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+                  <span>Your organization verification was declined and this decision is final.</span>
+                </div>
+              )}
 
               {/* Error Alert */}
               {error && (
@@ -159,7 +277,7 @@ const ProviderOnboarding = () => {
               <form onSubmit={handleSubmit} className="space-y-6">
                 
                 {/* Section 1: Organization Details */}
-                <div className="space-y-3 pt-2">
+                <fieldset disabled={profileLoading || isFinal} className="space-y-3 pt-2">
                   <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-400 border-b border-app-text/10 pb-2">
                     <Building2 className="h-4 w-4" />
                     <span>1. Organization Details</span>
@@ -230,13 +348,94 @@ const ProviderOnboarding = () => {
                       </div>
                     </div>
                   </div>
-                </div>
+                </fieldset>
 
-                {/* Section 2: Authorized Representative */}
-                <div className="space-y-3 pt-2">
+                {/* Section 2: Organization Address */}
+                <fieldset disabled={profileLoading || isFinal} className="space-y-3 pt-2">
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-400 border-b border-app-text/10 pb-2">
+                    <MapPin className="h-4 w-4" />
+                    <span>2. Organization Address</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-app-text mb-1.5">Region</label>
+                      <select
+                        name="region"
+                        value={formData.region}
+                        onChange={handleChange}
+                        className="w-full px-4 py-2.5 rounded-xl bg-app-bg border border-app-text/10 text-xs sm:text-sm text-app-text focus:outline-none focus:border-emerald-800 transition-colors"
+                      >
+                        <option value="">Select Region</option>
+                        {formData.region && !REGIONS.includes(formData.region) ? (
+                          <option value={formData.region}>{formData.region}</option>
+                        ) : null}
+                        {REGIONS.map((region) => (
+                          <option key={region} value={region}>{region}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-app-text mb-1.5">Province</label>
+                      <select
+                        name="province"
+                        value={formData.province}
+                        onChange={handleChange}
+                        disabled={!formData.region}
+                        className="w-full px-4 py-2.5 rounded-xl bg-app-bg border border-app-text/10 text-xs sm:text-sm text-app-text focus:outline-none focus:border-emerald-800 transition-colors disabled:opacity-50"
+                      >
+                        <option value="">Select Province</option>
+                        {formData.province && !availableProvinces.includes(formData.province) ? (
+                          <option value={formData.province}>{formData.province}</option>
+                        ) : null}
+                        {availableProvinces.map((province) => (
+                          <option key={province} value={province}>{province}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-app-text mb-1.5">City / Municipality</label>
+                      <select
+                        name="city"
+                        value={formData.city}
+                        onChange={handleChange}
+                        disabled={!formData.province}
+                        className="w-full px-4 py-2.5 rounded-xl bg-app-bg border border-app-text/10 text-xs sm:text-sm text-app-text focus:outline-none focus:border-emerald-800 transition-colors disabled:opacity-50"
+                      >
+                        <option value="">Select City / Municipality</option>
+                        {formData.city && !availableCities.includes(formData.city) ? (
+                          <option value={formData.city}>{formData.city}</option>
+                        ) : null}
+                        {availableCities.map((city) => (
+                          <option key={city} value={city}>{city}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-app-text mb-1.5">Street / Building</label>
+                      <div className="relative">
+                        <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
+                        <input
+                          type="text"
+                          name="street"
+                          value={formData.street}
+                          onChange={handleChange}
+                          placeholder="e.g., 123 Rizal Street"
+                          className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-app-bg border border-app-text/10 text-xs sm:text-sm text-app-text focus:outline-none focus:border-emerald-800 transition-colors"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </fieldset>
+
+                {/* Section 3: Authorized Representative */}
+                <fieldset disabled={profileLoading || isFinal} className="space-y-3 pt-2">
                   <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-400 border-b border-app-text/10 pb-2">
                     <User className="h-4 w-4" />
-                    <span>2. Authorized Representative</span>
+                    <span>3. Authorized Representative</span>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -288,14 +487,34 @@ const ProviderOnboarding = () => {
                       </div>
                     </div>
                   </div>
-                </div>
+                </fieldset>
 
-                {/* Section 3: Verification Document */}
-                <div className="space-y-3 pt-2">
+                {/* Section 4: Verification Document */}
+                <fieldset disabled={profileLoading || isFinal} className="space-y-3 pt-2">
                   <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-400 border-b border-app-text/10 pb-2">
                     <ShieldCheck className="h-4 w-4" />
-                    <span>3. Verification Document</span>
+                    <span>4. Verification Document</span>
                   </div>
+
+                  {existingDocuments.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-bold text-app-text">Previously submitted</p>
+                      {existingDocuments.map((doc, idx) => (
+                        <div
+                          key={doc.id || `${doc.label}-${idx}`}
+                          className="flex items-center gap-2.5 p-3 rounded-xl bg-app-bg border border-app-text/10 text-xs"
+                        >
+                          <FileText className="h-4 w-4 text-emerald-800 shrink-0" />
+                          <div className="min-w-0">
+                            <p className="font-semibold text-app-text truncate">{doc.label}</p>
+                            <p className="text-[11px] text-text-muted">
+                              {[doc.documentType, doc.uploadedAt].filter(Boolean).join(' • ')}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
@@ -313,14 +532,18 @@ const ProviderOnboarding = () => {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-app-text mb-1.5">Upload File (.pdf, .jpg, .png)</label>
+                      <label className="block text-xs font-bold text-app-text mb-1.5">
+                        {existingDocuments.length > 0
+                          ? 'Replace File (optional, .pdf, .jpg, .png)'
+                          : 'Upload File (.pdf, .jpg, .png)'}
+                      </label>
                       <div className="relative">
                         <input
                           type="file"
                           id="verificationDoc"
                           accept=".pdf,.png,.jpg,.jpeg"
                           onChange={handleFileChange}
-                          required
+                          required={existingDocuments.length === 0}
                           className="hidden"
                         />
                         <label
@@ -328,26 +551,30 @@ const ProviderOnboarding = () => {
                           className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-app-bg border border-app-text/10 text-xs text-text-muted hover:border-emerald-800 cursor-pointer transition-colors"
                         >
                           <span className="truncate pr-2">
-                            {documentFile ? documentFile.name : 'Choose official file...'}
+                            {documentFile
+                              ? documentFile.name
+                              : existingDocuments.length > 0
+                                ? 'Keep current file or choose a replacement...'
+                                : 'Choose official file...'}
                           </span>
                           <Upload className="h-4 w-4 shrink-0 text-emerald-900" />
                         </label>
                       </div>
                     </div>
                   </div>
-                </div>
+                </fieldset>
 
                 {/* Submit Action */}
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || profileLoading || isFinal}
                   className="w-full py-3.5 px-6 rounded-xl bg-emerald-900 hover:bg-emerald-950 text-white font-bold text-sm shadow-lg shadow-emerald-900/20 transition-all flex items-center justify-center gap-2 mt-4 disabled:opacity-70 disabled:cursor-not-allowed"
                 >
                   {loading ? (
                     <span className="inline-block animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
                   ) : (
                     <>
-                      <span>Submit for Verification</span>
+                      <span>{isResubmission ? 'Update Documents and Resubmit' : 'Submit for Verification'}</span>
                       <ArrowRight className="h-4 w-4" />
                     </>
                   )}

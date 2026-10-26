@@ -294,13 +294,173 @@ const sendProviderConfirmation = async (repEmail, repName, institutionName) => {
   }
 };
 
+const resolveSignInUrl = () => {
+  const frontendUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
+  return `${String(frontendUrl).replace(/\/$/, '')}/auth?mode=signin`;
+};
+
+const buildProviderApprovalEmail = ({ recipientName, organizationName, signInUrl } = {}) => {
+  const safeName = escapeHtml(recipientName || 'Partner');
+  const safeOrg = escapeHtml(organizationName || 'your organization');
+  const safeUrl = escapeHtml(signInUrl || resolveSignInUrl());
+
+  return {
+    subject: 'Your Organization Verification Has Been Approved',
+    text: [
+      `Dear ${recipientName || 'Partner'},`,
+      '',
+      `Your organization verification for ${organizationName || 'your organization'} has been approved.`,
+      'You can now sign in and access features available to verified providers, including creating scholarship listings.',
+      '',
+      `Sign in: ${signInUrl || resolveSignInUrl()}`,
+    ].join('\n'),
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+        <h2 style="color: #064e3b; margin-top: 0;">Your Organization Verification Has Been Approved</h2>
+        <p style="color: #334155; font-size: 14px;">Dear ${safeName},</p>
+        <p style="color: #475569; font-size: 14px; line-height: 1.6;">
+          Your organization verification for <strong>${safeOrg}</strong> has been approved.
+        </p>
+        <p style="color: #475569; font-size: 14px; line-height: 1.6;">
+          You can now sign in and access features available to verified providers, including creating scholarship listings.
+        </p>
+        <div style="text-align: center; margin: 24px 0;">
+          <a href="${safeUrl}" style="background-color: #064e3b; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; font-size: 14px;">Sign In to IskolarMatch</a>
+        </div>
+        <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 24px 0;" />
+        <p style="color: #94a3b8; font-size: 12px; text-align: center;">&copy; ${new Date().getFullYear()} IskolarMatch. All rights reserved.</p>
+      </div>
+    `,
+  };
+};
+
+const buildProviderRejectionEmail = ({
+  recipientName,
+  organizationName,
+  rejectionReason,
+  isFinalRejection = false,
+  signInUrl,
+} = {}) => {
+  const safeName = escapeHtml(recipientName || 'Partner');
+  const safeOrg = escapeHtml(organizationName || 'your organization');
+  const reason = String(rejectionReason || '').trim();
+  const safeReason = escapeHtml(reason);
+  const safeUrl = escapeHtml(signInUrl || resolveSignInUrl());
+  const nextStep = isFinalRejection
+    ? 'This decision is final. Your organization cannot submit another verification request with this account.'
+    : 'You can sign in and submit updated documents for another review.';
+
+  return {
+    subject: 'Update on Your Organization Verification',
+    text: [
+      `Dear ${recipientName || 'Partner'},`,
+      '',
+      `Your organization verification for ${organizationName || 'your organization'} was not approved.`,
+      reason ? `Review feedback: ${reason}` : '',
+      nextStep,
+      isFinalRejection ? '' : `Sign in: ${signInUrl || resolveSignInUrl()}`,
+    ].filter(Boolean).join('\n'),
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+        <h2 style="color: #991b1b; margin-top: 0;">Update on Your Organization Verification</h2>
+        <p style="color: #334155; font-size: 14px;">Dear ${safeName},</p>
+        <p style="color: #475569; font-size: 14px; line-height: 1.6;">
+          Your organization verification for <strong>${safeOrg}</strong> was not approved.
+        </p>
+        ${reason ? `
+        <p style="color: #475569; font-size: 14px; line-height: 1.6;">The review team provided the following feedback:</p>
+        <blockquote style="background-color: #fef2f2; padding: 16px; border-left: 4px solid #ef4444; color: #991b1b; margin: 16px 0; border-radius: 4px;">
+          ${safeReason}
+        </blockquote>
+        ` : ''}
+        <p style="color: #475569; font-size: 14px; line-height: 1.6;">${escapeHtml(nextStep)}</p>
+        ${isFinalRejection ? '' : `
+        <div style="text-align: center; margin: 24px 0;">
+          <a href="${safeUrl}" style="background-color: #064e3b; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; font-size: 14px;">Sign In to IskolarMatch</a>
+        </div>
+        `}
+        <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 24px 0;" />
+        <p style="color: #94a3b8; font-size: 12px; text-align: center;">&copy; ${new Date().getFullYear()} IskolarMatch. All rights reserved.</p>
+      </div>
+    `,
+  };
+};
+
+const sendProviderApprovalEmail = async ({ email, recipientName, organizationName } = {}) => {
+  try {
+    if (!email) {
+      throw new Error('A registered recipient email is required.');
+    }
+
+    const resend = getResendClient();
+    const message = buildProviderApprovalEmail({
+      recipientName,
+      organizationName,
+      signInUrl: resolveSignInUrl(),
+    });
+
+    const response = await resend.emails.send({
+      from: resolveFromAddress('IskolarMatch Support'),
+      to: [email],
+      subject: message.subject,
+      text: message.text,
+      html: message.html,
+    });
+
+    return handleResendResponse(response, 'Provider Approval', email);
+  } catch (error) {
+    console.error('❌ Error sending provider approval email:', error.message);
+    throw new Error(`Email delivery failed: ${error.message}`);
+  }
+};
+
+const sendProviderRejectionEmail = async ({
+  email,
+  recipientName,
+  organizationName,
+  rejectionReason,
+  isFinalRejection = false,
+} = {}) => {
+  try {
+    if (!email) {
+      throw new Error('A registered recipient email is required.');
+    }
+
+    const resend = getResendClient();
+    const message = buildProviderRejectionEmail({
+      recipientName,
+      organizationName,
+      rejectionReason,
+      isFinalRejection,
+      signInUrl: resolveSignInUrl(),
+    });
+
+    const response = await resend.emails.send({
+      from: resolveFromAddress('IskolarMatch Support'),
+      to: [email],
+      subject: message.subject,
+      text: message.text,
+      html: message.html,
+    });
+
+    return handleResendResponse(response, 'Provider Rejection', email);
+  } catch (error) {
+    console.error('❌ Error sending provider rejection email:', error.message);
+    throw new Error(`Email delivery failed: ${error.message}`);
+  }
+};
+
 module.exports = {
   generateConsentToken,
   resolveFromAddress,
   buildVerificationEmail,
+  buildProviderApprovalEmail,
+  buildProviderRejectionEmail,
   sendParentConsentEmail,
   sendVerificationEmail,
   sendAccountLockoutEmail,
   sendProviderAdminNotification,
   sendProviderConfirmation,
+  sendProviderApprovalEmail,
+  sendProviderRejectionEmail,
 };

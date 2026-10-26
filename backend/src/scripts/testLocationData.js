@@ -32,6 +32,9 @@ const main = async () => {
   );
   const provinces = Object.values(PROVINCES).flat();
 
+  const backendPlaces = require('../data/places.json');
+  assert.deepStrictEqual(backendPlaces.PROVINCES, PROVINCES);
+  assert.deepStrictEqual(backendPlaces.MUNICIPALITIES, MUNICIPALITIES);
   assert.deepStrictEqual(backendRegions, REGIONS);
   assert.strictEqual(REGIONS.length, 17);
   assert.strictEqual(provinces.length, 83);

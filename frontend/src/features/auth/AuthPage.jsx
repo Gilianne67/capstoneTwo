@@ -18,6 +18,10 @@ import {
   X
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import {
+  resolveLoginFormMessage,
+  resolveRegistrationFormOutcome,
+} from './authFormErrors';
 
 // Strict Email Format Regex
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
@@ -26,7 +30,7 @@ const MIN_PASSWORD_LENGTH = 15;
 export default function AuthPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { login, register, resetPassword} = useAuth();
+  const { login, register, resetPassword, getRedirectPath } = useAuth();
 
   // Mode management: 'signin' | 'signup' | 'forgot'
   const [authMode, setAuthMode] = useState('signin');
@@ -162,6 +166,12 @@ export default function AuthPage() {
         try {
           authenticatedUser = await register(payload);
         } catch (regErr) {
+          const registrationOutcome = resolveRegistrationFormOutcome(regErr);
+          if (registrationOutcome.kind === 'declined' || registrationOutcome.kind === 'resubmit') {
+            setHasAuthError(true);
+            setErrorMessage(registrationOutcome.message);
+            return;
+          }
           setResetSuccess(true);
           return;
         }
@@ -179,23 +189,16 @@ export default function AuthPage() {
         authenticatedUser = await login(emailTrimmed, passwordTrimmed);
 
         const targetRole = authenticatedUser?.user?.role || authenticatedUser?.role || 'student';
-        navigate(`/dashboard/${targetRole}`, { replace: true });
+        navigate(getRedirectPath(authenticatedUser) || `/dashboard/${targetRole}`, { replace: true });
       }
     } catch (err) {
-      const isConsentPending = 
-        err?.response?.status === 403 ||
-        err?.requiresConsent || 
-        err?.message?.toLowerCase().includes('parental consent') ||
-        err?.message?.toLowerCase().includes('pending_consent');
-
-      if (isConsentPending) {
+      const loginOutcome = resolveLoginFormMessage(err);
+      if (loginOutcome.kind === 'consent') {
         setPendingConsentError(true);
-        setErrorMessage(
-          err?.message || 'Your account is pending parental consent. Please ask your parent/guardian to approve the verification email.'
-        );
+        setErrorMessage(loginOutcome.message);
       } else {
         setHasAuthError(true);
-        setErrorMessage('Invalid email or password. Please try again.');
+        setErrorMessage(loginOutcome.message);
       }
     } finally {
       setIsLoading(false);

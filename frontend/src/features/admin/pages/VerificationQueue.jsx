@@ -56,6 +56,7 @@ export default function VerificationQueue() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAction, setSelectedAction] = useState(null);
   const [rejectionReason, setRejectionReason] = useState('');
+  const [isFinalRejection, setIsFinalRejection] = useState(false);
   const [actionError, setActionError] = useState(null);
   const [selectedDocViewer, setSelectedDocViewer] = useState(null);
 
@@ -129,7 +130,8 @@ export default function VerificationQueue() {
         body: JSON.stringify({
           status: isReject ? 'REJECTED' : 'APPROVED',
           rejectionReason: isReject ? rejectionReason.trim() : undefined,
-          reason: isReject ? rejectionReason.trim() : undefined
+          reason: isReject ? rejectionReason.trim() : undefined,
+          isFinalRejection: isReject ? isFinalRejection : false
         })
       });
 
@@ -147,7 +149,8 @@ export default function VerificationQueue() {
                 ...v,
                 status: updatedStatusLabel,
                 verificationStatus: updatedStatusLabel,
-                rejectionReason: isReject ? rejectionReason.trim() : undefined
+                rejectionReason: isReject ? rejectionReason.trim() : undefined,
+                isFinalRejection: isReject ? isFinalRejection : false
               }
             : v
         )
@@ -156,6 +159,7 @@ export default function VerificationQueue() {
       setStatusFilter(updatedStatusLabel);
       setSelectedAction(null);
       setRejectionReason('');
+      setIsFinalRejection(false);
     } catch (err) {
       console.error('API Error:', err);
       setActionError(err.message || 'Failed to complete action');
@@ -322,7 +326,10 @@ export default function VerificationQueue() {
                           </span>
                         )}
 
-                        <StatusBadge status={status} />
+                        <StatusBadge
+                          status={status}
+                          customLabel={item.isFinalRejection ? 'Final Rejection' : undefined}
+                        />
                       </div>
 
                       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-slate-500 pt-0.5">
@@ -459,6 +466,7 @@ export default function VerificationQueue() {
                           onClick={() => {
                             setActionError(null);
                             setRejectionReason('');
+                            setIsFinalRejection(false);
                             setSelectedAction({ id: item._id || item.id, type: 'reject' });
                           }}
                           className="px-3.5 py-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1"
@@ -470,6 +478,7 @@ export default function VerificationQueue() {
                           onClick={() => {
                             setActionError(null);
                             setRejectionReason('');
+                            setIsFinalRejection(false);
                             setSelectedAction({ id: item._id || item.id, type: 'approve' });
                           }}
                           className="px-3.5 py-1.5 bg-emerald-800 hover:bg-emerald-900 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs flex items-center gap-1"
@@ -497,7 +506,7 @@ export default function VerificationQueue() {
             <p className="text-xs text-slate-600 font-medium leading-relaxed">
               {selectedAction.type === 'approve' 
                 ? 'Are you sure you want to approve and verify this provider organization? An email notification with portal login details will be dispatched automatically.' 
-                : 'Are you sure you want to reject this verification request? An email containing your feedback will be sent to the contact person.'}
+                : 'Are you sure you want to reject this verification request? By default the organization can sign in and submit updated documents. An email containing your feedback will be sent to the contact person.'}
             </p>
 
             {selectedAction.type === 'reject' && (
@@ -530,6 +539,18 @@ export default function VerificationQueue() {
                   placeholder="Enter custom rejection reason to send via email..."
                   className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-hidden focus:border-rose-500"
                 />
+
+                <label className="flex items-start gap-2.5 p-3 rounded-xl border border-rose-200 bg-rose-50/70 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isFinalRejection}
+                    onChange={(e) => setIsFinalRejection(e.target.checked)}
+                    className="mt-0.5 rounded border-rose-300 text-rose-700 focus:ring-rose-500"
+                  />
+                  <span className="text-xs text-rose-900">
+                    <strong className="font-bold">Final rejection.</strong> Use this only in exceptional cases. The organization will not be able to sign in or resubmit.
+                  </span>
+                </label>
               </div>
             )}
 
@@ -546,6 +567,7 @@ export default function VerificationQueue() {
                   setSelectedAction(null);
                   setActionError(null);
                   setRejectionReason('');
+                  setIsFinalRejection(false);
                 }}
                 disabled={isProcessing}
                 className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
@@ -563,7 +585,13 @@ export default function VerificationQueue() {
                 }`}
               >
                 {isProcessing && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>{selectedAction.type === 'approve' ? 'Confirm Approval' : 'Confirm Rejection'}</span>
+                <span>
+                  {selectedAction.type === 'approve'
+                    ? 'Confirm Approval'
+                    : isFinalRejection
+                      ? 'Confirm Final Rejection'
+                      : 'Confirm Rejection'}
+                </span>
               </button>
             </div>
           </div>

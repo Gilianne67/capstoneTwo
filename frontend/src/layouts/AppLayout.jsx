@@ -4,6 +4,7 @@ import { Bell, LogOut, Loader2, User as UserIcon, WifiOff } from 'lucide-react';
 import Sidebar from '../components/navigation/SideBar';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config/api';
+import { resolveAccountMenuInitial, resolveAccountMenuName } from '../features/auth/accountMenuName';
 
 export default function AppLayout() {
   const navigate = useNavigate();
@@ -54,6 +55,7 @@ export default function AppLayout() {
 
   // Extract role dynamically from AuthContext user object
   const role = user?.role?.toLowerCase() || 'student';
+  const accountMenuName = resolveAccountMenuName(user);
   const isAdminRole = role === 'admin' || role === 'superadmin' || role === 'super_admin';
   const notificationPath = isAdminRole
     ? '/dashboard/admin/notifications'
@@ -121,11 +123,11 @@ export default function AppLayout() {
                 className="flex items-center gap-2.5 focus:outline-hidden cursor-pointer"
               >
                 <div className="h-8 w-8 rounded-full bg-slate-800 flex items-center justify-center font-bold text-xs text-white shadow-xs">
-                  {user?.name ? user.name.charAt(0).toUpperCase() : 'U'}
+                  {resolveAccountMenuInitial(accountMenuName)}
                 </div>
                 <div className="hidden sm:block text-left">
                   <p className="text-xs font-bold text-slate-800 leading-none">
-                    {user?.name || user?.firstName || 'User'}
+                    {accountMenuName}
                   </p>
                   <p className="text-[10px] text-slate-400 capitalize mt-0.5">{role} Account</p>
                 </div>

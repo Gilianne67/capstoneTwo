@@ -9,11 +9,13 @@ const {
   buildProviderAnalytics,
 } = require('../services/providerAnalyticsService');
 const User = require('../models/User');
-const {
-  sendProviderAdminNotification,
-  sendProviderConfirmation
-} = require('../utils/emailService');
+const emailService = require('../utils/emailService');
 const { recordAuditLog } = require('./auditController');
+const {
+  isFinalRejection,
+  declinedProviderLoginMessage,
+  resolveRegisteredAccountEmail,
+} = require('../utils/providerVerification');
 
 // Helper to safely resolve user ID from Passport / JWT middleware
 const getUserId = (user) => user?._id || user?.id;
@@ -59,7 +61,7 @@ exports.updateProfile = async (req, res) => {
       });
     }
 
-    const verificationFields = ['verificationStatus', 'rejectionReason', 'verifiedAt', 'submittedAt', 'verificationDocuments'];
+    const verificationFields = ['verificationStatus', 'rejectionReason', 'isFinalRejection', 'verifiedAt', 'submittedAt', 'verificationDocuments'];
     const attemptedVerificationChange = verificationFields.some((field) =>
       Object.prototype.hasOwnProperty.call(req.body, field)
     );
@@ -287,19 +289,29 @@ exports.handleOnboarding = async (req, res) => {
       documentType,
     } = req.body;
 
-    // 1. Verify file upload
-    if (!req.file) {
+    // 1. Find or initialize the authenticated user's Provider record
+    let provider = await Provider.findOne({ userId });
+
+    if (isFinalRejection(provider)) {
+      return res.status(403).json({
+        success: false,
+        verificationDeclined: true,
+        message: declinedProviderLoginMessage(provider),
+      });
+    }
+
+    if (!provider) {
+      provider = new Provider({ userId });
+    }
+
+    const hasExistingDocuments = Array.isArray(provider.verificationDocuments)
+      && provider.verificationDocuments.length > 0;
+
+    if (!req.file && !hasExistingDocuments) {
       return res.status(400).json({
         success: false,
         message: 'Please upload a valid verification document (PDF, PNG, JPG).',
       });
-    }
-
-    // 2. Find or initialize Provider record
-    let provider = await Provider.findOne({ userId });
-
-    if (!provider) {
-      provider = new Provider({ userId });
     }
 
     // 3. Normalize field values
@@ -327,24 +339,28 @@ exports.handleOnboarding = async (req, res) => {
     };
 
     provider.verificationStatus = 'Pending Review';
+    provider.isFinalRejection = false;
+    provider.rejectionReason = undefined;
+    provider.verifiedAt = null;
     provider.submittedAt = new Date();
 
     if (!Array.isArray(provider.verificationDocuments)) {
       provider.verificationDocuments = [];
     }
 
-    // Reference GridFS file endpoint or fallback to disk upload path
-    const fileUrl = req.file.filename 
-      ? `/api/v1/documents/${req.file.filename}` 
-      : `/uploads/${req.file.originalname}`;
+    if (req.file) {
+      const fileUrl = req.file.filename
+        ? `/api/v1/documents/${req.file.filename}`
+        : `/uploads/${req.file.originalname}`;
 
-    provider.verificationDocuments.push({
-      documentType: documentType || 'SEC / DTI Registration',
-      fileUrl,
-      fileId: req.file.id,
-      originalName: req.file.originalname,
-      uploadedAt: new Date(),
-    });
+      provider.verificationDocuments.push({
+        documentType: documentType || 'SEC / DTI Registration',
+        fileUrl,
+        fileId: req.file.id,
+        originalName: req.file.originalname,
+        uploadedAt: new Date(),
+      });
+    }
 
     await provider.save();
 
@@ -378,21 +394,29 @@ exports.handleOnboarding = async (req, res) => {
     };
 
     try {
-      await sendProviderAdminNotification(providerData, req.file);
+      await emailService.sendProviderAdminNotification(providerData, req.file);
     } catch (emailErr) {
       console.warn('⚠️ Admin email failed:', emailErr.message);
     }
 
-    if (provider.representative.workEmail) {
+    const confirmationEmail = await resolveRegisteredAccountEmail(
+      req.user || { _id: userId },
+      (id) => User.findById(id)
+    );
+    if (confirmationEmail) {
       try {
-        await sendProviderConfirmation(
-          provider.representative.workEmail,
+        await emailService.sendProviderConfirmation(
+          confirmationEmail,
           provider.representative.name,
           provider.institutionName
         );
       } catch (emailErr) {
         console.warn('⚠️ Provider confirmation email failed:', emailErr.message);
       }
+    } else {
+      console.warn(
+        `⚠️ Provider confirmation email skipped for ${provider._id || userId}: no registered account email.`
+      );
     }
 
     return res.status(200).json({

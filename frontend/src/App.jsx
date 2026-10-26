@@ -48,7 +48,7 @@ import AdminNotifications from './features/admin/pages/AdminNotifications';
 import AdminHelp from './features/admin/pages/AdminHelp';
 
 function ProtectedRouteGuard({ allowedRoles, children }) {
-  const { user, loading } = useAuth();
+  const { user, loading, getRedirectPath } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -84,13 +84,28 @@ function ProtectedRouteGuard({ allowedRoles, children }) {
     // Only apply verification gatekeeper if they are trying to access dashboard/restricted routes, 
     // not while they are actively filling out onboarding forms.
     if (!isVerified && location.pathname.startsWith('/dashboard') && location.pathname !== holdingPath) {
-      return (
-        <Navigate 
-          to={`${holdingPath}?email=${encodeURIComponent(user.email || '')}`} 
-          state={{ from: location }} 
-          replace 
-        />
-      );
+      if (user.role === 'provider') {
+        const targetPath = getRedirectPath(user);
+        const allowedWhileUnverified = [
+          '/dashboard/provider/verification',
+          '/provider/onboarding',
+          '/provider/pending-approval',
+        ];
+        if (allowedWhileUnverified.includes(location.pathname)) {
+          return children ? children : <Outlet />;
+        }
+        if (location.pathname !== targetPath) {
+          return <Navigate to={targetPath} replace />;
+        }
+      } else {
+        return (
+          <Navigate 
+            to={`${holdingPath}?email=${encodeURIComponent(user.email || '')}`} 
+            state={{ from: location }} 
+            replace 
+          />
+        );
+      }
     }
 
     if (allowedRoles) {
@@ -119,7 +134,7 @@ function OnboardingGuard({ children }) {
   }
 
   const isVerified = user?.isVerified ?? user?.is_verified ?? false;
-  if (!isVerified) {
+  if (user.role === 'student' && !isVerified) {
     return (
       <Navigate 
         to={`/verify-holding?email=${encodeURIComponent(user.email || '')}`} 
@@ -133,6 +148,7 @@ function OnboardingGuard({ children }) {
   const targetIsDashboard = targetPath.startsWith('/dashboard');
   const awaitingReview = targetPath.includes('/pending-approval');
   const viewingOwnVerification = location.pathname === '/dashboard/provider/verification';
+  const resubmitting = targetPath.includes('/verification');
 
   if (onDashboard && !targetIsDashboard) {
     if (awaitingReview && viewingOwnVerification) {
@@ -141,6 +157,10 @@ function OnboardingGuard({ children }) {
     if (location.pathname !== targetPath) {
       return <Navigate to={targetPath} replace />;
     }
+  }
+
+  if (user.role === 'provider' && resubmitting && onDashboard && !viewingOwnVerification) {
+    return <Navigate to={targetPath} replace />;
   }
 
   return children ? children : <Outlet />;
@@ -157,7 +177,7 @@ function DashboardRedirect() {
   }
   
   const isVerified = user?.isVerified ?? user?.is_verified ?? false;
-  if (!isVerified) {
+  if (user.role === 'student' && !isVerified) {
     return (
       <Navigate 
         to={`/verify-holding?email=${encodeURIComponent(user.email || '')}`} 

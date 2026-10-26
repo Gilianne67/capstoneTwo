@@ -13,6 +13,13 @@ const {
   claimVerificationToken,
   restoreVerificationToken,
 } = require('../utils/verificationToken');
+const {
+  isFinalRejection,
+  canResubmitVerification,
+  declinedProviderLoginMessage,
+  FINAL_REJECTION_REGISTRATION_MESSAGE,
+  RESUBMIT_REGISTRATION_MESSAGE,
+} = require('../utils/providerVerification');
 
 // Generic authentication error message to prevent account enumeration
 const GENERIC_AUTH_ERROR = 'Invalid credentials or account temporarily locked. Please try again later.';
@@ -41,10 +48,14 @@ const sendTokenResponse = async (user, statusCode, res, message, req) => {
   user.password = undefined;
 
   let verificationStatus = 'Approved';
+  let isFinalRejection = false;
+  let representativeName = '';
   if (user.role === 'provider') {
     const providerDoc = await Provider.findOne({ userId: user._id });
     if (providerDoc) {
       verificationStatus = providerDoc.verificationStatus;
+      isFinalRejection = Boolean(providerDoc.isFinalRejection);
+      representativeName = String(providerDoc.representative?.name || '').trim();
     }
   }
 
@@ -58,6 +69,7 @@ const sendTokenResponse = async (user, statusCode, res, message, req) => {
     isVerified: Boolean(user.isVerified),
     status: user.status || 'active',
     verificationStatus,
+    ...(user.role === 'provider' ? { isFinalRejection, representativeName } : {}),
   };
 
   if (req) {
@@ -110,10 +122,27 @@ exports.register = asyncHandler(async (req, res, next) => {
 
   const normalizedEmail = email ? email.toLowerCase().trim() : '';
 
-  
   // 3. Check for existing user (Anti-enumeration friendly handling)
   const userExists = await User.findOne({ email: normalizedEmail });
   if (userExists) {
+    if (userExists.role === 'provider') {
+      const existingProvider = await Provider.findOne({ userId: userExists._id });
+      if (isFinalRejection(existingProvider)) {
+        return res.status(409).json({
+          success: false,
+          verificationDeclined: true,
+          message: FINAL_REJECTION_REGISTRATION_MESSAGE,
+        });
+      }
+      if (canResubmitVerification(existingProvider)) {
+        return res.status(409).json({
+          success: false,
+          canResubmit: true,
+          message: RESUBMIT_REGISTRATION_MESSAGE,
+        });
+      }
+    }
+
     return res.status(200).json({
       success: true,
       requiresOnboarding: true,
@@ -407,13 +436,12 @@ exports.login = asyncHandler(async (req, res, next) => {
 
   if (user.role === 'provider') {
     const providerDoc = await Provider.findOne({ userId: user._id });
-    if (providerDoc && providerDoc.verificationStatus === 'Rejected') {
-      return next(
-        new ErrorResponse(
-          `Your provider application was rejected. Reason: ${providerDoc.rejectionReason || 'Contact support for details.'}`,
-          403
-        )
-      );
+    if (isFinalRejection(providerDoc)) {
+      return res.status(403).json({
+        success: false,
+        verificationDeclined: true,
+        message: declinedProviderLoginMessage(providerDoc),
+      });
     }
   }
 
@@ -438,10 +466,14 @@ exports.getMe = asyncHandler(async (req, res, next) => {
   }
 
   let verificationStatus = 'Approved';
+  let isFinalRejection = false;
+  let representativeName = '';
   if (user.role === 'provider') {
     const providerDoc = await Provider.findOne({ userId: user._id });
     if (providerDoc) {
       verificationStatus = providerDoc.verificationStatus;
+      isFinalRejection = Boolean(providerDoc.isFinalRejection);
+      representativeName = String(providerDoc.representative?.name || '').trim();
     }
   }
 
@@ -455,6 +487,7 @@ exports.getMe = asyncHandler(async (req, res, next) => {
     isVerified: Boolean(user.isVerified),
     status: user.status || 'active',
     verificationStatus,
+    ...(user.role === 'provider' ? { isFinalRejection, representativeName } : {}),
   };
 
   res.status(200).json({
