@@ -1,12 +1,20 @@
+import axios from 'axios';
+
 /**
- * One frontend API base.
- * Local development uses the local backend when VITE_API_URL is unset.
- * Staging and production set VITE_API_URL, including the /api/v1 prefix.
+ * Detects environment dynamically based on hostname.
+ * - Localhost uses local backend.
+ * - Any other domain (Railway/Production) uses the backend Railway URL.
  */
-export const LOCAL_API_BASE_URL = 'http://localhost:5000/api/v1';
+const isLocal = 
+  typeof window !== 'undefined' && 
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+export const DEFAULT_API_BASE_URL = isLocal
+  ? 'http://localhost:5000/api/v1'
+  : 'https://iskolarmatch-backend.up.railway.app/api/v1';
 
 export function resolveApiBaseUrl(configured) {
-  const raw = String(configured || LOCAL_API_BASE_URL).trim();
+  const raw = String(configured || DEFAULT_API_BASE_URL).trim();
   return raw.endsWith('/') ? raw.slice(0, -1) : raw;
 }
 
@@ -23,4 +31,43 @@ export const API_ORIGIN = API_BASE_URL.replace(/\/api\/v1$/, '');
 export function apiUrl(path) {
   const normalized = String(path || '').replace(/^\//, '');
   return `${API_BASE_URL}/${normalized}`;
+}
+
+/**
+ * HELPER: Formats any relative URL to point to the backend
+ */
+function rewriteUrl(url) {
+  if (typeof url === 'string' && url.startsWith('/')) {
+    const cleanPath = url
+      .replace(/^\/api\/v1/, '')
+      .replace(/^\//, '');
+    return `${API_BASE_URL}/${cleanPath}`;
+  }
+  return url;
+}
+
+/**
+ * 1. AXIOS INTERCEPTOR
+ */
+axios.interceptors.request.use((config) => {
+  config.url = rewriteUrl(config.url);
+  return config;
+}, (error) => Promise.reject(error));
+
+/**
+ * 2. WINDOW.FETCH INTERCEPTOR (Catches standard fetch calls)
+ */
+if (typeof window !== 'undefined') {
+  const originalFetch = window.fetch;
+  window.fetch = async function (resource, init) {
+    if (typeof resource === 'string') {
+      resource = rewriteUrl(resource);
+    } else if (resource instanceof Request) {
+      const newUrl = rewriteUrl(resource.url);
+      if (newUrl !== resource.url) {
+        resource = new Request(newUrl, resource);
+      }
+    }
+    return originalFetch.call(this, resource, init);
+  };
 }

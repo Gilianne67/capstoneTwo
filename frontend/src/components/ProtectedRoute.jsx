@@ -29,12 +29,28 @@ export default function ProtectedRoute({
     return <Navigate to="/auth?mode=signin" state={{ from: location }} replace />;
   }
 
+  // 3. 🔒 Email Verification Gatekeeper Check
+  // Block unverified users from protected routes and send them to the holding screen
+  const isVerified = user?.isVerified ?? user?.is_verified ?? false;
+  if (!isVerified) {
+    const holdingPath = '/verify-holding';
+    if (location.pathname !== holdingPath) {
+      return (
+        <Navigate 
+          to={`${holdingPath}?email=${encodeURIComponent(user.email || '')}`} 
+          state={{ from: location }} 
+          replace 
+        />
+      );
+    }
+  }
+
   const rawRole = user?.role?.toLowerCase() || 'student';
   
   // Normalize superadmin variations to match route paths
   const userRole = (rawRole === 'superadmin' || rawRole === 'super_admin') ? 'admin' : rawRole;
 
-  // 3. Role restriction check (case-insensitive)
+  // 4. Role restriction check (case-insensitive)
   if (
     allowedRoles.length > 0 &&
     !allowedRoles.map((r) => r.toLowerCase()).includes(userRole)
@@ -47,7 +63,7 @@ export default function ProtectedRoute({
     return <Navigate to={fallbackPath} replace />;
   }
 
-  // 4. Provider verification status check
+  // 5. Provider verification status check
   if (userRole === 'provider' && requireApprovedProvider) {
     const status = user?.verificationStatus?.toLowerCase() || user?.verification_status?.toLowerCase() || '';
     const isPending = status === 'pending' || status === 'pending review' || status === 'submitted' || status.startsWith('pending ');
@@ -56,10 +72,16 @@ export default function ProtectedRoute({
       return <Navigate to="/provider/pending-approval" replace />;
     }
     if (status === 'rejected' && !location.pathname.startsWith('/auth')) {
-      return <Navigate to="/auth?mode=signin" replace />;
+      const isFinalRejection = Boolean(user?.isFinalRejection ?? user?.is_final_rejection);
+      return (
+        <Navigate
+          to={isFinalRejection ? '/auth?mode=signin' : '/dashboard/provider/verification'}
+          replace
+        />
+      );
     }
   }
 
-  // 5. Render children or nested Outlet
+  // 6. Render children or nested Outlet
   return children ? children : <Outlet />;
 }

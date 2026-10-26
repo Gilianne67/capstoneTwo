@@ -3,6 +3,7 @@ const dns = require('dns');
 dns.setServers(['8.8.8.8', '8.8.4.4']);
 
 const express = require('express');
+const path = require('path');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -10,11 +11,16 @@ const morgan = require('morgan');
 const mongoose = require('mongoose');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
+
 // Load Environment Variables
-dotenv.config();
+dotenv.config({ path: path.join(__dirname, '../.env') });
 
 // Initialize Express Application
 const app = express();
+
+// Enable proxy trust for Railway reverse proxies
+// (Fixes express-rate-limit ERR_ERL_UNEXPECTED_X_FORWARDED_FOR error)
+app.set('trust proxy', 1);
 
 // Route & Middleware Imports
 const authRoutes = require('./routes/authRoutes');
@@ -27,6 +33,10 @@ const studentRoutes = require('./routes/studentRoutes');
 const matchingRoutes = require('./routes/matchingRoutes');
 const documentRoutes = require('./routes/documentRoutes');
 const errorHandler = require('./middleware/error');
+const moderationRoutes = require('./routes/moderationRoutes');
+const taxonomyRoutes = require('./routes/taxonomyRoutes');
+const auditRoutes = require('./routes/auditRoutes');
+const { protect } = require('./middleware/auth'); // Added auth protection middleware
 
 // Security Middlewares
 app.use(
@@ -39,6 +49,8 @@ app.use(
 const allowedOrigins = [
   process.env.CLIENT_URL,
   process.env.FRONTEND_URL,
+  'https://iskolarmatch.up.railway.app',
+  'https://iskolarmatch-backend.up.railway.app',
   'http://localhost:3000',
   'http://localhost:5173',
   'http://localhost:5174',
@@ -46,8 +58,21 @@ const allowedOrigins = [
 
 app.use(
   cors({
-    origin: allowedOrigins,
+    origin: function (origin, callback) {
+      // Allow requests with no origin (mobile apps, Postman, curl)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.indexOf(origin) !== -1) {
+        return callback(null, true);
+      }
+      // Allow any Vercel preview links (*.vercel.app)
+      if (/^https:\/\/.*\.vercel\.app$/.test(origin)) {
+        return callback(null, true);
+      }
+      return callback(null, true); // Permissive for staging/testing
+    },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   })
 );
 
@@ -69,6 +94,11 @@ const limiter = rateLimit({
 });
 app.use('/api/v1', limiter);
 
+// Root Endpoint (Prevents 404 when hitting base URL)
+app.get('/', (req, res) => {
+  res.status(200).json({ status: 'success', message: 'IskolarMatch API Online' });
+});
+
 // Health Check Endpoint
 app.get('/api/v1/health', (req, res) => {
   res.status(200).json({ status: 'success', message: 'IskolarMatch API Online' });
@@ -85,19 +115,62 @@ app.use('/api/v1/scholarships', scholarshipRoutes);
 app.use('/api/v1/students', studentRoutes);
 app.use('/api/v1/matching', matchingRoutes);
 app.use('/api/v1/documents', documentRoutes);
+app.use('/api/v1/admin/moderation', moderationRoutes); 
+app.use('/api/v1/admin/taxonomy', taxonomyRoutes);
+app.use('/api/v1/admin/audit-logs', auditRoutes);
 
-// Centralized Error Handling Middleware (must be registered after routes)
+// Quick fallback endpoint for notifications (prevents 404 crash on frontend load)
+app.get('/api/v1/notifications/unread-count', protect, (req, res) => {
+  res.status(200).json({
+    success: true,
+    count: 0,
+  });
+});
+
+// Centralized Error Handling Middleware
 app.use(errorHandler);
+
+const { closeMatchingPool } = require('./services/matchingWorkerRunner');
 
 // Database Connection & Server Initialization
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/iskolarmatch';
+let httpServer = null;
+let stopping = false;
+
+const shutdown = (signal) => {
+  if (stopping) {
+    return;
+  }
+
+  stopping = true;
+  console.log(`${signal} received. Closing matching worker pool.`);
+  closeMatchingPool();
+
+  const exitAfterDatabase = () => {
+    mongoose.connection.close(false).then(
+      () => process.exit(0),
+      () => process.exit(1)
+    );
+  };
+
+  if (!httpServer) {
+    exitAfterDatabase();
+    return;
+  }
+
+  httpServer.close(exitAfterDatabase);
+  setTimeout(() => process.exit(1), 10000).unref();
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 mongoose
   .connect(MONGO_URI)
   .then(() => {
     console.log('✅ Connected to MongoDB successfully.');
-    app.listen(PORT, () => {
+    httpServer = app.listen(PORT, () => {
       console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
     });
   })

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Search, 
@@ -225,6 +225,8 @@ export default function ScholarshipSearch() {
 
   // Search & Filter State Management
   const [searchQuery, setSearchQuery] = useState('');
+  const [appliedQuery, setAppliedQuery] = useState('');
+  const hasLoadedOnce = useRef(false);
   const [selectedRegion, setSelectedRegion] = useState('All');
   const [selectedDegree, setSelectedDegree] = useState('All');
   const [selectedFlags, setSelectedFlags] = useState([]);
@@ -237,6 +239,7 @@ export default function ScholarshipSearch() {
   const [bookmarkedIds, setBookmarkedIds] = useState([]);
   const [expandedMatchId, setExpandedMatchId] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [searchState, setSearchState] = useState('loading');
   const [continuePath, setContinuePath] = useState(PROFILE_ROUTE);
@@ -251,12 +254,25 @@ export default function ScholarshipSearch() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedScholarship, setSelectedScholarship] = useState(null);
 
-  // 1. Fetch live matching results
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setAppliedQuery(searchQuery.trim());
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // 1. Fetch live matching results. A keyword is resolved by the matching API.
   useEffect(() => {
     let isMounted = true;
 
     const loadDiscoveryData = async () => {
-      setIsLoading(true);
+      const firstLoad = !hasLoadedOnce.current;
+      if (firstLoad) {
+        setIsLoading(true);
+      } else {
+        setIsRefreshing(true);
+      }
       setLoadError('');
       setScholarships([]);
       setMatchCount(0);
@@ -297,8 +313,11 @@ export default function ScholarshipSearch() {
           return;
         }
 
+        const matchUrl = appliedQuery
+          ? `${API_BASE_URL}/matching?q=${encodeURIComponent(appliedQuery)}`
+          : `${API_BASE_URL}/matching`;
         const [matchesRes, bookmarksRes] = await Promise.allSettled([
-          fetch(`${API_BASE_URL}/matching`, { headers }),
+          fetch(matchUrl, { headers }),
           fetch(`${API_BASE_URL}/students/saved-scholarships`, { headers })
         ]);
 
@@ -321,16 +340,21 @@ export default function ScholarshipSearch() {
           setSearchState('ready');
         } else {
           let message = 'Unable to load scholarship matches right now.';
+          let unavailable = false;
           if (matchesRes.status === 'fulfilled') {
+            unavailable = appliedQuery && matchesRes.value.status === 503;
             try {
               const data = await matchesRes.value.json();
+              if (data?.code === 'SEARCH_UNAVAILABLE') unavailable = true;
               if (data?.message) message = data.message;
             } catch {
               // Keep the default message when the error body is not JSON.
             }
           }
+          setScholarships([]);
+          setMatchCount(0);
           setLoadError(message);
-          setSearchState('error');
+          setSearchState(unavailable ? 'search-unavailable' : 'error');
         }
 
         if (bookmarksRes.status === 'fulfilled' && bookmarksRes.value.ok) {
@@ -353,7 +377,11 @@ export default function ScholarshipSearch() {
           setSearchState('error');
         }
       } finally {
-        if (isMounted) setIsLoading(false);
+        if (isMounted) {
+          hasLoadedOnce.current = true;
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
       }
     };
 
@@ -362,7 +390,7 @@ export default function ScholarshipSearch() {
     return () => {
       isMounted = false;
     };
-  }, [contextToken, user?.isOnboarded]);
+  }, [contextToken, user?.isOnboarded, appliedQuery]);
 
   // 2. Bookmark Action Handler
   const toggleBookmark = async (id) => {
@@ -417,31 +445,19 @@ export default function ScholarshipSearch() {
     setSortBy('match');
   };
 
+  const keywordPending = searchQuery.trim() !== appliedQuery;
+
   // 3. Computed Filter & Sort Pipeline
   const filteredScholarships = useMemo(() => {
     return scholarships
       .filter(item => {
-        const query = searchQuery.toLowerCase().trim();
-        const searchableText = [
-          item.title,
-          item.scholarshipType,
-          item.classification,
-          item.description,
-          item.degreeLevel,
-          item.region,
-          item.amount,
-          ...(item.benefits || []),
-          ...(item.specialTags || []).map((tag) => tag?.tagName)
-        ].join(' ').toLowerCase();
-        const matchesQuery = !query || searchableText.includes(query);
-
         const matchesRegion = locationMatchesRegion(item.geographicLocation, selectedRegion);
         const matchesDegree = levelMatchesDegree(item.degreeLevel, selectedDegree);
         const score = Number(item.totalScore ?? item.matchScore ?? 0);
         const matchesScore = score >= minMatchScore;
         const matchesFlags = scholarshipMatchesFlags(item.specialTags, selectedFlags);
 
-        return matchesQuery && matchesRegion && matchesDegree && matchesScore && matchesFlags;
+        return matchesRegion && matchesDegree && matchesScore && matchesFlags;
       })
       .sort((a, b) => {
         const scoreA = Number(a.totalScore ?? a.matchScore ?? 0);
@@ -456,7 +472,7 @@ export default function ScholarshipSearch() {
         }
         return 0;
       });
-  }, [scholarships, searchQuery, selectedRegion, selectedDegree, selectedFlags, minMatchScore, sortBy]);
+  }, [scholarships, selectedRegion, selectedDegree, selectedFlags, minMatchScore, sortBy]);
 
   // Dashboard Information Metrics Computed Live
   const dashboardStats = useMemo(() => {
@@ -705,11 +721,20 @@ export default function ScholarshipSearch() {
 
         {/* Scholarship Results List */}
         <div className="lg:col-span-3 space-y-4">
-          {filteredScholarships.length === 0 ? (
+          {isRefreshing || keywordPending ? (
+            <div className="bg-card-bg rounded-2xl border border-app-text/10 p-8 text-center space-y-3 shadow-xs">
+              <Loader2 className="h-8 w-8 text-primary mx-auto animate-spin" />
+              <p className="text-sm font-bold text-app-text">Searching scholarships...</p>
+            </div>
+          ) : filteredScholarships.length === 0 ? (
             <div className="bg-card-bg rounded-2xl border border-app-text/10 p-8 text-center space-y-3 shadow-xs">
               <Inbox className="h-10 w-10 text-text-muted mx-auto" />
               <p className="text-sm font-bold text-app-text">
-                {loadError ? 'Unable to load scholarship matches.' : 'No matching grants found.'}
+                {searchState === 'search-unavailable'
+                  ? 'Keyword search is unavailable.'
+                  : loadError
+                    ? 'Unable to load scholarship matches.'
+                    : 'No matching grants found.'}
               </p>
               <p className="text-xs text-text-muted">
                 {loadError || 'Try lowering your minimum match threshold or resetting your applied filters.'}

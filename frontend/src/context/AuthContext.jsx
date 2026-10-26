@@ -12,18 +12,15 @@ export function AuthProvider({ children }) {
   });
   const [loading, setLoading] = useState(true);
 
-  // Utility to retrieve a clean Bearer token
+  // Utility to retrieve a clean Bearer token across context state and storage keys
   const getCleanToken = useCallback(() => {
-    const rawToken = localStorage.getItem('token') || token;
+    const rawToken = token || 
+                     localStorage.getItem('token') || 
+                     localStorage.getItem('accessToken') || 
+                     localStorage.getItem('authToken');
     return rawToken ? rawToken.replace(/^"|"$/g, '').replace('Bearer ', '').trim() : null;
   }, [token]);
 
-  /**
-   * Helper function to determine post-login or session redirect target
-   * Handles camelCase & snake_case properties seamlessly.
-   * @param {Object} userData - User object returned from auth endpoints
-   * @returns {string} Route path to navigate to
-   */
   const getRedirectPath = useCallback(
     (userData) => resolveRedirectPath(userData),
     []
@@ -95,7 +92,12 @@ export function AuthProvider({ children }) {
     });
 
     const data = await response.json();
-    if (!response.ok) throw new Error(data.message || 'Invalid email or password.');
+    if (!response.ok) {
+      const err = new Error(data.message || data.error || 'Invalid email or password.');
+      err.verificationDeclined = Boolean(data.verificationDeclined);
+      err.requiresConsent = Boolean(data.requiresConsent);
+      throw err;
+    }
 
     const jwtToken = (data.token || data.accessToken || '').replace(/^"|"$/g, '').trim();
     if (jwtToken) {
@@ -118,7 +120,12 @@ export function AuthProvider({ children }) {
     });
 
     const data = await response.json();
-    if (!response.ok) throw new Error(data.message || 'Registration failed.');
+    if (!response.ok) {
+      const err = new Error(data.message || data.error || 'Registration failed.');
+      err.verificationDeclined = Boolean(data.verificationDeclined);
+      err.canResubmit = Boolean(data.canResubmit);
+      throw err;
+    }
 
     const jwtToken = (data.token || data.accessToken || '').replace(/^"|"$/g, '').trim();
     if (jwtToken) {
@@ -144,7 +151,7 @@ export function AuthProvider({ children }) {
     return data;
   };
 
-  // Logout Handler — revoke the current token, then drop local session state.
+  // Logout Handler
   const logout = async () => {
     const activeToken = getCleanToken();
 
@@ -165,7 +172,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout, resetPassword, updateUser, getRedirectPath }}>
+    <AuthContext.Provider value={{ user, token, loading, login, register, logout, resetPassword, updateUser, getRedirectPath, getCleanToken }}>
       {children}
     </AuthContext.Provider>
   );

@@ -3,7 +3,12 @@ const User = require('../models/User');
 const ParentalConsent = require('../models/ParentalConsent');
 const asyncHandler = require('../utils/asyncHandler');
 const ErrorResponse = require('../utils/errorResponse');
-const { sendEmail } = require('../utils/sendEmail');
+const {
+  parseBooleanFlag,
+  resolveRegisteredAccountEmail,
+} = require('../utils/providerVerification');
+const emailService = require('../utils/emailService');
+const auditController = require('./auditController');
 
 // Safe import for Scholarship
 let Scholarship;
@@ -127,7 +132,7 @@ exports.getAdminDashboard = asyncHandler(async (req, res, next) => {
 // @route   PATCH /api/v1/admin/providers/:id/verification
 // @access  Private (Admin / Super Admin)
 exports.updateProviderVerification = asyncHandler(async (req, res, next) => {
-  const { id } = req.params;
+  const id = req.params.id || req.params.providerId;
   const { status, rejectionReason, reason } = req.body;
 
   // Flexible payload key capture
@@ -147,14 +152,44 @@ exports.updateProviderVerification = asyncHandler(async (req, res, next) => {
 
   // Set status explicitly to capitalized string for strict frontend tab filter matching
   const finalStatus = isApproved ? 'Verified' : 'Rejected';
+  const previousStatus = String(provider.verificationStatus || '');
+  const statusChanged = previousStatus !== finalStatus;
+  const previousReason = String(provider.rejectionReason || '').trim();
+  const reasonChanged = !isApproved && finalReason !== previousReason;
+  const requestedFinalRejection = !isApproved && parseBooleanFlag(
+    req.body.isFinalRejection ?? req.body.finalRejection
+  );
+  const previousFinalRejection = Boolean(provider.isFinalRejection);
+  const finalFlagChanged = requestedFinalRejection !== previousFinalRejection;
+
+  if (!statusChanged && !reasonChanged && !finalFlagChanged) {
+    return res.status(200).json({
+      success: true,
+      message: `Provider status is already ${finalStatus}`,
+      data: {
+        ...(typeof provider.toObject === 'function' ? provider.toObject() : provider),
+        verificationStatus: finalStatus,
+        status: finalStatus,
+        rejectionReason: isApproved ? null : previousReason,
+        isFinalRejection: isApproved ? false : previousFinalRejection
+      },
+      notification: {
+        sent: false,
+        reason: 'unchanged'
+      }
+    });
+  }
+
   provider.verificationStatus = finalStatus;
 
   if (isApproved) {
     provider.verifiedAt = new Date();
     provider.rejectionReason = null;
+    provider.isFinalRejection = false;
   } else {
     provider.rejectionReason = finalReason;
     provider.verifiedAt = null;
+    provider.isFinalRejection = requestedFinalRejection;
   }
 
   await provider.save();
@@ -164,45 +199,60 @@ exports.updateProviderVerification = asyncHandler(async (req, res, next) => {
     await User.findByIdAndUpdate(targetUserId, { isVerified: isApproved });
   }
 
-  // Safe recipient email resolution across schema options
-  const recipientEmail = provider.representative?.workEmail || provider.contactEmail || getUserField(provider.userId, 'email');
-  const recipientName = provider.representative?.name || getUserField(provider.userId, 'name') || 'Partner';
-  const orgName = provider.institutionName || provider.organizationName || 'your organization';
+  // 📝 AUDIT LOG: Provider Verification Review
+  const adminActor = req.user 
+    ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
+    : 'Admin User';
 
-  if (recipientEmail) {
+  await auditController.recordAuditLog({
+    actor: adminActor,
+    role: 'Admin',
+    action: isApproved ? 'PROVIDER_VERIFIED' : 'PROVIDER_REJECTED',
+    details: isApproved 
+      ? `Admin verified provider application for "${provider.institutionName || 'Provider'}" (ID: ${provider._id}).`
+      : `Admin rejected provider application for "${provider.institutionName || 'Provider'}" (ID: ${provider._id}). Reason: ${finalReason}`,
+    ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+    severity: isApproved ? 'Info' : 'Warning'
+  });
+
+  const recipientEmail = await resolveRegisteredAccountEmail(
+    provider.userId,
+    (id) => User.findById(id)
+  );
+  const recipientName = getUserField(provider.userId, 'name')
+    || (provider.representative && provider.representative.name)
+    || 'Partner';
+  const orgName = provider.institutionName || 'your organization';
+  const notification = { sent: false };
+
+  if (!statusChanged && !finalFlagChanged) {
+    notification.reason = 'unchanged';
+  } else if (!recipientEmail) {
+    console.error(
+      `Provider verification email skipped for ${provider._id}: no persisted recipient email.`
+    );
+    notification.warning = 'Verification was updated, but no registered email was available to notify the provider.';
+  } else {
     try {
-      await sendEmail({
-        email: recipientEmail,
-        subject: isApproved
-          ? '🎉 Your IskolarMatch Provider Account Has Been Approved!'
-          : 'Update Regarding Your IskolarMatch Provider Application',
-        html: isApproved
-          ? `
-            <div style="font-family: Arial, sans-serif; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px; max-width: 600px; margin: 0 auto;">
-              <h2 style="color: #064e3b; margin-top: 0;">Welcome to IskolarMatch!</h2>
-              <p>Dear ${recipientName},</p>
-              <p>We are excited to inform you that your verification application for <strong>${orgName}</strong> has been officially approved!</p>
-              <p>You can now log in to access your provider dashboard and post scholarship opportunities.</p>
-              <div style="margin: 24px 0;">
-                <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/login" style="background-color: #064e3b; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Go to Provider Portal</a>
-              </div>
-            </div>
-          `
-          : `
-            <div style="font-family: Arial, sans-serif; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px; max-width: 600px; margin: 0 auto;">
-              <h2 style="color: #991b1b; margin-top: 0;">Verification Application Status Update</h2>
-              <p>Dear ${recipientName},</p>
-              <p>We reviewed your verification submission for <strong>${orgName}</strong>.</p>
-              <p>At this time, your application was not approved for the following reason:</p>
-              <blockquote style="background-color: #fef2f2; padding: 16px; border-left: 4px solid #ef4444; color: #991b1b; margin: 16px 0; border-radius: 4px;">
-                ${finalReason}
-              </blockquote>
-              <p>Please log in to your account, review your documentation, and resubmit for review.</p>
-            </div>
-          `
-      });
+      if (isApproved) {
+        await emailService.sendProviderApprovalEmail({
+          email: recipientEmail,
+          recipientName,
+          organizationName: orgName
+        });
+      } else {
+        await emailService.sendProviderRejectionEmail({
+          email: recipientEmail,
+          recipientName,
+          organizationName: orgName,
+          rejectionReason: finalReason,
+          isFinalRejection: Boolean(provider.isFinalRejection)
+        });
+      }
+      notification.sent = true;
     } catch (emailErr) {
-      console.warn('Failed to dispatch status notification email:', emailErr.message);
+      console.error('Failed to dispatch provider verification email:', emailErr.message);
+      notification.warning = 'Verification was updated, but the provider notification email could not be sent.';
     }
   }
 
@@ -210,11 +260,13 @@ exports.updateProviderVerification = asyncHandler(async (req, res, next) => {
     success: true,
     message: `Provider status successfully updated to ${finalStatus}`,
     data: {
-      ...provider.toObject(),
+      ...(typeof provider.toObject === 'function' ? provider.toObject() : provider),
       verificationStatus: finalStatus,
       status: finalStatus,
-      rejectionReason: isApproved ? null : finalReason
-    }
+      rejectionReason: isApproved ? null : finalReason,
+      isFinalRejection: isApproved ? false : Boolean(provider.isFinalRejection)
+    },
+    notification
   });
 });
 
@@ -237,6 +289,20 @@ exports.updateScholarshipStatus = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse(`Scholarship listing not found with ID ${id}`, 404));
   }
 
+  // 📝 AUDIT LOG: Scholarship Moderation Action
+  const adminActor = req.user 
+    ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
+    : 'Admin User';
+
+  await auditController.recordAuditLog({
+    actor: adminActor,
+    role: 'Admin',
+    action: 'SCHOLARSHIP_MODERATED',
+    details: `Admin set status of scholarship listing "${scholarship.title}" (ID: ${scholarship._id}) to ${updatedStatus}.`,
+    ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+    severity: isApproved ? 'Info' : 'Warning'
+  });
+
   res.status(200).json({
     success: true,
     message: `Scholarship listing updated to ${updatedStatus}`,
@@ -258,6 +324,20 @@ exports.updateConsentStatus = asyncHandler(async (req, res, next) => {
   if (!consent) {
     return next(new ErrorResponse(`Consent record not found with ID ${id}`, 404));
   }
+
+  // 📝 AUDIT LOG: Consent Moderation Action
+  const adminActor = req.user 
+    ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
+    : 'Admin User';
+
+  await auditController.recordAuditLog({
+    actor: adminActor,
+    role: 'Admin',
+    action: 'CONSENT_MODERATED',
+    details: `Admin updated parental consent status for Student "${consent.studentName || 'N/A'}" to ${updatedStatus}.`,
+    ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+    severity: isApproved ? 'Info' : 'Warning'
+  });
 
   res.status(200).json({
     success: true,
@@ -349,6 +429,7 @@ exports.getVerifications = asyncHandler(async (req, res, next) => {
       status: statusLabel,
       verificationStatus: statusLabel,
       rejectionReason: p.rejectionReason || null,
+      isFinalRejection: Boolean(p.isFinalRejection),
       representative: {
         name: repName,
         title: repTitle,

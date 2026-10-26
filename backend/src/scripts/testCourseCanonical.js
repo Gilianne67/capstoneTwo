@@ -46,6 +46,16 @@ assert.strictEqual(
   resolveCanonical('BS Information Technology', 'College'),
   'college-bsit'
 );
+assert.strictEqual(resolveCanonical('IT', 'College'), 'college-bsit');
+assert.strictEqual(
+  resolveCanonical('Information Technology', 'College'),
+  'college-bsit'
+);
+assert.strictEqual(resolveCanonical('IT', 'Senior High School'), null);
+assert.strictEqual(
+  resolveCanonical('Information Technology', 'Graduate Studies'),
+  null
+);
 assert.strictEqual(
   resolveCanonical('BSCS', 'College'),
   'college-bscs'
@@ -63,6 +73,14 @@ assert.deepStrictEqual(
 
 assert.strictEqual(
   matchesCourse('BSIT', ['BS Information Technology'], 'College'),
+  true
+);
+assert.strictEqual(
+  matchesCourse('IT', ['Information Technology'], 'College'),
+  true
+);
+assert.strictEqual(
+  matchesCourse('Information Technology', ['BS Information Technology'], 'College'),
   true
 );
 assert.strictEqual(

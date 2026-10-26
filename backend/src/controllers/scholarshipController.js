@@ -3,6 +3,10 @@ const Scholarship = require('../models/Scholarship');
 const {
   closeExpiredScholarships
 } = require('../services/scholarshipExpirationService');
+const searchSync = require('../services/scholarshipSearchSync');
+const {
+  validateScholarshipInput
+} = require('../utils/scholarshipInputValidation');
 
 const normalizeBenefits = (benefits) => {
   if (!Array.isArray(benefits)) {
@@ -14,6 +18,70 @@ const normalizeBenefits = (benefits) => {
     .map((benefit) => benefit.trim())
     .filter(Boolean);
 };
+
+const SAVE_FAILED_MESSAGE = 'Unable to save scholarship. Please try again.';
+const UNEXPECTED_ERROR_MESSAGE = 'Unable to complete this request. Please try again.';
+
+const clientValidationMessage = (error) => {
+  if (!error) return '';
+
+  if (error.name === 'ValidationError') {
+    const messages = Object.values(error.errors || {})
+      .map((item) => item && item.message)
+      .filter(Boolean);
+
+    if (messages.length > 0) {
+      return messages.join(' ');
+    }
+  }
+
+  const message = String(error.message || '');
+
+  if (
+    message.includes('academic grading scale requirement is required') ||
+    message.includes('must total 100%')
+  ) {
+    return message;
+  }
+
+  return '';
+};
+
+const rejectInvalidScholarship = (res, input, options) => {
+  const result = validateScholarshipInput(input, options);
+
+  if (result.valid) {
+    return false;
+  }
+
+  res.status(400).json({
+    success: false,
+    message: result.message
+  });
+
+  return true;
+};
+
+const handleScholarshipError = (res, error, label, fallbackMessage) => {
+  console.error(label, error);
+
+  const validationMessage = clientValidationMessage(error);
+
+  if (validationMessage) {
+    return res.status(400).json({
+      success: false,
+      message: validationMessage
+    });
+  }
+
+  return res.status(500).json({
+    success: false,
+    message: fallbackMessage
+  });
+};
+
+const handleScholarshipSaveError = (res, error, label) =>
+  handleScholarshipError(res, error, label, SAVE_FAILED_MESSAGE);
 
 // Create a scholarship for the logged-in provider
 exports.createScholarship = async (req, res) => {
@@ -38,6 +106,10 @@ exports.createScholarship = async (req, res) => {
       });
     }
 
+    if (rejectInvalidScholarship(res, req.body, { required: true })) {
+      return;
+    }
+
     // Create scholarship using the authenticated provider's ID
     const scholarshipData = {
       ...req.body,
@@ -49,6 +121,7 @@ exports.createScholarship = async (req, res) => {
     }
 
     const scholarship = await Scholarship.create(scholarshipData);
+    await searchSync.syncScholarshipSearch(scholarship);
 
     res.status(201).json({
       success: true,
@@ -56,12 +129,7 @@ exports.createScholarship = async (req, res) => {
       scholarship,
     });
   } catch (error) {
-    console.error('❌ Create Scholarship Error:', error);
-
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    return handleScholarshipSaveError(res, error, 'Create Scholarship Error:');
   }
 };
 
@@ -92,12 +160,12 @@ exports.getMyScholarships = async (req, res) => {
       scholarships,
     });
   } catch (error) {
-    console.error(' Get My Scholarships Error:', error);
-
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    return handleScholarshipError(
+      res,
+      error,
+      'Get My Scholarships Error:',
+      UNEXPECTED_ERROR_MESSAGE
+    );
   }
 };
 
@@ -149,12 +217,12 @@ exports.getScholarshipById = async (req, res) => {
       scholarship,
     });
   } catch (error) {
-    console.error(' Get Scholarship Error:', error);
-
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    return handleScholarshipError(
+      res,
+      error,
+      'Get Scholarship Error:',
+      UNEXPECTED_ERROR_MESSAGE
+    );
   }
 };
 
@@ -183,6 +251,10 @@ exports.updateScholarship = async (req, res) => {
         success: false,
         message: 'Scholarship not found',
       });
+    }
+
+    if (rejectInvalidScholarship(res, req.body, { required: false })) {
+      return;
     }
 
     // Fields that providers are allowed to edit
@@ -214,6 +286,7 @@ exports.updateScholarship = async (req, res) => {
     });
 
     await scholarship.save();
+    await searchSync.syncScholarshipSearch(scholarship);
 
     res.status(200).json({
       success: true,
@@ -221,12 +294,7 @@ exports.updateScholarship = async (req, res) => {
       scholarship,
     });
   } catch (error) {
-    console.error('Update Scholarship Error:', error);
-
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    return handleScholarshipSaveError(res, error, 'Update Scholarship Error:');
   }
 };
 
@@ -269,6 +337,7 @@ exports.updateScholarshipStatus = async (req, res) => {
     scholarship.status = status;
 
     await scholarship.save();
+    await searchSync.syncScholarshipSearch(scholarship);
 
     res.status(200).json({
       success: true,
@@ -276,12 +345,12 @@ exports.updateScholarshipStatus = async (req, res) => {
       scholarship,
     });
   } catch (error) {
-    console.error('Update Scholarship Status Error:', error);
-
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    return handleScholarshipError(
+      res,
+      error,
+      'Update Scholarship Status Error:',
+      UNEXPECTED_ERROR_MESSAGE
+    );
   }
 };
 
@@ -323,6 +392,7 @@ exports.archiveScholarship = async (req, res) => {
     scholarship.isArchived = true;
 
     await scholarship.save();
+    await searchSync.syncScholarshipSearch(scholarship);
 
     res.status(200).json({
       success: true,
@@ -330,11 +400,11 @@ exports.archiveScholarship = async (req, res) => {
       scholarship,
     });
   } catch (error) {
-    console.error('Archive Scholarship Error:', error);
-
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    return handleScholarshipError(
+      res,
+      error,
+      'Archive Scholarship Error:',
+      UNEXPECTED_ERROR_MESSAGE
+    );
   }
 };

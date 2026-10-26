@@ -1,27 +1,35 @@
-// src/features/public-landing/pages/ParentConsentPage.jsx
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
-import { ShieldCheck, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
+import { ShieldCheck, AlertCircle, CheckCircle2, Loader2, MailCheck, Clock } from 'lucide-react';
+import { useAuth } from '../../../context/AuthContext';
+import { API_BASE_URL } from '../../../config/api';
 
 export default function ParentConsentPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const { user } = useAuth();
   const token = searchParams.get('token');
 
-  const [loading, setLoading] = useState(true);
+  const queryEmail = searchParams.get('email');
+  const guardianEmailParam = queryEmail || location.state?.guardianEmail || user?.guardianEmail || 'your guardian email address';
+
+  const [loading, setLoading] = useState(!token);
   const [studentInfo, setStudentInfo] = useState(null);
   const [approved, setApproved] = useState(false);
   const [error, setError] = useState(null);
+  
+  // Real-time tracking state for View 1 when waiting on status change
+  const [isConsentApprovedRealtime, setIsConsentApprovedRealtime] = useState(false);
 
+  // 1. If token is present, verify it for the Parent Approval Form (View 2)
   useEffect(() => {
     if (!token) {
-      setError('Invalid approval link. Consent token is missing.');
       setLoading(false);
       return;
     }
 
-    // Verify token validity and retrieve student profile preview
-    fetch(`/api/v1/consent/verify?token=${token}`)
+    fetch(`${API_BASE_URL}/consent/verify?token=${token}`)
       .then(async (res) => {
         const data = await res.json();
         if (res.ok && data.success) {
@@ -34,12 +42,39 @@ export default function ParentConsentPage() {
       .finally(() => setLoading(false));
   }, [token]);
 
+  // 2. Real-time Polling for View 1: Automatically detect if consent gets approved
+  useEffect(() => {
+    if (token) return; // Only poll on the student waiting screen (no token)
+
+    const checkConsentStatus = async () => {
+      try {
+        const activeToken = localStorage.getItem('token')?.replace(/^"|"$/g, '').trim();
+        if (!activeToken) return;
+
+        const res = await fetch(`${API_BASE_URL}/auth/me`, {
+          headers: { 'Authorization': `Bearer ${activeToken}` }
+        });
+        const data = await res.json();
+
+        if (res.ok && (data.data?.status === 'active' || data.user?.status === 'active')) {
+          setIsConsentApprovedRealtime(true);
+        }
+      } catch (err) {
+        // Silent catch for background poll network flickers
+      }
+    };
+
+    // Poll every 4 seconds
+    const interval = setInterval(checkConsentStatus, 4000);
+    return () => clearInterval(interval);
+  }, [token]);
+
   const handleApprove = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch('/api/v1/consent/approve', {
+      const res = await fetch(`${API_BASE_URL}/consent/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token })
@@ -67,6 +102,76 @@ export default function ParentConsentPage() {
     );
   }
 
+  // ==========================================
+  // VIEW 1: STUDENT WAITING SCREEN (No token)
+  // ==========================================
+  if (!token) {
+    return (
+      <div className="min-h-screen bg-app-bg flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-card-bg border border-app-text/10 rounded-2xl p-6 sm:p-8 shadow-xl space-y-6 text-center">
+          
+          {isConsentApprovedRealtime ? (
+            /* Real-time Success State */
+            <>
+            <div className="w-16 h-16 bg-emerald-500/10 rounded-2xl flex items-center justify-center mx-auto text-emerald-600">
+              <CheckCircle2 className="w-8 h-8" />
+            </div>
+
+            <div className="space-y-2">
+              <h1 className="text-lg font-black text-app-text">Parental Consent Approved!</h1>
+              <p className="text-xs text-text-muted leading-relaxed">
+                Your parent or guardian has authorized your account. Please sign in now to request and receive your email verification link to activate your account.              </p>
+            </div>
+
+            
+
+            <button
+              onClick={() => navigate('/auth?mode=signin')}
+              className="w-full py-3 bg-primary text-white text-xs font-bold rounded-xl cursor-pointer hover:opacity-90 transition-opacity shadow-md"
+            >
+              Return to Sign In
+            </button>
+          </>
+          ) : (
+            /* Standard Pending Waiting State */
+            <>
+              <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mx-auto text-primary">
+                <MailCheck className="w-8 h-8" />
+              </div>
+
+              <div className="space-y-2">
+                <h1 className="text-lg font-black text-app-text">Parental Consent Email Sent</h1>
+                <p className="text-xs text-text-muted leading-relaxed">
+                  In compliance with <strong>RA 10173 (Data Privacy Act of 2012)</strong>, we sent an authorization link to <span className="font-semibold text-app-text">{guardianEmailParam}</span>.
+                </p>
+              </div>
+
+              <div className="p-4 bg-app-bg border border-app-text/10 rounded-xl space-y-2 text-left">
+                <div className="flex items-center gap-2 text-xs font-bold text-amber-600">
+                  <Clock className="w-4 h-4 shrink-0 animate-pulse" />
+                  <span>Status: Pending Parental Consent</span>
+                </div>
+                <p className="text-[11px] text-text-muted leading-relaxed">
+                  Once your parent/guardian clicks &quot;Approve Consent&quot; in the email, this screen will update automatically in real time!
+                </p>
+              </div>
+
+              <button
+                onClick={() => navigate('/auth?mode=signin')}
+                className="w-full py-3 bg-primary text-white text-xs font-bold rounded-xl cursor-pointer hover:opacity-90 transition-opacity"
+              >
+                Return to Sign In
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // VIEW 2: PARENT APPROVAL SCREEN (With token)
+  // ==========================================
   return (
     <div className="min-h-screen bg-app-bg flex items-center justify-center p-4">
       <div className="max-w-lg w-full bg-card-bg border border-app-text/10 rounded-2xl p-6 sm:p-8 shadow-xl space-y-6">
@@ -92,7 +197,7 @@ export default function ParentConsentPage() {
             <CheckCircle2 className="w-12 h-12 text-emerald-600 mx-auto" />
             <h2 className="text-base font-bold text-app-text">Account Authorized!</h2>
             <p className="text-xs text-text-muted">
-              Thank you for approving <strong>{studentInfo?.name}</strong>'s IskolarMatch profile. Their account is now active and ready for scholarship applications.
+              Thank you for approving <strong>{studentInfo?.name}</strong>&apos;s IskolarMatch profile. Their account is now active and ready for scholarship applications.
             </p>
             <button
               onClick={() => navigate('/auth?mode=signin')}

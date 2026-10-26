@@ -61,6 +61,7 @@ const providerSchema = new mongoose.Schema({
     default: 'Pending Review',
   },
   rejectionReason: { type: String },
+  isFinalRejection: { type: Boolean, default: false },
   submittedAt: { type: Date, default: Date.now },
   verifiedAt: { type: Date },
 }, { timestamps: true });
