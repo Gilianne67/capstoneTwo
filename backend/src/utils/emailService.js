@@ -18,29 +18,90 @@ const getClientUrl = () => {
   );
 };
 
+const resolveSignInUrl = () => {
+  const frontendUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
+  return `${String(frontendUrl).replace(/\/$/, '')}/auth?mode=signin`;
+};
+
 /**
  * Safely initialize Resend at runtime (prevents dotenv load order bugs)
  */
 const getResendClient = () => {
   const rawKey = process.env.RESEND_API_KEY || '';
-
-  console.log('🔍 [DEBUG KEY INSPECTION]:', {
-    hasKey: Boolean(rawKey),
-    length: rawKey.length,
-    firstChars: rawKey ? rawKey.substring(0, 8) : 'NONE', 
-    lastChars: rawKey ? rawKey.slice(-4) : 'NONE'
-  });
-
   const apiKey = rawKey.trim().replace(/^["']|["']$/g, '');
   
   if (!apiKey) {
-    console.error('❌ [Resend Error]: RESEND_API_KEY is missing or empty in backend/.env!');
+    console.error('❌ [Resend Error]: RESEND_API_KEY is missing or empty in environment variables!');
   }
   return new Resend(apiKey);
 };
 
+const escapeHtml = (value) =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+let warnedSandboxSender = false;
+
 /**
- * Helper to validate Resend API responses and throw errors properly
+ * FROM_EMAIL must be an address on a domain verified in Resend.
+ */
+const resolveFromAddress = (label) => {
+  const configured = process.env.FROM_EMAIL && String(process.env.FROM_EMAIL).trim();
+  if (configured) return configured;
+
+  if (!warnedSandboxSender) {
+    warnedSandboxSender = true;
+    console.warn(
+      '[MAILER] FROM_EMAIL is not set. Falling back to onboarding@resend.dev. Verify a domain in Resend and set FROM_EMAIL to an address on that domain.'
+    );
+  }
+
+  return `${label} <onboarding@resend.dev>`;
+};
+
+const buildVerificationEmail = (name, verifyUrl) => {
+  const safeName = escapeHtml(name || 'Student');
+  const safeUrl = escapeHtml(verifyUrl);
+
+  return {
+    subject: 'Verify Your IskolarMatch Account',
+    text: [
+      `Hi ${name || 'Student'},`,
+      '',
+      'Welcome to IskolarMatch. Verify your email address to activate your account:',
+      verifyUrl,
+      '',
+      'This link expires in 2 hours and can only be used once. If you did not request this, you can ignore this email.',
+    ].join('\n'),
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+        <h2 style="color: #2563eb; margin-top: 0;">Verify Your IskolarMatch Account</h2>
+        <p style="color: #334155; font-size: 14px;">Hi ${safeName},</p>
+        <p style="color: #475569; font-size: 14px; line-height: 1.6;">
+          Welcome to IskolarMatch. Please use the link below to verify your email address and activate your account.
+        </p>
+        <div style="text-align: center; margin: 24px 0;">
+          <a href="${safeUrl}" style="background-color: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; font-size: 14px;">Verify Email Address</a>
+        </div>
+        <p style="color: #64748b; font-size: 12px; line-height: 1.5;">
+          If the button does not work, copy and paste this link into your browser:<br/>
+          <a href="${safeUrl}">${safeUrl}</a>
+        </p>
+        <p style="color: #64748b; font-size: 12px; line-height: 1.5;">
+          If you did not request this verification, please ignore this email. This link will expire in 2 hours.
+        </p>
+        <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 24px 0;" />
+        <p style="color: #94a3b8; font-size: 12px; text-align: center;">&copy; ${new Date().getFullYear()} IskolarMatch. All rights reserved.</p>
+      </div>
+    `,
+  };
+};
+
+/**
+ * 🛡️ Helper to validate Resend API responses and throw errors properly
  */
 const handleResendResponse = (response, emailType, targetEmail) => {
   if (response.error) {
@@ -96,7 +157,7 @@ const sendParentConsentEmail = async ({ guardianEmail, guardianName = 'Parent/Gu
     `;
 
     const response = await resend.emails.send({
-      from: process.env.FROM_EMAIL || 'IskolarMatch Support <onboarding@resend.dev>',
+      from: resolveFromAddress('IskolarMatch Support'),
       to: [guardianEmail],
       subject: `Parental Consent Request for ${studentName}`,
       html: htmlTemplate,
@@ -115,29 +176,14 @@ const sendParentConsentEmail = async ({ guardianEmail, guardianName = 'Parent/Gu
 const sendVerificationEmail = async (email, name, verifyUrl) => {
   try {
     const resend = getResendClient();
-    const htmlTemplate = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
-        <h2 style="color: #2563eb; margin-top: 0;">Verify Your IskolarMatch Account</h2>
-        <p style="color: #334155; font-size: 14px;">Hi ${name || 'Student'},</p>
-        <p style="color: #475569; font-size: 14px; line-height: 1.6;">
-          Welcome to IskolarMatch! Please click the button below to verify your email address and activate your account.
-        </p>
-        <div style="text-align: center; margin: 24px 0;">
-          <a href="${verifyUrl}" style="background-color: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; font-size: 14px;">Verify Email Address</a>
-        </div>
-        <p style="color: #64748b; font-size: 12px; line-height: 1.5;">
-          If you did not request this verification, please ignore this email. This link will expire in 2 hours.
-        </p>
-        <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 24px 0;" />
-        <p style="color: #94a3b8; font-size: 12px; text-align: center;">&copy; ${new Date().getFullYear()} IskolarMatch. All rights reserved.</p>
-      </div>
-    `;
+    const message = buildVerificationEmail(name, verifyUrl);
 
     const response = await resend.emails.send({
-      from: process.env.FROM_EMAIL || 'IskolarMatch Support <onboarding@resend.dev>',
+      from: resolveFromAddress('IskolarMatch Support'),
       to: [email],
-      subject: 'Verify Your IskolarMatch Account',
-      html: htmlTemplate,
+      subject: message.subject,
+      text: message.text,
+      html: message.html,
     });
 
     return handleResendResponse(response, 'Verification Email', email);
@@ -169,7 +215,7 @@ const sendAccountLockoutEmail = async (email, name, unlockUrl) => {
     `;
 
     const response = await resend.emails.send({
-      from: process.env.FROM_EMAIL || 'IskolarMatch Security <onboarding@resend.dev>',
+      from: resolveFromAddress('IskolarMatch Security'),
       to: [email],
       subject: 'Security Alert: Account Temporarily Locked',
       html: htmlTemplate,
@@ -207,7 +253,7 @@ const sendProviderAdminNotification = async (providerData = {}, fileInfo = null)
     `;
 
     const payload = {
-      from: process.env.FROM_EMAIL || 'IskolarMatch System <onboarding@resend.dev>',
+      from: resolveFromAddress('IskolarMatch System'),
       to: [adminEmail],
       subject: `🚨 [Action Required] Provider Registration: ${providerData.institutionName || 'New Provider'}`,
       html: htmlContent,
@@ -248,7 +294,7 @@ const sendProviderConfirmation = async (repEmail, repName, institutionName) => {
     `;
 
     const response = await resend.emails.send({
-      from: process.env.FROM_EMAIL || 'IskolarMatch Support <onboarding@resend.dev>',
+      from: resolveFromAddress('IskolarMatch Support'),
       to: [repEmail],
       subject: 'IskolarMatch - Verification Request Received',
       html: htmlContent,
@@ -265,12 +311,11 @@ const sendProviderConfirmation = async (repEmail, repName, institutionName) => {
  * 6. Send Password Reset Instructions
  */
 const sendResetPasswordEmail = async (email, resetUrl) => {
-   
   try {
     const resend = getResendClient();
     
     const response = await resend.emails.send({
-      from: process.env.FROM_EMAIL || 'IskolarMatch <support@iskolarmatch.website>', 
+      from: resolveFromAddress('IskolarMatch'),
       to: [email],
       subject: 'Password Reset Instructions - IskolarMatch',
       html: `
@@ -293,12 +338,169 @@ const sendResetPasswordEmail = async (email, resetUrl) => {
   }
 };
 
+const buildProviderApprovalEmail = ({ recipientName, organizationName, signInUrl } = {}) => {
+  const safeName = escapeHtml(recipientName || 'Partner');
+  const safeOrg = escapeHtml(organizationName || 'your organization');
+  const safeUrl = escapeHtml(signInUrl || resolveSignInUrl());
+
+  return {
+    subject: 'Your Organization Verification Has Been Approved',
+    text: [
+      `Dear ${recipientName || 'Partner'},`,
+      '',
+      `Your organization verification for ${organizationName || 'your organization'} has been approved.`,
+      'You can now sign in and access features available to verified providers, including creating scholarship listings.',
+      '',
+      `Sign in: ${signInUrl || resolveSignInUrl()}`,
+    ].join('\n'),
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+        <h2 style="color: #064e3b; margin-top: 0;">Your Organization Verification Has Been Approved</h2>
+        <p style="color: #334155; font-size: 14px;">Dear ${safeName},</p>
+        <p style="color: #475569; font-size: 14px; line-height: 1.6;">
+          Your organization verification for <strong>${safeOrg}</strong> has been approved.
+        </p>
+        <p style="color: #475569; font-size: 14px; line-height: 1.6;">
+          You can now sign in and access features available to verified providers, including creating scholarship listings.
+        </p>
+        <div style="text-align: center; margin: 24px 0;">
+          <a href="${safeUrl}" style="background-color: #064e3b; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; font-size: 14px;">Sign In to IskolarMatch</a>
+        </div>
+        <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 24px 0;" />
+        <p style="color: #94a3b8; font-size: 12px; text-align: center;">&copy; ${new Date().getFullYear()} IskolarMatch. All rights reserved.</p>
+      </div>
+    `,
+  };
+};
+
+const buildProviderRejectionEmail = ({
+  recipientName,
+  organizationName,
+  rejectionReason,
+  isFinalRejection = false,
+  signInUrl,
+} = {}) => {
+  const safeName = escapeHtml(recipientName || 'Partner');
+  const safeOrg = escapeHtml(organizationName || 'your organization');
+  const reason = String(rejectionReason || '').trim();
+  const safeReason = escapeHtml(reason);
+  const safeUrl = escapeHtml(signInUrl || resolveSignInUrl());
+  const nextStep = isFinalRejection
+    ? 'This decision is final. Your organization cannot submit another verification request with this account.'
+    : 'You can sign in and submit updated documents for another review.';
+
+  return {
+    subject: 'Update on Your Organization Verification',
+    text: [
+      `Dear ${recipientName || 'Partner'},`,
+      '',
+      `Your organization verification for ${organizationName || 'your organization'} was not approved.`,
+      reason ? `Review feedback: ${reason}` : '',
+      nextStep,
+      isFinalRejection ? '' : `Sign in: ${signInUrl || resolveSignInUrl()}`,
+    ].filter(Boolean).join('\n'),
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+        <h2 style="color: #991b1b; margin-top: 0;">Update on Your Organization Verification</h2>
+        <p style="color: #334155; font-size: 14px;">Dear ${safeName},</p>
+        <p style="color: #475569; font-size: 14px; line-height: 1.6;">
+          Your organization verification for <strong>${safeOrg}</strong> was not approved.
+        </p>
+        ${reason ? `
+        <p style="color: #475569; font-size: 14px; line-height: 1.6;">The review team provided the following feedback:</p>
+        <blockquote style="background-color: #fef2f2; padding: 16px; border-left: 4px solid #ef4444; color: #991b1b; margin: 16px 0; border-radius: 4px;">
+          ${safeReason}
+        </blockquote>
+        ` : ''}
+        <p style="color: #475569; font-size: 14px; line-height: 1.6;">${escapeHtml(nextStep)}</p>
+        ${isFinalRejection ? '' : `
+        <div style="text-align: center; margin: 24px 0;">
+          <a href="${safeUrl}" style="background-color: #064e3b; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; font-size: 14px;">Sign In to IskolarMatch</a>
+        </div>
+        `}
+        <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 24px 0;" />
+        <p style="color: #94a3b8; font-size: 12px; text-align: center;">&copy; ${new Date().getFullYear()} IskolarMatch. All rights reserved.</p>
+      </div>
+    `,
+  };
+};
+
+const sendProviderApprovalEmail = async ({ email, recipientName, organizationName } = {}) => {
+  try {
+    if (!email) {
+      throw new Error('A registered recipient email is required.');
+    }
+
+    const resend = getResendClient();
+    const message = buildProviderApprovalEmail({
+      recipientName,
+      organizationName,
+      signInUrl: resolveSignInUrl(),
+    });
+
+    const response = await resend.emails.send({
+      from: resolveFromAddress('IskolarMatch Support'),
+      to: [email],
+      subject: message.subject,
+      text: message.text,
+      html: message.html,
+    });
+
+    return handleResendResponse(response, 'Provider Approval', email);
+  } catch (error) {
+    console.error('❌ Error sending provider approval email:', error.message);
+    throw new Error(`Email delivery failed: ${error.message}`);
+  }
+};
+
+const sendProviderRejectionEmail = async ({
+  email,
+  recipientName,
+  organizationName,
+  rejectionReason,
+  isFinalRejection = false,
+} = {}) => {
+  try {
+    if (!email) {
+      throw new Error('A registered recipient email is required.');
+    }
+
+    const resend = getResendClient();
+    const message = buildProviderRejectionEmail({
+      recipientName,
+      organizationName,
+      rejectionReason,
+      isFinalRejection,
+      signInUrl: resolveSignInUrl(),
+    });
+
+    const response = await resend.emails.send({
+      from: resolveFromAddress('IskolarMatch Support'),
+      to: [email],
+      subject: message.subject,
+      text: message.text,
+      html: message.html,
+    });
+
+    return handleResendResponse(response, 'Provider Rejection', email);
+  } catch (error) {
+    console.error('❌ Error sending provider rejection email:', error.message);
+    throw new Error(`Email delivery failed: ${error.message}`);
+  }
+};
+
 module.exports = {
   generateConsentToken,
+  resolveFromAddress,
+  buildVerificationEmail,
+  buildProviderApprovalEmail,
+  buildProviderRejectionEmail,
   sendParentConsentEmail,
   sendVerificationEmail,
   sendAccountLockoutEmail,
   sendProviderAdminNotification,
   sendProviderConfirmation,
   sendResetPasswordEmail,
+  sendProviderApprovalEmail,
+  sendProviderRejectionEmail,
 };

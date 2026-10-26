@@ -1,5 +1,6 @@
 const Scholarship = require('../models/Scholarship');
 const { isDeadlineOpen } = require('./matchingService');
+const { syncScholarshipSearch } = require('./scholarshipSearchSync');
 
 /**
  * Open, non-archived scholarships past the Manila end of their
@@ -20,12 +21,23 @@ const shouldAutoCloseScholarship = (scholarship, now = new Date()) => {
   return !isDeadlineOpen(scholarship.deadline, now);
 };
 
-const closeExpiredScholarships = async (now = new Date()) => {
-  const candidates = await Scholarship.find({
+const closeExpiredScholarships = async (now = new Date(), dependencies = {}) => {
+  const findCandidates = dependencies.findCandidates || ((filter) =>
+    Scholarship.find(filter).select('_id deadline status isArchived')
+  );
+  const updateMany = dependencies.updateMany || ((filter, update) =>
+    Scholarship.updateMany(filter, update)
+  );
+  const findPersisted = dependencies.findPersisted || ((ids) =>
+    Scholarship.find({ _id: { $in: ids } })
+  );
+  const sync = dependencies.syncScholarshipSearch || syncScholarshipSearch;
+
+  const candidates = await findCandidates({
     status: 'Open',
     isArchived: false,
     deadline: { $lte: now }
-  }).select('_id deadline status isArchived');
+  });
 
   const expiredIds = candidates
     .filter((scholarship) => shouldAutoCloseScholarship(scholarship, now))
@@ -35,7 +47,7 @@ const closeExpiredScholarships = async (now = new Date()) => {
     return { closedCount: 0 };
   }
 
-  const result = await Scholarship.updateMany(
+  const result = await updateMany(
     {
       _id: { $in: expiredIds },
       status: 'Open',
@@ -43,8 +55,17 @@ const closeExpiredScholarships = async (now = new Date()) => {
     },
     { $set: { status: 'Closed' } }
   );
+  const closedCount = result.modifiedCount || 0;
 
-  return { closedCount: result.modifiedCount || 0 };
+  if (closedCount > 0) {
+    const persisted = await findPersisted(expiredIds);
+
+    for (const scholarship of persisted) {
+      await sync(scholarship);
+    }
+  }
+
+  return { closedCount };
 };
 
 module.exports = {

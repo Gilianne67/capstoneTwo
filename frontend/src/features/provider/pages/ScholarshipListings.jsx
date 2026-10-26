@@ -396,12 +396,25 @@ if (currentView === 'edit') {
     }
   ];
 
+  const createListingAction = (
+    <button
+      type="button"
+      onClick={handleOpenCreate}
+      className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+    >
+      <PlusCircle className="h-4 w-4" />
+      Create Listing
+    </button>
+  );
+
   if (isLoading) {
     return (
       <div className="space-y-6 max-w-7xl mx-auto pb-12">
-        <PageHeader 
-          title="Scholarship Listings" 
-          subtitle="Manage, review, and filter your organization's posted scholarship programs."
+        <PageHeader
+          title="Scholarship Listings"
+          description="Manage, review, and filter your organization's posted scholarship programs."
+          role="provider"
+          actionButton={createListingAction}
         />
         <div className="min-h-[300px] flex flex-col items-center justify-center gap-3 bg-white rounded-2xl border border-slate-200/80 p-6">
           <Loader2 className="h-7 w-7 text-emerald-600 animate-spin" />
@@ -421,18 +434,11 @@ if (currentView === 'edit') {
         </div>
       )}
 
-      <PageHeader 
-        title="Scholarship Listings" 
-        subtitle="Manage, review, and filter your organization's posted scholarship programs."
-        action={
-          <button 
-            type="button"
-            onClick={handleOpenCreate}
-            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
-          >
-            <PlusCircle className="h-4 w-4" /> Create New Listing
-          </button>
-        }
+      <PageHeader
+        title="Scholarship Listings"
+        description="Manage, review, and filter your organization's posted scholarship programs."
+        role="provider"
+        actionButton={createListingAction}
       />
 
       {/* Mock Engine & Connection Bar */}

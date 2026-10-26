@@ -7,13 +7,25 @@ const asyncHandler = require('../utils/asyncHandler');
 const ErrorResponse = require('../utils/errorResponse');
 const { blacklistToken } = require('../services/tokenService');
 const { recordAuditLog } = require('./auditController');
-
-const { sendAccountLockoutEmail, sendVerificationEmail, sendResetPasswordEmail } = require('../utils/emailService');
+const emailService = require('../utils/emailService');
+const {
+  hashToken,
+  buildVerificationUrl,
+  claimVerificationToken,
+  restoreVerificationToken,
+} = require('../utils/verificationToken');
+const {
+  isFinalRejection,
+  canResubmitVerification,
+  declinedProviderLoginMessage,
+  FINAL_REJECTION_REGISTRATION_MESSAGE,
+  RESUBMIT_REGISTRATION_MESSAGE,
+} = require('../utils/providerVerification');
 
 // Generic authentication error message to prevent account enumeration
 const GENERIC_AUTH_ERROR = 'Invalid credentials or account temporarily locked. Please try again later.';
 
-// Helper: Safely map lowercase or raw roles to capitalized AuditLog enum values ('Student', 'Provider', 'Admin', 'System')
+// Helper: Safely map lowercase or raw roles to capitalized AuditLog enum values
 const formatAuditRole = (role) => {
   if (!role) return 'Student';
   const lower = String(role).toLowerCase();
@@ -21,18 +33,6 @@ const formatAuditRole = (role) => {
   if (lower.includes('provider')) return 'Provider';
   if (lower.includes('system')) return 'System';
   return 'Student';
-};
-
-// Helper: Generate and save cryptographic email verification token (expires in 2 hours)
-const generateVerificationToken = async (user) => {
-  const rawToken = crypto.randomBytes(32).toString('hex');
-  user.emailVerificationToken = crypto
-    .createHash('sha256')
-    .update(rawToken)
-    .digest('hex');
-  user.emailVerificationExpire = Date.now() + 2 * 60 * 60 * 1000; // 2 Hours
-  await user.save({ validateBeforeSave: false });
-  return rawToken;
 };
 
 // Helper: Calculate exponential backoff lockout duration (in milliseconds)
@@ -59,10 +59,14 @@ const sendTokenResponse = async (user, statusCode, res, message, req) => {
   user.password = undefined;
 
   let verificationStatus = 'Approved';
+  let isFinalRejectionFlag = false;
+  let representativeName = '';
   if (user.role === 'provider') {
     const providerDoc = await Provider.findOne({ userId: user._id });
     if (providerDoc) {
       verificationStatus = providerDoc.verificationStatus;
+      isFinalRejectionFlag = Boolean(providerDoc.isFinalRejection);
+      representativeName = String(providerDoc.representative?.name || '').trim();
     }
   }
 
@@ -76,6 +80,7 @@ const sendTokenResponse = async (user, statusCode, res, message, req) => {
     isVerified: Boolean(user.isVerified),
     status: user.status || 'active',
     verificationStatus,
+    ...(user.role === 'provider' ? { isFinalRejection: isFinalRejectionFlag, representativeName } : {}),
   };
 
   if (req) {
@@ -131,6 +136,24 @@ exports.register = asyncHandler(async (req, res, next) => {
   // 3. Check for existing user (Anti-enumeration friendly handling)
   const userExists = await User.findOne({ email: normalizedEmail });
   if (userExists) {
+    if (userExists.role === 'provider') {
+      const existingProvider = await Provider.findOne({ userId: userExists._id });
+      if (isFinalRejection(existingProvider)) {
+        return res.status(409).json({
+          success: false,
+          verificationDeclined: true,
+          message: FINAL_REJECTION_REGISTRATION_MESSAGE,
+        });
+      }
+      if (canResubmitVerification(existingProvider)) {
+        return res.status(409).json({
+          success: false,
+          canResubmit: true,
+          message: RESUBMIT_REGISTRATION_MESSAGE,
+        });
+      }
+    }
+
     return res.status(200).json({
       success: true,
       requiresOnboarding: true,
@@ -161,7 +184,7 @@ exports.register = asyncHandler(async (req, res, next) => {
     severity: 'Info'
   });
 
-  // 🔑 Issue JWT token response immediately so OnboardingPage can authenticate successfully
+  // 🔑 Issue JWT token response immediately
   await sendTokenResponse(user, 201, res, 'Registration successful! Please complete your onboarding profile.', req);
 });
 
@@ -169,10 +192,7 @@ exports.register = asyncHandler(async (req, res, next) => {
 // @route   GET /api/v1/auth/verify-email/:token
 // @access  Public
 exports.verifyEmail = asyncHandler(async (req, res, next) => {
-  const hashedToken = crypto
-    .createHash('sha256')
-    .update(req.params.token)
-    .digest('hex');
+  const hashedToken = hashToken(req.params.token);
 
   const user = await User.findOne({
     emailVerificationToken: hashedToken,
@@ -224,19 +244,38 @@ exports.resendVerification = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse('This account is already verified.', 400));
   }
 
-  const rawToken = await generateVerificationToken(user);
-  const verifyUrl = `${process.env.CLIENT_URL || 'https://iskolarmatch.website'}/verify-email/${rawToken}`;
-  
+  const previousToken = user.emailVerificationToken;
+  const previousExpire = user.emailVerificationExpire;
+  const claimed = await claimVerificationToken(user._id);
+
+  if (!claimed.claimed) {
+    if (claimed.reason === 'verified') {
+      return next(new ErrorResponse('This account is already verified.', 400));
+    }
+    if (claimed.reason === 'fresh') {
+      return res.status(200).json({
+        success: true,
+        message: 'A verification link was just sent. Please use that email. You can request another link shortly.',
+      });
+    }
+    return next(new ErrorResponse('Unable to issue a verification link for this account.', 400));
+  }
+
   try {
-    if (typeof sendVerificationEmail === 'function') {
-      await sendVerificationEmail(user.email, user.name, verifyUrl);
-    } else {
+    if (typeof emailService.sendVerificationEmail !== 'function') {
       console.error('⚠️ sendVerificationEmail utility is not defined or not imported properly.');
+      await restoreVerificationToken(user._id, claimed.rawToken, previousToken, previousExpire);
       return next(new ErrorResponse('Email service configuration error.', 500));
     }
+    await emailService.sendVerificationEmail(
+      user.email,
+      user.name,
+      buildVerificationUrl(claimed.rawToken)
+    );
   } catch (err) {
-    console.error('⚠️ Nodemailer dispatch failed inside resendVerification:', err);
-    return next(new ErrorResponse(`Failed to dispatch verification link: ${err.message}`, 500));
+    console.error('⚠️ Verification email failed inside resendVerification:', err.message);
+    await restoreVerificationToken(user._id, claimed.rawToken, previousToken, previousExpire);
+    return next(new ErrorResponse('Failed to dispatch verification link. Please try again.', 500));
   }
 
   res.status(200).json({
@@ -263,7 +302,7 @@ exports.updateUnverifiedEmail = asyncHandler(async (req, res, next) => {
       return next(new ErrorResponse('Current password is required to change your email address.', 400));
     }
 
-    // 2. Safely find user (via req.user if protect middleware worked, or fallback to oldEmail if unauthenticated on holding page)
+    // 2. Safely find user
     let user = null;
     if (req.user && req.user.id) {
       user = await User.findById(req.user.id).select('+password');
@@ -301,18 +340,31 @@ exports.updateUnverifiedEmail = asyncHandler(async (req, res, next) => {
 
     // 5. Update Email & Reset Verification State
     const previousEmail = user.email;
+    const previousToken = user.emailVerificationToken;
+    const previousExpire = user.emailVerificationExpire;
+
     user.email = normalizedNew;
     user.isVerified = false;
+    await user.save({ validateBeforeSave: false });
 
-    const rawToken = await generateVerificationToken(user);
-    const clientUrl = process.env.CLIENT_URL || 'https://iskolarmatch.website';
-    const verifyUrl = `${clientUrl}/verify-email/${rawToken}`;
+    const claimed = await claimVerificationToken(user._id, { force: true });
+    if (!claimed.claimed) {
+      return next(new ErrorResponse('Unable to issue a verification link for this account.', 400));
+    }
 
-    // 6. Dispatch Verification Email
-    if (typeof sendVerificationEmail === 'function') {
-      await sendVerificationEmail(user.email, user.name, verifyUrl);
-    } else {
-      throw new Error('Email service configuration error.');
+    try {
+      if (typeof emailService.sendVerificationEmail !== 'function') {
+        throw new Error('Email service configuration error.');
+      }
+      await emailService.sendVerificationEmail(
+        user.email,
+        user.name,
+        buildVerificationUrl(claimed.rawToken)
+      );
+    } catch (err) {
+      console.error('⚠️ Verification email failed after address update:', err.message);
+      await restoreVerificationToken(user._id, claimed.rawToken, previousToken, previousExpire);
+      return next(new ErrorResponse('Email address was updated, but the verification email could not be sent. Please use resend.', 500));
     }
 
     // 📝 Audit Log
@@ -337,7 +389,7 @@ exports.updateUnverifiedEmail = asyncHandler(async (req, res, next) => {
   }
 });
 
-// @desc    Login user & return JWT token
+// @desc    Login user & return JWT token (Blocks Unverified Accounts)
 // @route   POST /api/v1/auth/login
 // @access  Public
 exports.login = asyncHandler(async (req, res, next) => {
@@ -398,10 +450,10 @@ exports.login = asyncHandler(async (req, res, next) => {
           user.resetPasswordExpire = Date.now() + 15 * 60 * 1000;
           await user.save({ validateBeforeSave: false });
 
-          const unlockUrl = `${process.env.CLIENT_URL || 'https://iskolarmatch.website'}/reset-password/${resetToken}`;
+          const unlockUrl = `${process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password/${resetToken}`;
           try {
-            if (typeof sendAccountLockoutEmail === 'function') {
-              await sendAccountLockoutEmail(user.email, user.name, unlockUrl);
+            if (typeof emailService.sendAccountLockoutEmail === 'function') {
+              await emailService.sendAccountLockoutEmail(user.email, user.name, unlockUrl);
             }
           } catch (emailErr) {
             console.error('⚠️ Account lockout email failed to send:', emailErr.message);
@@ -426,7 +478,7 @@ exports.login = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse(GENERIC_AUTH_ERROR, 401));
   }
 
-  // 🔒 STRICT VERIFICATION GATE (FIX 1.3)
+  // 🔒 STRICT VERIFICATION GATE
   const isVerified = user.isVerified ?? user.is_verified ?? false;
   if (!isVerified) {
     await recordAuditLog({
@@ -467,13 +519,12 @@ exports.login = asyncHandler(async (req, res, next) => {
   // 5. Provider Status Check
   if (user.role === 'provider') {
     const providerDoc = await Provider.findOne({ userId: user._id });
-    if (providerDoc && providerDoc.verificationStatus === 'Rejected') {
-      return next(
-        new ErrorResponse(
-          `Your provider application was rejected. Reason: ${providerDoc.rejectionReason || 'Contact support for details.'}`,
-          403
-        )
-      );
+    if (isFinalRejection(providerDoc)) {
+      return res.status(403).json({
+        success: false,
+        verificationDeclined: true,
+        message: declinedProviderLoginMessage(providerDoc),
+      });
     }
   }
 
@@ -500,10 +551,14 @@ exports.getMe = asyncHandler(async (req, res, next) => {
   }
 
   let verificationStatus = 'Approved';
+  let isFinalRejectionFlag = false;
+  let representativeName = '';
   if (user.role === 'provider') {
     const providerDoc = await Provider.findOne({ userId: user._id });
     if (providerDoc) {
       verificationStatus = providerDoc.verificationStatus;
+      isFinalRejectionFlag = Boolean(providerDoc.isFinalRejection);
+      representativeName = String(providerDoc.representative?.name || '').trim();
     }
   }
 
@@ -517,6 +572,7 @@ exports.getMe = asyncHandler(async (req, res, next) => {
     isVerified: Boolean(user.isVerified),
     status: user.status || 'active',
     verificationStatus,
+    ...(user.role === 'provider' ? { isFinalRejection: isFinalRejectionFlag, representativeName } : {}),
   };
 
   res.status(200).json({
@@ -562,27 +618,22 @@ exports.logout = asyncHandler(async (req, res, next) => {
   });
 });
 
-// @desc    Request Password Reset Link (Production Ready with Resend)
+// @desc    Request Password Reset Link
 // @route   POST /api/v1/auth/forgotpassword
 // @access  Public
 exports.forgotPassword = asyncHandler(async (req, res, next) => {
   const { email } = req.body;
   const normalizedEmail = email ? email.toLowerCase().trim() : '';
 
-  console.log(`🔍 [FORGOT PASSWORD SEARCH] Querying database for: "${normalizedEmail}"`);
-
   const user = await User.findOne({ email: normalizedEmail });
 
   if (!user) {
-    console.log(`⚠️ [FORGOT PASSWORD] No user found with email: "${normalizedEmail}". Skipping email dispatch.`);
     await bcrypt.compare('dummyPassword', '$2a$10$abcdefghijklmnopqrstuuu');
     return res.status(200).json({
       success: true,
       message: 'If an account exists with that email, password reset instructions have been dispatched.'
     });
   }
-
-  console.log(`✅ [FORGOT PASSWORD] User found: ${user.email} (ID: ${user._id}). Generating reset token...`);
 
   const resetToken = crypto.randomBytes(32).toString('hex');
 
@@ -600,13 +651,21 @@ exports.forgotPassword = asyncHandler(async (req, res, next) => {
       ? 'https://iskolarmatch.website' 
       : 'http://localhost:5173');
 
+  await recordAuditLog({
+    actor: user.email,
+    role: formatAuditRole(user.role),
+    action: 'PASSWORD_RESET_REQUEST',
+    details: `Password reset link requested for ${user.email}`,
+    ipAddress: req.ip || '127.0.0.1',
+    severity: 'Info'
+  });
+
   const resetUrl = `${clientUrl}/reset-password/${resetToken}`;
 
-  console.log(`🚀 [FORGOT PASSWORD] Dispatching email to ${user.email} via sendResetPasswordEmail...`);
-
   try {
-    await sendResetPasswordEmail(user.email, resetUrl);
-    console.log(`✅ [FORGOT PASSWORD] Email dispatch complete!`);
+    if (typeof emailService.sendResetPasswordEmail === 'function') {
+      await emailService.sendResetPasswordEmail(user.email, resetUrl);
+    }
   } catch (err) {
     console.error('❌ Password Reset Email Dispatch Failed:', err.message);
     user.resetPasswordToken = undefined;
@@ -619,7 +678,6 @@ exports.forgotPassword = asyncHandler(async (req, res, next) => {
     success: true,
     message: 'If an account exists with that email, password reset instructions have been dispatched.'
   });
-
 });
 
 // @desc    Reset Password

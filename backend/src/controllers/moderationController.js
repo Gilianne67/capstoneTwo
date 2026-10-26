@@ -1,5 +1,7 @@
-const Report = require('../models/Report'); 
+const Report = require('../models/Report');
 const Scholarship = require('../models/Scholarship');
+const searchSync = require('../services/scholarshipSearchSync');
+const { recordAuditLog } = require('./auditController');
 
 const getModerationReports = async (req, res) => {
   try {
@@ -54,10 +56,18 @@ const updateModerationReport = async (req, res) => {
     }
 
     if (action === 'REMOVE_LISTING' && report.listingId) {
-      await Scholarship.findByIdAndUpdate(report.listingId, {
-        status: 'Closed',
-        isArchived: true,
-      });
+      const scholarship = await Scholarship.findByIdAndUpdate(
+        report.listingId,
+        {
+          status: 'Closed',
+          isArchived: true,
+        },
+        { new: true }
+      );
+
+      if (scholarship && typeof searchSync?.syncScholarshipSearch === 'function') {
+        await searchSync.syncScholarshipSearch(scholarship);
+      }
     }
 
     report.status = status || 'Resolved';
@@ -67,6 +77,24 @@ const updateModerationReport = async (req, res) => {
     if (notes) report.adminNotes = notes;
 
     await report.save();
+
+    // 📝 AUDIT LOG: Moderation Action Recorded
+    try {
+      const adminActor = req.user 
+        ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
+        : 'Admin User';
+
+      await recordAuditLog({
+        actor: adminActor,
+        role: 'Admin',
+        action: 'MODERATION_REPORT_RESOLVED',
+        details: `Moderation report ${id} resolved with action: ${action || 'Resolved'}.`,
+        ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+        severity: 'Info'
+      });
+    } catch (auditErr) {
+      console.warn('Audit logging skipped:', auditErr.message);
+    }
 
     return res.status(200).json({
       success: true,

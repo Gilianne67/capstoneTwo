@@ -3,7 +3,13 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const StudentProfile = require('../models/StudentProfile');
 const ParentConsent = require('../models/ParentalConsent'); 
-const { sendParentConsentEmail, sendVerificationEmail } = require('../utils/emailService');
+const emailService = require('../utils/emailService');
+const {
+  buildVerificationUrl,
+  claimVerificationToken,
+  clientBaseUrl,
+  restoreVerificationToken,
+} = require('../utils/verificationToken');
 const { recordAuditLog } = require('./auditController');
 
 // Shared secret for signing & verifying consent tokens across all functions
@@ -11,8 +17,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'iskolarmatch_fallback_secret_key';
 
 const SUPPORTED_GWA_SCALES = ['1.00-5.00', '60-100'];
 
-// Persist the scale onboarding already calculated. Fall back to the same
-// numeric ranges the form uses when a valid scale was not sent.
+// Resolve scale onboarding already calculated
 const resolveOnboardingGwaScale = (gwaScale, gwa) => {
   if (SUPPORTED_GWA_SCALES.includes(gwaScale)) {
     return gwaScale;
@@ -67,7 +72,7 @@ exports.handleOnboarding = async (req, res) => {
       });
     }
 
-    // Security Fix 1.1: Guard against re-onboarding or pending consent bypassing
+    // Guard against re-onboarding or pending consent bypassing
     if (studentUser.status === 'pending_consent') {
       return res.status(403).json({ 
         success: false, 
@@ -99,14 +104,15 @@ exports.handleOnboarding = async (req, res) => {
       age--;
     }
 
-    const isMinor = age < 18; // Computed server-side
+    const isMinor = age < 18;
 
+    let normalizedGuardianEmail = null;
     if (isMinor) {
       if (!guardianEmail) {
         return res.status(400).json({ success: false, message: "Guardian email is required for minors." });
       }
 
-      const normalizedGuardianEmail = guardianEmail.trim().toLowerCase();
+      normalizedGuardianEmail = guardianEmail.trim().toLowerCase();
       const normalizedStudentEmail = studentUser.email.trim().toLowerCase();
 
       if (normalizedGuardianEmail === normalizedStudentEmail) {
@@ -118,10 +124,7 @@ exports.handleOnboarding = async (req, res) => {
     }
 
     let consentToken = null;
-    let normalizedGuardianEmail = null;
-
     if (isMinor) {
-      normalizedGuardianEmail = guardianEmail.trim().toLowerCase();
       consentToken = jwt.sign(
         { 
           userId: studentUser._id, 
@@ -137,20 +140,12 @@ exports.handleOnboarding = async (req, res) => {
     studentUser.status = isMinor ? 'pending_consent' : 'active';
     studentUser.isOnboarded = true;
 
-    // Generate Email Verification Token post-onboarding for adult students
-    let rawVerifyToken = null;
-    if (!isMinor) {
-      rawVerifyToken = crypto.randomBytes(32).toString('hex');
-      studentUser.emailVerificationToken = crypto
-        .createHash('sha256')
-        .update(rawVerifyToken)
-        .digest('hex');
-      studentUser.emailVerificationExpire = Date.now() + 2 * 60 * 60 * 1000; // 2 Hours
-    }
+    const previousVerificationToken = studentUser.emailVerificationToken;
+    const previousVerificationExpire = studentUser.emailVerificationExpire;
 
     await studentUser.save();
 
-    // 2. Create or update the StudentProfile using designated model
+    // 2. Create or update StudentProfile
     const resolvedGwaScale = resolveOnboardingGwaScale(gwaScale, gpa);
 
     await StudentProfile.findOneAndUpdate(
@@ -177,7 +172,7 @@ exports.handleOnboarding = async (req, res) => {
       }
     );
 
-    // 3. Create or update record in designated ParentConsent model if minor
+    // 3. Create or update ParentConsent record if minor
     if (isMinor) {
       const safeGuardianName = guardianName ? guardianName.trim() : 'Parent/Guardian';
 
@@ -204,37 +199,60 @@ exports.handleOnboarding = async (req, res) => {
       actor: actorName,
       role: 'Student',
       action: 'ONBOARDING_COMPLETE',
-      details: `Student (${studentUser.email}) completed onboarding profile.${isMinor ? ' Pending guardian consent.' : ' Verification email dispatched.'}`,
+      details: `Student (${studentUser.email}) completed onboarding profile.${isMinor ? ' Pending guardian consent.' : ''}`,
       ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
       severity: 'Info'
     });
 
-    // Dispatch Verification Email for Adult Students
-    if (!isMinor && rawVerifyToken) {
-      const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
-      const verifyUrl = `${clientUrl}/verify-email/${rawVerifyToken}`;
+    let emailSent;
+    let verificationMessage = 'Profile saved and a verification email has been sent.';
 
-      console.log(`[MAILER] Preparing verification email for adult student: ${studentUser.email}...`);
-      try {
-        if (typeof sendVerificationEmail === 'function') {
-          await sendVerificationEmail(studentUser.email, studentUser.name || 'Student', verifyUrl);
+    // Email dispatch for adult students
+    if (!isMinor) {
+      const claimed = await claimVerificationToken(studentUser._id);
+
+      if (claimed.claimed) {
+        console.log(`[MAILER] Preparing verification email for adult student: ${studentUser.email}...`);
+        try {
+          if (typeof emailService.sendVerificationEmail !== 'function') {
+            throw new Error('Email service configuration error.');
+          }
+          await emailService.sendVerificationEmail(
+            studentUser.email,
+            studentUser.name || 'Student',
+            buildVerificationUrl(claimed.rawToken)
+          );
+          emailSent = true;
           console.log(`[MAILER SUCCESS] Verification email sent to ${studentUser.email}`);
+        } catch (err) {
+          console.error(`[MAILER ERROR] Failed to send verification email to ${studentUser.email}:`, err.message);
+          await restoreVerificationToken(
+            studentUser._id,
+            claimed.rawToken,
+            previousVerificationToken,
+            previousVerificationExpire
+          );
+          emailSent = false;
+          verificationMessage = 'Your profile was saved, but the verification email could not be sent. Please use Resend verification email on the next page.';
         }
-      } catch (err) {
-        console.error(`[MAILER ERROR] Failed to send verification email to ${studentUser.email}:`, err.message);
+      } else if (claimed.reason === 'fresh') {
+        emailSent = true;
+        verificationMessage = 'Profile saved. A verification email was already sent.';
+      } else {
+        emailSent = false;
+        verificationMessage = 'Your profile was saved, but a verification link could not be issued. Please use Resend verification email on the next page.';
       }
     }
 
-    // Dispatch Consent Email for Minor Students using Designated Model attributes
+    // Email dispatch for minor students
     if (isMinor) {
-      const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
-      const consentLink = `${clientUrl}/consent/verify?token=${consentToken}`;
+      const consentLink = `${clientBaseUrl()}/consent/verify?token=${consentToken}`;
       const safeGuardianName = guardianName ? guardianName.trim() : 'Parent/Guardian';
 
       console.log(`[MAILER] Preparing to send consent email to guardian: ${normalizedGuardianEmail}...`);
 
       try {
-        await sendParentConsentEmail({
+        await emailService.sendParentConsentEmail({
           guardianEmail: normalizedGuardianEmail,
           guardianName: safeGuardianName,
           studentName: studentUser.name || 'Student',
@@ -264,12 +282,24 @@ exports.handleOnboarding = async (req, res) => {
       }
     }
 
+    const publicUser = {
+      id: studentUser._id,
+      _id: studentUser._id,
+      name: studentUser.name,
+      email: studentUser.email,
+      role: studentUser.role,
+      isOnboarded: Boolean(studentUser.isOnboarded),
+      isVerified: Boolean(studentUser.isVerified),
+      status: studentUser.status,
+    };
+
     return res.status(200).json({
       success: true,
-      message: isMinor 
-        ? 'Onboarding completed. Consent email sent to guardian.' 
-        : 'Profile activated and verification email sent successfully.',
-      user: studentUser
+      emailSent: isMinor ? undefined : emailSent,
+      message: isMinor
+        ? 'Onboarding completed. Consent email sent to guardian.'
+        : verificationMessage,
+      user: publicUser
     });
 
   } catch (error) {
@@ -293,7 +323,6 @@ exports.verifyConsent = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid token purpose' });
     }
 
-    // Query designated ParentConsent collection
     const consentRecord = await ParentConsent.findOne({
       studentId: decoded.userId,
       consentToken: token,
@@ -304,7 +333,6 @@ exports.verifyConsent = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Consent request not found or already processed.' });
     }
 
-    // Fetch StudentProfile so academic & location data populate correctly for ParentConsentPage
     const studentProfile = await StudentProfile.findOne({ userId: consentRecord.studentId._id });
 
     const studentData = {
@@ -363,7 +391,6 @@ exports.approveConsent = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid token purpose' });
     }
 
-    // 1. Update designated ParentConsent model record status
     const consentRecord = await ParentConsent.findOneAndUpdate(
       { studentId: decoded.userId, consentToken: token },
       {
@@ -378,7 +405,6 @@ exports.approveConsent = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Invalid or expired consent token.' });
     }
 
-    // 2. Activate corresponding User account
     const updatedUser = await User.findByIdAndUpdate(
       decoded.userId,
       {
@@ -442,7 +468,6 @@ exports.resendConsentEmail = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
-    // Fetch designated ParentConsent record
     const consentRecord = await ParentConsent.findOne({ studentId: currentId, status: 'pending' });
     if (!consentRecord) {
       return res.status(404).json({ success: false, message: 'No pending parental consent record found.' });
@@ -473,11 +498,10 @@ exports.resendConsentEmail = async (req, res) => {
     consentRecord.consentToken = consentToken;
     await consentRecord.save();
 
-    const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
-    const consentLink = `${clientUrl}/consent/verify?token=${consentToken}`;
+    const consentLink = `${clientBaseUrl()}/consent/verify?token=${consentToken}`;
 
     try {
-      await sendParentConsentEmail({
+      await emailService.sendParentConsentEmail({
         guardianEmail: targetEmail,
         guardianName: consentRecord.guardianName || 'Parent/Guardian',
         studentName: user.name || 'Student',

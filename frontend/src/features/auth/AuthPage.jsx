@@ -18,6 +18,10 @@ import {
   X
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import {
+  resolveLoginFormMessage,
+  resolveRegistrationFormOutcome,
+} from './authFormErrors';
 
 // Strict Email Format Regex
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
@@ -26,7 +30,7 @@ const MIN_PASSWORD_LENGTH = 15;
 export default function AuthPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { login, register, forgotPassword } = useAuth();
+  const { login, register, resetPassword, getRedirectPath } = useAuth();
 
   // Mode management: 'signin' | 'signup' | 'forgot'
   const [authMode, setAuthMode] = useState('signin');
@@ -37,7 +41,7 @@ export default function AuthPage() {
   const [pendingConsentError, setPendingConsentError] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
   const [hasAuthError, setHasAuthError] = useState(false);
-  
+
   const [formData, setFormData] = useState({
     fullName: '',
     organizationName: '',
@@ -82,9 +86,11 @@ export default function AuthPage() {
     });
   };
 
-  // Handle Password Reset Request
-  const handleForgotPassword = async () => {
+  // Handle Password Reset Request (Account Recovery Privacy Best Practice)
+  const handleForgotPassword = async (e) => {
+    if (e) e.preventDefault();
     if (isLoading) return;
+
     setIsLoading(true);
     setErrorMessage('');
 
@@ -112,8 +118,9 @@ export default function AuthPage() {
 
       setResetSuccess(true);
     } catch (err) {
-      console.error('❌ Forgot Password Error:', err);
-      setErrorMessage(err.message || 'Failed to dispatch reset email. Please try again.');
+      console.warn('Password reset request processed or failed silently:', err);
+      // Privacy Best Practice: Show generic success message regardless to avoid email enumeration
+      setResetSuccess(true);
     } finally {
       setIsLoading(false);
     }
@@ -166,9 +173,20 @@ export default function AuthPage() {
           ...(signupRole === 'provider' && { organization: name }),
         };
 
-        await register(payload);
+        try {
+          await register(payload);
+        } catch (regErr) {
+          const registrationOutcome = resolveRegistrationFormOutcome(regErr);
+          if (registrationOutcome.kind === 'declined' || registrationOutcome.kind === 'resubmit') {
+            setHasAuthError(true);
+            setErrorMessage(registrationOutcome.message);
+            return;
+          }
+          setErrorMessage(regErr?.message || 'Registration failed. Please try again.');
+          return;
+        }
 
-        // Correct Flow: Sign Up -> OnboardingForm with registered email state passed along
+        // 🔒 Correct Flow: Sign Up -> OnboardingForm with registered email state passed along
         if (signupRole === 'student') {
           navigate('/onboarding', { 
             replace: true, 
@@ -180,10 +198,10 @@ export default function AuthPage() {
       } else {
         const authenticatedUser = await login(emailTrimmed, passwordTrimmed);
         const targetRole = authenticatedUser?.user?.role || authenticatedUser?.role || 'student';
-        navigate(`/dashboard/${targetRole}`, { replace: true });
+        navigate(getRedirectPath(authenticatedUser) || `/dashboard/${targetRole}`, { replace: true });
       }
     } catch (err) {
-      // 🔒 FIX 1.3: Intercept unverified account login attempts and redirect to holding page
+      // Intercept unverified account login attempts and redirect to holding page
       const isUnverified = 
         err?.requiresVerification || 
         err?.response?.data?.requiresVerification ||
@@ -194,20 +212,13 @@ export default function AuthPage() {
         return navigate(`/verify-holding?email=${encodeURIComponent(targetEmail)}`, { replace: true });
       }
 
-      const isConsentPending = 
-        err?.response?.status === 403 ||
-        err?.requiresConsent || 
-        err?.message?.toLowerCase().includes('parental consent') ||
-        err?.message?.toLowerCase().includes('pending_consent');
-
-      if (isConsentPending) {
+      const loginOutcome = resolveLoginFormMessage(err);
+      if (loginOutcome.kind === 'consent') {
         setPendingConsentError(true);
-        setErrorMessage(
-          err?.message || 'Your account is pending parental consent. Please ask your parent/guardian to approve the verification email.'
-        );
+        setErrorMessage(loginOutcome.message);
       } else {
         setHasAuthError(true);
-        setErrorMessage(err?.response?.data?.message || err?.message || 'Invalid email or password. Please try again.');
+        setErrorMessage(loginOutcome.message || 'Invalid email or password. Please try again.');
       }
     } finally {
       setIsLoading(false);
@@ -390,7 +401,7 @@ export default function AuthPage() {
                 </div>
               ) : authMode === 'forgot' ? (
                 /* Dedicated Forgot Password Form */
-                <div className="space-y-4">
+                <form onSubmit={handleForgotPassword} className="space-y-4">
                   <div>
                     <label className="block text-xs font-bold text-app-text mb-1.5">
                       Email Address
@@ -409,8 +420,7 @@ export default function AuthPage() {
                   </div>
 
                   <button
-                    type="button"
-                    onClick={handleForgotPassword}
+                    type="submit"
                     disabled={isLoading}
                     className="w-full py-3.5 px-6 rounded-xl text-white font-bold text-sm shadow-lg transition-all flex items-center justify-center gap-2 mt-2 bg-primary hover:opacity-90 disabled:opacity-70 disabled:cursor-not-allowed"
                   >
@@ -423,7 +433,7 @@ export default function AuthPage() {
                       </>
                     )}
                   </button>
-                </div>
+                </form>
               ) : (
                 /* Main Sign In / Sign Up Form */
                 <form onSubmit={handleSubmit} className="space-y-4">

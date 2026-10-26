@@ -17,7 +17,6 @@ import {
   ShieldCheck, 
   ChevronLeft, 
   ChevronRight,
-  PlusCircle,
   CheckSquare,
   Tags,
   AlertTriangle,
@@ -152,7 +151,6 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
         menu: [
           { label: 'Dashboard', path: '/dashboard/provider', icon: LayoutDashboard },
           { label: 'Scholarship Listings', path: '/dashboard/provider/listings', icon: Layers },
-          { label: 'Create Listing', path: '/dashboard/provider/create', icon: PlusCircle },
           { label: 'Performance & Analytics', path: '/dashboard/provider/analytics', icon: BarChart3 },
           { label: 'Organization Verification', path: '/dashboard/provider/verification', icon: Building2 },
         ],

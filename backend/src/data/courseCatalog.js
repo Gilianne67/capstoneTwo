@@ -96,7 +96,9 @@ const COURSE_CATALOG = [
       'B.S.I.T.',
       'BS IT',
       'BS Information Technology',
-      'Bachelor of Science in Information Technology'
+      'Bachelor of Science in Information Technology',
+      'Information Technology',
+      'IT'
     ]
   },
   {

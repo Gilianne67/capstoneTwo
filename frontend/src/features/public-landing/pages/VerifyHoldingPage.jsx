@@ -1,18 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams, Link, useLocation } from 'react-router-dom';
 import { Mail, RefreshCw, Edit3, ArrowLeft, CheckCircle, AlertCircle, Loader2, Lock, Eye, EyeOff } from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 
 export default function VerifyHoldingPage() {
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const { user } = useAuth();
 
   const [email, setEmail] = useState(searchParams.get('email') || user?.email || '');
   const [isEditing, setIsEditing] = useState(false);
   const [newEmail, setNewEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false); // 👁️ Password visibility toggle state
+  const [showPassword, setShowPassword] = useState(false);
   
   const [resendCooldown, setResendCooldown] = useState(0);
   const [message, setMessage] = useState('');
@@ -31,7 +32,13 @@ export default function VerifyHoldingPage() {
     return () => clearInterval(timer);
   }, [resendCooldown]);
 
-  // Handle Resend Verification Request (Dispatched via Nodemailer/Resend on backend)
+  useEffect(() => {
+    if (location.state?.emailNotice) {
+      setError(location.state.emailNotice);
+    }
+  }, [location.state]);
+
+  // Handle Resend Verification Request
   const handleResend = async () => {
     if (resendCooldown > 0 || isLoading || !email) return;
     setIsLoading(true);
@@ -39,8 +46,8 @@ export default function VerifyHoldingPage() {
     setError('');
 
     try {
-      await axios.post('/api/v1/auth/resend-verification', { email }, { withCredentials: true });
-      setMessage('A verification link has been dispatched to your email.');
+      const response = await axios.post('/api/v1/auth/resend-verification', { email }, { withCredentials: true });
+      setMessage(response.data?.message || 'A verification link has been dispatched to your email.');
       setResendCooldown(60); // 60s cooldown
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to dispatch verification link. Please try again.');
@@ -57,7 +64,7 @@ export default function VerifyHoldingPage() {
     }
   }, [email]);
 
-  // Handle Email Typo Correction with Password Re-Verification (Fix 1.4)
+  // Handle Email Typo Correction with Password Re-Verification
   const handleUpdateEmail = async (e) => {
     e.preventDefault();
     const emailTrimmed = newEmail.trim().toLowerCase();
@@ -187,11 +194,11 @@ export default function VerifyHoldingPage() {
       {isEditing && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="max-w-sm w-full bg-card-bg border border-app-text/10 rounded-3xl p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in duration-200">
-            <h3 className="font-bold text-lg text-app-text">Update Email Address</h3>
-            <p className="text-xs text-text-muted leading-relaxed">
+            <h3 className="font-bold text-lg text-app-text text-left">Update Email Address</h3>
+            <p className="text-xs text-text-muted leading-relaxed text-left">
               If you made a typo during registration, enter your correct email address and current password below to confirm.
             </p>
-            <form onSubmit={handleUpdateEmail} className="space-y-3">
+            <form onSubmit={handleUpdateEmail} className="space-y-3 text-left">
               <div>
                 <label className="block text-xs font-bold text-app-text mb-1">New Email Address</label>
                 <div className="relative">

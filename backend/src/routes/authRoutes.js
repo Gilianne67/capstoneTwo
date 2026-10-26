@@ -20,9 +20,8 @@ router.get('/me', protect, getMe);
 router.get('/logout', protect, logout);
 router.post('/resend-verification', resendVerification);
 router.get('/verify-email/:token', verifyEmail); 
-router.put('/update-unverified-email', updateUnverifiedEmail);
+router.put('/update-unverified-email', protect, updateUnverifiedEmail);
 router.post('/forgotpassword', forgotPassword);
 router.put('/resetpassword/:resettoken', resetPassword);
-router.put('/update-unverified-email', protect, updateUnverifiedEmail);
 
 module.exports = router;

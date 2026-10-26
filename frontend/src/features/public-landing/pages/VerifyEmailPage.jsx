@@ -1,8 +1,23 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { CheckCircle2, XCircle, ArrowRight, GraduationCap, RefreshCw } from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
+
+// Survives a development remount. A ref does not: the second request would
+// find the single-use token already consumed and show a false failure.
+const verificationRequests = new Map();
+
+const requestVerification = (token) => {
+  if (!verificationRequests.has(token)) {
+    const pending = axios.get(`/api/v1/auth/verify-email/${token}`).catch((error) => {
+      if (!error.response) verificationRequests.delete(token);
+      throw error;
+    });
+    verificationRequests.set(token, pending);
+  }
+  return verificationRequests.get(token);
+};
 
 export default function VerifyEmailPage() {
   const { token } = useParams();
@@ -12,17 +27,15 @@ export default function VerifyEmailPage() {
   // Verification States: 'verifying' | 'success' | 'error'
   const [status, setStatus] = useState('verifying');
   const [errorMessage, setErrorMessage] = useState('');
-  
-  // Use a ref to prevent duplicate requests in React Strict Mode (Development)
-  const isVerifyingRef = useRef(false);
 
   useEffect(() => {
-    if (!token || isVerifyingRef.current) return;
-    isVerifyingRef.current = true;
+    if (!token) return;
+    let active = true;
 
     const verifyToken = async () => {
       try {
-        const response = await axios.get(`/api/v1/auth/verify-email/${token}`);
+        const response = await requestVerification(token);
+        if (!active) return;
 
         if (response.data.success) {
           setStatus('success');
@@ -40,6 +53,7 @@ export default function VerifyEmailPage() {
           setErrorMessage(response.data.message || 'Email verification failed.');
         }
       } catch (err) {
+        if (!active) return;
         setStatus('error');
         setErrorMessage(
           err?.response?.data?.message || 
@@ -49,6 +63,9 @@ export default function VerifyEmailPage() {
     };
 
     verifyToken();
+    return () => {
+      active = false;
+    };
   }, [token, fetchCurrentUser]);
 
   return (

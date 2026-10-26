@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, 
@@ -24,21 +24,30 @@ import {
   MUNICIPALITIES
 } from '../../../data/locationData';
 import { API_BASE_URL } from '../../../config/api';
+import {
+  ACADEMIC_LEVELS,
+  CITIZENSHIP_OPTIONS,
+  SCHOLARSHIP_CATEGORIES,
+  SYSTEM_DEMOGRAPHIC_TAGS,
+  isStandardDemographicTag,
+  liveDeadlineError,
+  localDateInputValue,
+  manilaDateInputValue,
+  sanitizedListingText,
+  validateListingForm
+} from '../listingFormValidation';
 
-// Standard System Demographic Tags from Paper Blueprint (Table 3.8)
-const SYSTEM_DEMOGRAPHIC_TAGS = [
-  '4Ps Beneficiary',
-  'Indigenous Peoples (IP)',
-  'Person with Disability (PWD)',
-  'Solo Parent Dependent',
-  'Orphan Status',
-  'Child of Farmer / Fisherfolk',
-  'Disaster-Affected Family',
-  'Working Student'
-];
+const VALIDATION_SUMMARY = 'Please correct the highlighted fields before publishing.';
 
-const isStandardDemographicTag = (tagName) =>
-  SYSTEM_DEMOGRAPHIC_TAGS.includes(tagName);
+function FieldError({ field, message }) {
+  if (!message) return null;
+
+  return (
+    <p id={`listing-${field}-error`} className="mt-1 text-[11px] font-medium text-rose-600" role="alert">
+      {message}
+    </p>
+  );
+}
 
 
 export default function CreateListing({ onBack, onSuccess, initialData = null }) {
@@ -47,6 +56,8 @@ export default function CreateListing({ onBack, onSuccess, initialData = null })
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
+  const [showFieldErrors, setShowFieldErrors] = useState(false);
+  const publishLock = useRef(false);
 
   // Modal State Control
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -136,11 +147,7 @@ useEffect(() => {
       : []
   );
   setNewBenefit('');
-  setDeadline(
-    initialData.deadline
-      ? new Date(initialData.deadline).toISOString().split('T')[0]
-      : ''
-  );
+  setDeadline(manilaDateInputValue(initialData.deadline));
   setPortalUrl(initialData.applicationURL || '');
 
   // Academic requirements
@@ -225,9 +232,7 @@ useEffect(() => {
       setSelectedMunicipality(
         geographicLocation.municipalities?.[0] || ''
       );
-    } else {
-    setAllowedLocations([]);
-  }
+    }
 
   // Ranking weights
   if (initialData.criteriaWeights) {
@@ -452,17 +457,49 @@ useEffect(() => {
   // WEIGHT VALIDATION CALCULATIONS
   // ---------------------------------------------------------
   const totalWeight = Number(weights.gpaWeight) + Number(weights.incomeWeight) + Number(weights.tagsWeight);
+  const minDeadline = localDateInputValue();
 
-  const validateWeights = () => {
-    const gpa = Number(weights.gpaWeight);
-    const inc = Number(weights.incomeWeight);
-    const tags = Number(weights.tagsWeight);
+  const listingValues = () => ({
+    title,
+    grantValue,
+    category,
+    deadline,
+    portalUrl,
+    description,
+    benefits,
+    academicLevel,
+    citizenship,
+    enableScale105,
+    maxGwa105,
+    enableScale60100,
+    minGpa60100,
+    maxIncome,
+    allowedCourses,
+    geographicScope,
+    selectedRegion,
+    selectedProvince,
+    selectedMunicipality,
+    requiredTags,
+    preferredTags,
+    weights
+  });
 
-    if (gpa < 20 || gpa > 70) return 'GPA / GWA Weight must be between 20% and 70%.';
-    if (inc < 20 || inc > 70) return 'Household Income Weight must be between 20% and 70%.';
-    if (tags < 0 || tags > 30) return 'Special Eligibility Tags Weight must be between 0% and 30%.';
-    if (totalWeight !== 100) return `Total ranking weights must equal exactly 100%. Current total: ${totalWeight}%.`;
-    return null;
+  const derivedErrors = validateListingForm(listingValues(), minDeadline);
+  const fieldErrors = showFieldErrors
+    ? derivedErrors
+    : {
+        ...(liveDeadlineError(deadline, minDeadline) ? { deadline: derivedErrors.deadline } : {}),
+        ...(derivedErrors.weights ? { weights: derivedErrors.weights } : {})
+      };
+  const bannerMessage = errorMsg || (
+    showFieldErrors && Object.keys(derivedErrors).length > 0 ? VALIDATION_SUMMARY : null
+  );
+
+  const rejectInvalidListing = (errors) => {
+    setShowFieldErrors(true);
+    setErrorMsg(null);
+    const firstField = Object.keys(errors)[0];
+    document.getElementById(`listing-${firstField}`)?.focus();
   };
 
   const buildAcademicRequirements = () => {
@@ -485,81 +522,19 @@ useEffect(() => {
     return requirements;
   };
 
-  const validateGwa = () => {
-    if (!enableScale105 && !enableScale60100) {
-      return 'Select at least one grading scale.';
-    }
-
-    if (enableScale105) {
-      const gwaValue = parseFloat(maxGwa105);
-
-      if (maxGwa105 === '' || Number.isNaN(gwaValue)) {
-        return 'Maximum Allowable GWA is required for the 1.00-5.00 scale.';
-      }
-
-      if (gwaValue < 1 || gwaValue > 5) {
-        return 'Maximum Allowable GWA must be between 1.00 and 5.00.';
-      }
-    }
-
-    if (enableScale60100) {
-      const gpaValue = parseFloat(minGpa60100);
-
-      if (minGpa60100 === '' || Number.isNaN(gpaValue)) {
-        return 'Minimum Required GPA is required for the 60-100 scale.';
-      }
-
-      if (gpaValue < 60 || gpaValue > 100) {
-        return 'Minimum Required GPA must be between 60 and 100.';
-      }
-    }
-
-    return null;
-  };
-
-  const validateIncome = () => {
-    if (maxIncome === '') return null;
-
-    const incomeValue = Number(maxIncome);
-
-    if (!Number.isFinite(incomeValue)) {
-      return 'Maximum Household Monthly Income must be a valid number.';
-    }
-
-    if (incomeValue < 0) {
-      return 'Maximum Household Monthly Income cannot be negative.';
-    }
-
-    return null;
-  };
-
-  // Open Confirmation Modal on Form Submit
-  // Open Confirmation Modal on Form Submit
 const handleOpenConfirmModal = (e) => {
   e.preventDefault();
+
+  if (isSubmitting || publishLock.current) return;
+
+  const errors = validateListingForm(listingValues(), minDeadline);
+
+  if (Object.keys(errors).length > 0) {
+    rejectInvalidListing(errors);
+    return;
+  }
+
   setErrorMsg(null);
-
-  const gwaValidationError = validateGwa();
-
-  if (gwaValidationError) {
-    setErrorMsg(gwaValidationError);
-    return;
-  }
-
-  const incomeValidationError = validateIncome();
-
-  if (incomeValidationError) {
-    setErrorMsg(incomeValidationError);
-    return;
-  }
-
-  const weightValidationError = validateWeights();
-
-  if (weightValidationError) {
-    setErrorMsg(weightValidationError);
-    return;
-  }
-
   setShowConfirmModal(true);
 };
 
@@ -605,23 +580,39 @@ const formatPublishError = (message) => {
 
 // Final Action Executed inside Confirm Modal
 const handleExecutePublish = async () => {
+  if (publishLock.current || isSubmitting) return;
+
+  const errors = validateListingForm(listingValues(), minDeadline);
+
+  if (Object.keys(errors).length > 0) {
+    setShowConfirmModal(false);
+    rejectInvalidListing(errors);
+    return;
+  }
+
+  publishLock.current = true;
   setShowConfirmModal(false);
   setIsSubmitting(true);
   setErrorMsg(null);
 
-  const newListingPayload = {
-    name: title,
-    grantValue: grantValue,
-    scholarshipType: category,
-    description,
+  const cleaned = sanitizedListingText({
+    ...listingValues(),
+    benefits: buildBenefits()
+  });
 
-    benefits: buildBenefits(),
+  const newListingPayload = {
+    name: cleaned.name,
+    grantValue: cleaned.grantValue,
+    scholarshipType: category,
+    description: cleaned.description,
+
+    benefits: cleaned.benefits,
 
     academicRequirements: buildAcademicRequirements(),
 
     hardFilters: {
-      academicLevel,
-      courseProgram: allowedCourses,
+      academicLevel: academicLevel.trim(),
+      courseProgram: cleaned.courses,
         geographicLocation: {
           scope: geographicScope,
 
@@ -643,12 +634,12 @@ const handleExecutePublish = async () => {
               ? [selectedMunicipality]
               : []
         },
-      citizenshipStatus: citizenship
+      citizenshipStatus: citizenship.trim()
     },
 
     incomeRequirement: {
       maxMonthlyIncome:
-        maxIncome === '' ? null : Number(maxIncome)
+        String(maxIncome).trim() === '' ? null : Number(String(maxIncome).trim())
     },
 
     specialTags: [
@@ -673,8 +664,8 @@ const handleExecutePublish = async () => {
     },
 
     rankingMode: 'Weighted',
-    deadline,
-    applicationURL: portalUrl,
+    deadline: String(deadline).trim(),
+    applicationURL: cleaned.applicationURL,
 
     status: initialData?.status || 'Open',
     isArchived: initialData?.isArchived || false
@@ -721,17 +712,18 @@ const handleExecutePublish = async () => {
       data
     );
 
-    setIsSubmitting(false);
     setShowSuccessModal(true);
 
   } catch (err) {
     console.error('Scholarship Publish Error:', err);
 
-    setIsSubmitting(false);
-
+    setShowSuccessModal(false);
     setErrorMsg(
       formatPublishError(err.message)
     );
+  } finally {
+    publishLock.current = false;
+    setIsSubmitting(false);
   }
 };
 
@@ -739,6 +731,15 @@ const handleExecutePublish = async () => {
 // Navigate to Scholarship Listings only after a successful save.
 // Edit is rendered inside the listings page, so a same-route navigate
 // does not leave the form. onSuccess clears that embedded view.
+const handleBack = () => {
+  if (typeof onBack === 'function') {
+    onBack();
+    return;
+  }
+
+  navigate('/dashboard/provider/listings');
+};
+
 const handleSuccessClose = () => {
   setShowSuccessModal(false);
 
@@ -755,7 +756,7 @@ const handleSuccessClose = () => {
       <div className="flex items-center gap-3">
         <button
           type="button"
-          onClick={onBack}
+          onClick={handleBack}
           className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-colors cursor-pointer"
           title="Go back"
         >
@@ -770,7 +771,7 @@ const handleSuccessClose = () => {
       {/* Validation / Error Banner */}
       
 
-      <form onSubmit={handleOpenConfirmModal} className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-xs space-y-8">
+      <form noValidate onSubmit={handleOpenConfirmModal} className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-xs space-y-8">
         
         {/* SECTION 1: PROGRAM METADATA */}
         <div className="space-y-4">
@@ -781,75 +782,109 @@ const handleSuccessClose = () => {
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-semibold">
             <div className="md:col-span-2">
-              <label className="block text-slate-700 mb-1">Scholarship Program Title *</label>
+              <label className="block text-slate-700 mb-1" htmlFor="listing-title">Scholarship Program Title *</label>
               <input 
+                id="listing-title"
                 type="text"
                 required
+                aria-required="true"
+                aria-invalid={Boolean(fieldErrors.title)}
+                aria-describedby={fieldErrors.title ? 'listing-title-error' : undefined}
                 placeholder="e.g. DOST-SEI Merit Scholarship Program 2026"
                 value={title}
                 onChange={e => setTitle(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden focus:border-emerald-500"
+                className={`w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border focus:outline-hidden focus:border-emerald-500 ${fieldErrors.title ? 'border-rose-400' : 'border-slate-200'}`}
               />
+              <FieldError field="title" message={fieldErrors.title} />
             </div>
 
             <div>
-              <label className="block text-slate-700 mb-1">Grant / Financial Value *</label>
+              <label className="block text-slate-700 mb-1" htmlFor="listing-grantValue">Grant / Financial Value *</label>
               <input 
+                id="listing-grantValue"
                 type="text"
                 required
+                aria-required="true"
+                aria-invalid={Boolean(fieldErrors.grantValue)}
+                aria-describedby={fieldErrors.grantValue ? 'listing-grantValue-error' : undefined}
                 placeholder="e.g. ₱40,000 / semester"
                 value={grantValue}
                 onChange={e => setGrantValue(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden focus:border-emerald-500"
+                className={`w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border focus:outline-hidden focus:border-emerald-500 ${fieldErrors.grantValue ? 'border-rose-400' : 'border-slate-200'}`}
               />
+              <FieldError field="grantValue" message={fieldErrors.grantValue} />
             </div>
 
             <div>
-              <label className="block text-slate-700 mb-1">Category *</label>
+              <label className="block text-slate-700 mb-1" htmlFor="listing-category">Category *</label>
               <select 
+                id="listing-category"
                 value={category}
+                aria-required="true"
+                aria-invalid={Boolean(fieldErrors.category)}
+                aria-describedby={fieldErrors.category ? 'listing-category-error' : undefined}
                 onChange={e => setCategory(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden focus:border-emerald-500 cursor-pointer"
+                className={`w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border focus:outline-hidden focus:border-emerald-500 cursor-pointer ${fieldErrors.category ? 'border-rose-400' : 'border-slate-200'}`}
               >
-                <option value="Merit-Based">Merit-Based</option>
-                <option value="Need-Based">Need-Based</option>
-                <option value="STEM">STEM Specialized</option>
-                <option value="Agricultural">Agricultural</option>
-                <option value="Municipal / Local">Municipal / Local</option>
+                {SCHOLARSHIP_CATEGORIES.map((option) => (
+                  <option key={option} value={option}>
+                    {option === 'STEM' ? 'STEM Specialized' : option}
+                  </option>
+                ))}
               </select>
+              <FieldError field="category" message={fieldErrors.category} />
             </div>
 
             <div>
-              <label className="block text-slate-700 mb-1">Application Deadline *</label>
+              <label className="block text-slate-700 mb-1" htmlFor="listing-deadline">Application Deadline *</label>
               <input 
+                id="listing-deadline"
                 type="date"
                 required
+                min={minDeadline}
+                aria-required="true"
+                aria-invalid={Boolean(fieldErrors.deadline)}
+                aria-describedby={fieldErrors.deadline ? 'listing-deadline-error' : undefined}
                 value={deadline}
                 onChange={e => setDeadline(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden focus:border-emerald-500"
+                className={`listing-deadline w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border focus:outline-hidden focus:border-emerald-500 ${fieldErrors.deadline ? 'border-rose-400 text-slate-400' : 'border-slate-200'}`}
               />
+              <FieldError field="deadline" message={fieldErrors.deadline} />
             </div>
 
             <div>
-              <label className="block text-slate-700 mb-1">External Application Portal URL</label>
+              <label className="block text-slate-700 mb-1" htmlFor="listing-portalUrl">External Application Portal URL *</label>
               <input 
+                id="listing-portalUrl"
                 type="url"
+                required
+                inputMode="url"
+                aria-required="true"
+                aria-invalid={Boolean(fieldErrors.portalUrl)}
+                aria-describedby={fieldErrors.portalUrl ? 'listing-portalUrl-error' : undefined}
                 placeholder="https://provider.gov.ph/apply"
                 value={portalUrl}
                 onChange={e => setPortalUrl(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden focus:border-emerald-500"
+                className={`w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border focus:outline-hidden focus:border-emerald-500 ${fieldErrors.portalUrl ? 'border-rose-400' : 'border-slate-200'}`}
               />
+              <FieldError field="portalUrl" message={fieldErrors.portalUrl} />
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-slate-700 mb-1">Program Overview & Description</label>
+              <label className="block text-slate-700 mb-1" htmlFor="listing-description">Program Overview & Description *</label>
               <textarea 
+                id="listing-description"
                 rows={3}
+                required
+                aria-required="true"
+                aria-invalid={Boolean(fieldErrors.description)}
+                aria-describedby={fieldErrors.description ? 'listing-description-error' : undefined}
                 placeholder="Provide a summary of coverage, stipulations, obligations, and perks..."
                 value={description}
                 onChange={e => setDescription(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden focus:border-emerald-500"
+                className={`w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border focus:outline-hidden focus:border-emerald-500 ${fieldErrors.description ? 'border-rose-400' : 'border-slate-200'}`}
               />
+              <FieldError field="description" message={fieldErrors.description} />
             </div>
 
             <div className="md:col-span-2 space-y-2">
@@ -899,6 +934,7 @@ const handleSuccessClose = () => {
                   ))}
                 </div>
               )}
+              <FieldError field="benefits" message={fieldErrors.benefits} />
             </div>
           </div>
         </div>
@@ -918,58 +954,64 @@ const handleSuccessClose = () => {
           <div className="bg-rose-50/40 border border-rose-100 rounded-2xl p-4 space-y-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-semibold">
               <div>
-                <label className="block text-slate-700 mb-1 flex items-center gap-1">
-                  <BookOpen className="w-3.5 h-3.5 text-rose-600" /> Academic Level Constraint
+                <label className="block text-slate-700 mb-1 flex items-center gap-1" htmlFor="listing-academicLevel">
+                  <BookOpen className="w-3.5 h-3.5 text-rose-600" /> Academic Level Constraint *
                 </label>
                 <select 
+                  id="listing-academicLevel"
                   value={academicLevel}
+                  aria-required="true"
+                  aria-invalid={Boolean(fieldErrors.academicLevel)}
+                  aria-describedby={fieldErrors.academicLevel ? 'listing-academicLevel-error' : undefined}
                   onChange={e => setAcademicLevel(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500 cursor-pointer"
+                  className={`w-full px-3.5 py-2.5 bg-white rounded-xl border focus:outline-hidden focus:border-rose-500 cursor-pointer ${fieldErrors.academicLevel ? 'border-rose-400' : 'border-slate-200'}`}
                 >
                   <option value="" disabled>
                     Select academic level
                   </option>
 
-                  <option value="Senior High School">
-                    Senior High School
-                  </option>
-
-                  <option value="College">
-                    College / Undergraduate
-                  </option>
-
-                  <option value="Graduate Studies">
-                    Graduate Studies (Master's / PhD)
-                  </option>
+                  {ACADEMIC_LEVELS.map((option) => (
+                    <option key={option} value={option}>
+                      {option === 'College'
+                        ? 'College / Undergraduate'
+                        : option === 'Graduate Studies'
+                          ? "Graduate Studies (Master's / PhD)"
+                          : option}
+                    </option>
+                  ))}
                 </select>
+                <FieldError field="academicLevel" message={fieldErrors.academicLevel} />
               </div>
 
               <div>
-                <label className="block text-slate-700 mb-1 flex items-center gap-1">
-                  <ShieldAlert className="w-3.5 h-3.5 text-rose-600" /> Mandatory Citizenship
+                <label className="block text-slate-700 mb-1 flex items-center gap-1" htmlFor="listing-citizenship">
+                  <ShieldAlert className="w-3.5 h-3.5 text-rose-600" /> Mandatory Citizenship *
                 </label>
                 <select 
+                  id="listing-citizenship"
                   value={citizenship}
+                  aria-required="true"
+                  aria-invalid={Boolean(fieldErrors.citizenship)}
+                  aria-describedby={fieldErrors.citizenship ? 'listing-citizenship-error' : undefined}
                   onChange={e => setCitizenship(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500 cursor-pointer"
+                  className={`w-full px-3.5 py-2.5 bg-white rounded-xl border focus:outline-hidden focus:border-rose-500 cursor-pointer ${fieldErrors.citizenship ? 'border-rose-400' : 'border-slate-200'}`}
                 >
                   <option value="" disabled>
                     Select citizenship requirement
                   </option>
 
-                  <option value="Filipino">
-                    Filipino Citizen Only
-                  </option>
-
-                  <option value="Any">
-                    Open to Any Citizenship
-                  </option>
+                  {CITIZENSHIP_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option === 'Filipino' ? 'Filipino Citizen Only' : 'Open to Any Citizenship'}
+                    </option>
+                  ))}
                 </select>
+                <FieldError field="citizenship" message={fieldErrors.citizenship} />
               </div>
 
               <div className="md:col-span-2 space-y-3">
-                <label className="block text-slate-700 flex items-center gap-1">
-                  <ShieldAlert className="w-3.5 h-3.5 text-rose-600" /> Accepted Grading Scales
+                <label className="block text-slate-700 flex items-center gap-1" id="listing-gradingScale">
+                  <ShieldAlert className="w-3.5 h-3.5 text-rose-600" /> Accepted Grading Scales *
                 </label>
                 <p className="text-[10px] text-slate-400 font-normal">
                   Select at least one scale. Students matching any selected scale can be accepted.
@@ -987,17 +1029,25 @@ const handleSuccessClose = () => {
                     </label>
                     {enableScale105 && (
                       <>
-                        <label className="block text-slate-700">
-                          Maximum Allowable GWA
+                        <label className="block text-slate-700" htmlFor="listing-maxGwa105">
+                          Maximum Allowable GWA *
                         </label>
                         <input
+                          id="listing-maxGwa105"
                           type="number"
+                          min="1"
+                          max="5"
                           step="0.01"
+                          inputMode="decimal"
+                          aria-required="true"
+                          aria-invalid={Boolean(fieldErrors.maxGwa105)}
+                          aria-describedby={fieldErrors.maxGwa105 ? 'listing-maxGwa105-error' : undefined}
                           placeholder="e.g. 2.50"
                           value={maxGwa105}
                           onChange={(e) => setMaxGwa105(e.target.value)}
-                          className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500"
+                          className={`w-full px-3.5 py-2.5 bg-white rounded-xl border focus:outline-hidden focus:border-rose-500 ${fieldErrors.maxGwa105 ? 'border-rose-400' : 'border-slate-200'}`}
                         />
+                        <FieldError field="maxGwa105" message={fieldErrors.maxGwa105} />
                         <p className="text-[10px] text-slate-400 font-normal">
                           Lower value is better.
                         </p>
@@ -1016,17 +1066,25 @@ const handleSuccessClose = () => {
                     </label>
                     {enableScale60100 && (
                       <>
-                        <label className="block text-slate-700">
-                          Minimum Required GPA
+                        <label className="block text-slate-700" htmlFor="listing-minGpa60100">
+                          Minimum Required GPA *
                         </label>
                         <input
+                          id="listing-minGpa60100"
                           type="number"
+                          min="60"
+                          max="100"
                           step="0.01"
+                          inputMode="decimal"
+                          aria-required="true"
+                          aria-invalid={Boolean(fieldErrors.minGpa60100)}
+                          aria-describedby={fieldErrors.minGpa60100 ? 'listing-minGpa60100-error' : undefined}
                           placeholder="e.g. 85"
                           value={minGpa60100}
                           onChange={(e) => setMinGpa60100(e.target.value)}
-                          className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500"
+                          className={`w-full px-3.5 py-2.5 bg-white rounded-xl border focus:outline-hidden focus:border-rose-500 ${fieldErrors.minGpa60100 ? 'border-rose-400' : 'border-slate-200'}`}
                         />
+                        <FieldError field="minGpa60100" message={fieldErrors.minGpa60100} />
                         <p className="text-[10px] text-slate-400 font-normal">
                           Higher value is better.
                         </p>
@@ -1034,21 +1092,27 @@ const handleSuccessClose = () => {
                     )}
                   </div>
                 </div>
+                <FieldError field="gradingScale" message={fieldErrors.gradingScale} />
               </div>
 
               <div>
-                <label className="block text-slate-700 mb-1 flex items-center gap-1">
+                <label className="block text-slate-700 mb-1 flex items-center gap-1" htmlFor="listing-maxIncome">
                   <ShieldAlert className="w-3.5 h-3.5 text-rose-600" /> Maximum Household Monthly Income
                 </label>
                 <input 
+                  id="listing-maxIncome"
                   type="number"
                   min="0"
                   step="1"
+                  inputMode="decimal"
+                  aria-invalid={Boolean(fieldErrors.maxIncome)}
+                  aria-describedby={fieldErrors.maxIncome ? 'listing-maxIncome-error' : undefined}
                   placeholder="e.g. 30000"
                   value={maxIncome}
                   onChange={e => setMaxIncome(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500"
+                  className={`w-full px-3.5 py-2.5 bg-white rounded-xl border focus:outline-hidden focus:border-rose-500 ${fieldErrors.maxIncome ? 'border-rose-400' : 'border-slate-200'}`}
                 />
+                <FieldError field="maxIncome" message={fieldErrors.maxIncome} />
                 <p className="text-[10px] text-slate-400 font-normal mt-1">
                   Enter a peso amount without ₱ or commas. Leave blank if there is no income ceiling.
                 </p>
@@ -1088,6 +1152,7 @@ const handleSuccessClose = () => {
                   </span>
                 ))}
               </div>
+              <FieldError field="allowedCourses" message={fieldErrors.allowedCourses} />
             </div>
 
             {/* Locations */}
@@ -1103,36 +1168,44 @@ const handleSuccessClose = () => {
 
                 {/* Geographic Scope */}
                 <select
+                  id="listing-geographicScope"
                   value={geographicScope}
+                  aria-invalid={Boolean(fieldErrors.geographicScope)}
+                  aria-describedby={fieldErrors.geographicScope ? 'listing-geographicScope-error' : undefined}
                   onChange={(e) => {
                     setGeographicScope(e.target.value);
                     setSelectedRegion('');
                     setSelectedProvince('');
                     setSelectedMunicipality('');
                   }}
-                  className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500 cursor-pointer"
+                  className={`w-full px-3.5 py-2.5 bg-white rounded-xl border focus:outline-hidden focus:border-rose-500 cursor-pointer ${fieldErrors.geographicScope ? 'border-rose-400' : 'border-slate-200'}`}
                 >
                   <option value="Nationwide">Nationwide</option>
                   <option value="Region">Region</option>
                   <option value="Province">Province</option>
                   <option value="Municipality">Municipality / City</option>
                 </select>
+                <FieldError field="geographicScope" message={fieldErrors.geographicScope} />
 
                 {/* Region */}
                 {geographicScope !== 'Nationwide' && (
                   <div>
-                    <label className="block text-slate-700 mb-1">
-                      Region
+                    <label className="block text-slate-700 mb-1" htmlFor="listing-selectedRegion">
+                      Region *
                     </label>
 
                     <select
+                      id="listing-selectedRegion"
+                      aria-required="true"
+                      aria-invalid={Boolean(fieldErrors.selectedRegion)}
+                      aria-describedby={fieldErrors.selectedRegion ? 'listing-selectedRegion-error' : undefined}
                       value={selectedRegion}
                       onChange={(e) => {
                         setSelectedRegion(e.target.value);
                         setSelectedProvince('');
                         setSelectedMunicipality('');
                       }}
-                      className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500 cursor-pointer"
+                      className={`w-full px-3.5 py-2.5 bg-white rounded-xl border focus:outline-hidden focus:border-rose-500 cursor-pointer ${fieldErrors.selectedRegion ? 'border-rose-400' : 'border-slate-200'}`}
                     >
                       <option value="">Select region</option>
 
@@ -1142,6 +1215,7 @@ const handleSuccessClose = () => {
                         </option>
                       ))}
                     </select>
+                    <FieldError field="selectedRegion" message={fieldErrors.selectedRegion} />
                   </div>
                 )}
 
@@ -1150,17 +1224,21 @@ const handleSuccessClose = () => {
                   geographicScope === 'Municipality') &&
                   selectedRegion && (
                     <div>
-                      <label className="block text-slate-700 mb-1">
-                        Province
+                      <label className="block text-slate-700 mb-1" htmlFor="listing-selectedProvince">
+                        Province *
                       </label>
 
                       <select
+                        id="listing-selectedProvince"
+                        aria-required="true"
+                        aria-invalid={Boolean(fieldErrors.selectedProvince)}
+                        aria-describedby={fieldErrors.selectedProvince ? 'listing-selectedProvince-error' : undefined}
                         value={selectedProvince}
                         onChange={(e) => {
                           setSelectedProvince(e.target.value);
                           setSelectedMunicipality('');
                         }}
-                        className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500 cursor-pointer"
+                        className={`w-full px-3.5 py-2.5 bg-white rounded-xl border focus:outline-hidden focus:border-rose-500 cursor-pointer ${fieldErrors.selectedProvince ? 'border-rose-400' : 'border-slate-200'}`}
                       >
                         <option value="">Select province</option>
 
@@ -1170,6 +1248,7 @@ const handleSuccessClose = () => {
                           </option>
                         ))}
                       </select>
+                      <FieldError field="selectedProvince" message={fieldErrors.selectedProvince} />
                     </div>
                   )}
 
@@ -1177,14 +1256,18 @@ const handleSuccessClose = () => {
                 {geographicScope === 'Municipality' &&
                   selectedProvince && (
                     <div>
-                      <label className="block text-slate-700 mb-1">
-                        Municipality / City
+                      <label className="block text-slate-700 mb-1" htmlFor="listing-selectedMunicipality">
+                        Municipality / City *
                       </label>
 
                       <select
+                        id="listing-selectedMunicipality"
+                        aria-required="true"
+                        aria-invalid={Boolean(fieldErrors.selectedMunicipality)}
+                        aria-describedby={fieldErrors.selectedMunicipality ? 'listing-selectedMunicipality-error' : undefined}
                         value={selectedMunicipality}
                         onChange={(e) => setSelectedMunicipality(e.target.value)}
-                        className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-rose-500 cursor-pointer"
+                        className={`w-full px-3.5 py-2.5 bg-white rounded-xl border focus:outline-hidden focus:border-rose-500 cursor-pointer ${fieldErrors.selectedMunicipality ? 'border-rose-400' : 'border-slate-200'}`}
                       >
                         <option value="">Select municipality / city</option>
 
@@ -1194,6 +1277,7 @@ const handleSuccessClose = () => {
                           </option>
                         ))}
                       </select>
+                      <FieldError field="selectedMunicipality" message={fieldErrors.selectedMunicipality} />
                     </div>
                   )}
               </div>
@@ -1271,6 +1355,7 @@ const handleSuccessClose = () => {
         );
       })}      
     </div>
+    <FieldError field="tags" message={fieldErrors.tags} />
   </div>
 
   <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3.5 space-y-3">
@@ -1395,6 +1480,9 @@ const handleSuccessClose = () => {
               />
             </div>
           </div>
+          <div id="listing-weights">
+            <FieldError field="weights" message={fieldErrors.weights} />
+          </div>
         </div>
 
     {/*}
@@ -1440,7 +1528,7 @@ const handleSuccessClose = () => {
 
   {/* ERROR MESSAGE */}
   {/* Validation / Error Banner */}
-{errorMsg && (
+{bannerMessage && (
   <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 flex items-start gap-3 text-xs shadow-sm">
     <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
 
@@ -1450,7 +1538,7 @@ const handleSuccessClose = () => {
       </p>
 
       <p className="text-rose-700 mt-1">
-        {errorMsg}
+        {bannerMessage}
       </p>
     </div>
   </div>
@@ -1472,7 +1560,7 @@ const handleSuccessClose = () => {
       {/* CANCEL */}
       <button
         type="button"
-        onClick={onBack}
+        onClick={handleBack}
         className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
       >
         Cancel
@@ -1576,7 +1664,8 @@ const handleSuccessClose = () => {
               <button
                 type="button"
                 onClick={handleExecutePublish}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs flex items-center gap-1.5"
+                disabled={isSubmitting}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <CheckCircle2 className="w-4 h-4" />
                 Confirm & Publish

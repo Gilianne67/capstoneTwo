@@ -2,6 +2,10 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Provider = require('../models/Provider');
 const tokenService = require('../services/tokenService');
+const {
+  isFinalRejection,
+  declinedProviderLoginMessage,
+} = require('../utils/providerVerification');
 
 const isLogoutRequest = (req) =>
   req.method === 'GET' && String(req.originalUrl || req.url || '').split('?')[0].endsWith('/auth/logout');
@@ -67,12 +71,13 @@ const protect = async (req, res, next) => {
 
     if (req.user.role === 'provider' && !isLogoutRequest(req)) {
       const provider = await Provider.findOne({ userId: req.user._id }).select(
-        'verificationStatus rejectionReason'
+        'verificationStatus rejectionReason isFinalRejection'
       );
-      if (provider?.verificationStatus === 'Rejected') {
+      if (isFinalRejection(provider)) {
         return res.status(403).json({
           success: false,
-          message: rejectedProviderMessage(provider),
+          verificationDeclined: true,
+          message: declinedProviderLoginMessage(provider),
         });
       }
     }

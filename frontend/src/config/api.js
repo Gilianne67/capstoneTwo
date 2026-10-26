@@ -38,6 +38,7 @@ export function apiUrl(path) {
 
 /**
  * HELPER: Formats any relative URL to point to the correct backend
+ * HELPER: Formats any relative URL to point to the backend
  */
 function rewriteUrl(url) {
   if (typeof url === 'string' && url.startsWith('/')) {
