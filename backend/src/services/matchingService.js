@@ -2,6 +2,7 @@ const Scholarship = require('../models/Scholarship');
 const { loadAliasIndex } = require('../utils/courseCanonical');
 const { runMatchingWorker } = require('./matchingWorkerRunner');
 const { searchScholarships } = require('./scholarshipSearchService');
+const matchCache = require('./matchCache');
 const engine = require('./matchingEngine');
 const { passesHardFilters } = engine;
 
@@ -92,6 +93,20 @@ const getRankedScholarships = async (
   const findScholarships = options.findScholarships || findOpenScholarships;
   const search = options.searchScholarships || searchScholarships;
   const readAliasIndex = options.loadAliasIndex || loadAliasIndex;
+  const explicitNow = nowOrOptions instanceof Date || options.now instanceof Date;
+  const lookup = await matchCache.readMatchCache({
+    studentProfile,
+    query,
+    now,
+    explicitNow,
+    redisClient: options.matchCacheClient,
+    notify: options.onMatchCache
+  });
+
+  if (lookup.hit) {
+    return lookup.matches;
+  }
+
   const candidateIds = query
     ? await loadKeywordCandidateIds(query, search)
     : null;
@@ -99,13 +114,18 @@ const getRankedScholarships = async (
     loadOpenScholarships(candidateIds, findScholarships),
     readAliasIndex()
   ]);
-
-  return runMatchingWorker({
+  const matches = await runMatchingWorker({
     studentProfile,
     scholarships,
     aliasIndex,
     now
   });
+
+  if (Array.isArray(matches)) {
+    await matchCache.writeMatchCache(lookup, matches);
+  }
+
+  return matches;
 };
 
 module.exports = {

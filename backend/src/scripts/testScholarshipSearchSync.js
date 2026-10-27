@@ -15,6 +15,10 @@ const { toSearchDocument } = require('../services/scholarshipSearchService');
 const {
   closeExpiredScholarships
 } = require('../services/scholarshipExpirationService');
+require('../services/matchCache').invalidateMatchCache = async () => ({
+  ok: false,
+  reason: 'test_isolated'
+});
 
 const originals = {
   providerFindOne: Provider.findOne,

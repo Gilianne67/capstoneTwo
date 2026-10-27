@@ -1,6 +1,7 @@
 const Report = require('../models/Report');
 const Scholarship = require('../models/Scholarship');
 const searchSync = require('../services/scholarshipSearchSync');
+const matchCache = require('../services/matchCache');
 
 const getModerationReports = async (req, res) => {
   try {
@@ -66,6 +67,7 @@ const updateModerationReport = async (req, res) => {
 
       if (scholarship) {
         await searchSync.syncScholarshipSearch(scholarship);
+        await matchCache.invalidateMatchCache();
       }
     }
 

@@ -1,23 +1,40 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const Module = require('module');
 const jwt = require('jsonwebtoken');
-const redis = require('../config/redis');
+
+
+const redisPath = require.resolve('../config/redis');
+const store = new Map();
+const redis = {
+  isOpen: true,
+  isReady: true,
+  async set(key, value) {
+    store.set(key, value);
+    return 'OK';
+  },
+  async get(key) {
+    return store.has(key) ? store.get(key) : null;
+  },
+};
+const redisModule = new Module(redisPath, module);
+redisModule.filename = redisPath;
+redisModule.loaded = true;
+redisModule.exports = redis;
+require.cache[redisPath] = redisModule;
+
 const User = require('../models/User');
+const AuditLog = require('../models/AuditLog');
 const { logout } = require('../controllers/authController');
 const { isTokenBlacklisted } = require('../services/tokenService');
 const { protect } = require('../middleware/auth');
 const authRoutes = require('../routes/authRoutes');
 
 const secret = process.env.JWT_SECRET || 'fallback_secret';
-const store = new Map();
 
-redis.set = async (key, value) => {
-  store.set(key, value);
-  return 'OK';
-};
-
-redis.get = async (key) => (store.has(key) ? store.get(key) : null);
+// Logout records an audit row. Keep that call, but do not open MongoDB.
+AuditLog.create = async () => ({});
 
 const signToken = (id) =>
   jwt.sign({ id, role: 'student', status: 'active' }, secret, { expiresIn: '1h' });

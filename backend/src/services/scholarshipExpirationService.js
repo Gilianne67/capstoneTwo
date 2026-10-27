@@ -1,6 +1,7 @@
 const Scholarship = require('../models/Scholarship');
 const { isDeadlineOpen } = require('./matchingService');
 const { syncScholarshipSearch } = require('./scholarshipSearchSync');
+const matchCache = require('./matchCache');
 
 /**
  * Open, non-archived scholarships past the Manila end of their
@@ -62,6 +63,15 @@ const closeExpiredScholarships = async (now = new Date(), dependencies = {}) => 
 
     for (const scholarship of persisted) {
       await sync(scholarship);
+    }
+
+    const invalidate = dependencies.invalidateMatchCache
+      || (() => matchCache.invalidateMatchCache());
+
+    try {
+      await invalidate();
+    } catch (error) {
+      console.error('Match cache invalidation failed.');
     }
   }
 

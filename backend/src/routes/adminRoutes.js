@@ -10,6 +10,7 @@ const {
   reviewProviderApplication,
   getVerifications,
   updateVerificationQueueStatus,
+  updateUserAccountStatus,
 } = require('../controllers/adminController');
 
 // Import auth middleware functions
@@ -60,6 +61,9 @@ router.patch('/scholarships/:id/status', updateScholarshipStatus);
 
 // PATCH /api/v1/admin/parental-consent/:id/status - Verify/Reject parental consent from dashboard queue
 router.patch('/parental-consent/:id/status', updateConsentStatus);
+
+// PATCH /api/v1/admin/users/:id/status - Change account status; suspension revokes tracked sessions
+router.patch('/users/:id/status', updateUserAccountStatus);
 
 
 // ================================

@@ -5,6 +5,10 @@ const User = require('../models/User');
 const Provider = require('../models/Provider');
 const Scholarship = require('../models/Scholarship');
 const scholarshipController = require('../controllers/scholarshipController');
+require('../services/matchCache').invalidateMatchCache = async () => ({
+  ok: false,
+  reason: 'test_isolated'
+});
 const searchSync = require('../services/scholarshipSearchSync');
 const { protect, authorize } = require('../middleware/auth');
 const scholarshipRoutes = require('../routes/scholarshipRoutes');

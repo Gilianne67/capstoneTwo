@@ -10,6 +10,10 @@ const Provider = require('../models/Provider');
 const Scholarship = require('../models/Scholarship');
 const searchSync = require('../services/scholarshipSearchSync');
 const scholarshipController = require('../controllers/scholarshipController');
+require('../services/matchCache').invalidateMatchCache = async () => ({
+  ok: false,
+  reason: 'test_isolated'
+});
 const {
   PAST_DEADLINE_MESSAGE,
   INVALID_URL_MESSAGE,

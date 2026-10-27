@@ -240,11 +240,26 @@ scholarshipSchema.pre('validate', function () {
     return;
   }
 
-  const total =
-    weights.gwaWeight +
-    weights.incomeWeight +
-    weights.tagsWeight;
+  const gwaWeight = weights.gwaWeight;
+  const incomeWeight = weights.incomeWeight;
+  const tagsWeight = weights.tagsWeight;
+  const componentsAreFinite =
+    typeof gwaWeight === 'number' && Number.isFinite(gwaWeight) &&
+    typeof incomeWeight === 'number' && Number.isFinite(incomeWeight) &&
+    typeof tagsWeight === 'number' && Number.isFinite(tagsWeight);
 
+  if (!componentsAreFinite) {
+    throw new Error(
+      'GPA, income, and special eligibility weights must total 100%.'
+    );
+  }
+
+  const total = gwaWeight + incomeWeight + tagsWeight;
+
+  // Keep 0.0001. Exact equality rejects 0.7 + 0.2 + 0.1, the stored
+  // form of the provider form's 70/20/10, because that sum is
+  // 0.9999999999999999 in IEEE-754. The form itself uses !== 100 on
+  // integer percentages.
   if (Math.abs(total - 1.0) > 0.0001) {
     throw new Error(
       'GPA, income, and special eligibility weights must total 100%.'

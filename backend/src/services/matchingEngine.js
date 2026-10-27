@@ -24,6 +24,26 @@ const DEFAULT_WEIGHTS = {
   tagsWeight: 0.2
 };
 
+const WEIGHT_LIMITS = {
+  gwaWeight: { min: 0.2, max: 0.7 },
+  incomeWeight: { min: 0.2, max: 0.7 },
+  tagsWeight: { min: 0, max: 0.3 }
+};
+
+/**
+ * Same absolute tolerance as Scholarship pre('validate').
+ * Exact equality would reject 0.7 + 0.2 + 0.1, which is
+ * 0.9999999999999999 in IEEE-754. That triple is what the provider
+ * form stores for 70% / 20% / 10%, and the model already accepts it.
+ */
+const WEIGHT_TOTAL_TOLERANCE = 0.0001;
+
+const CLASSIFICATION_THRESHOLDS = {
+  highlyRecommended: 90,
+  recommended: 70,
+  potentialMatch: 50
+};
+
 const FLAG_TAGS = [
   {
     flag: 'isIndigenous',
@@ -662,36 +682,91 @@ const scoreTags = (studentProfile, scholarship) => {
   return roundScore((100 * matched) / preferred.length);
 };
 
+const finiteWeight = (value) => {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+};
+
+const withinLimit = (value, limit) =>
+  value >= limit.min && value <= limit.max;
+
+/**
+ * Missing criteriaWeights uses the full default vector.
+ * A present configuration is used only when every component is finite,
+ * inside its approved limit, and the three weights total 1 within
+ * WEIGHT_TOTAL_TOLERANCE. Partial or malformed objects return null
+ * instead of mixing in defaults.
+ */
+const approvedWeights = (criteriaWeights) => {
+  if (
+    !criteriaWeights ||
+    typeof criteriaWeights !== 'object' ||
+    Array.isArray(criteriaWeights)
+  ) {
+    return null;
+  }
+
+  const gwaWeight = finiteWeight(criteriaWeights.gwaWeight);
+  const incomeWeight = finiteWeight(criteriaWeights.incomeWeight);
+  const tagsWeight = finiteWeight(criteriaWeights.tagsWeight);
+
+  if (
+    gwaWeight === null ||
+    incomeWeight === null ||
+    tagsWeight === null
+  ) {
+    return null;
+  }
+
+  if (
+    !withinLimit(gwaWeight, WEIGHT_LIMITS.gwaWeight) ||
+    !withinLimit(incomeWeight, WEIGHT_LIMITS.incomeWeight) ||
+    !withinLimit(tagsWeight, WEIGHT_LIMITS.tagsWeight)
+  ) {
+    return null;
+  }
+
+  const total = gwaWeight + incomeWeight + tagsWeight;
+
+  if (Math.abs(total - 1) > WEIGHT_TOTAL_TOLERANCE) {
+    return null;
+  }
+
+  return { gwaWeight, incomeWeight, tagsWeight };
+};
+
 const getWeights = (scholarship) => {
-  const weights = scholarship.criteriaWeights || {};
+  const criteriaWeights = scholarship && scholarship.criteriaWeights;
 
-  const gwaWeight = Number(weights.gwaWeight);
-  const incomeWeight = Number(weights.incomeWeight);
-  const tagsWeight = Number(weights.tagsWeight);
+  if (criteriaWeights == null) {
+    return {
+      gwaWeight: DEFAULT_WEIGHTS.gwaWeight,
+      incomeWeight: DEFAULT_WEIGHTS.incomeWeight,
+      tagsWeight: DEFAULT_WEIGHTS.tagsWeight
+    };
+  }
 
-  return {
-    gwaWeight: Number.isFinite(gwaWeight)
-      ? gwaWeight
-      : DEFAULT_WEIGHTS.gwaWeight,
-    incomeWeight: Number.isFinite(incomeWeight)
-      ? incomeWeight
-      : DEFAULT_WEIGHTS.incomeWeight,
-    tagsWeight: Number.isFinite(tagsWeight)
-      ? tagsWeight
-      : DEFAULT_WEIGHTS.tagsWeight
-  };
+  return approvedWeights(criteriaWeights);
 };
 
 const classifyScore = (totalScore) => {
-  if (totalScore >= 90) {
+  if (totalScore >= CLASSIFICATION_THRESHOLDS.highlyRecommended) {
     return 'Highly Recommended';
   }
 
-  if (totalScore >= 70) {
+  if (totalScore >= CLASSIFICATION_THRESHOLDS.recommended) {
     return 'Recommended';
   }
 
-  if (totalScore >= 50) {
+  if (totalScore >= CLASSIFICATION_THRESHOLDS.potentialMatch) {
     return 'Potential Match';
   }
 
@@ -699,11 +774,44 @@ const classifyScore = (totalScore) => {
 };
 
 /**
- * Returns null when any hard filter fails, so a failed scholarship
- * never receives a ranking score.
+ * Engine-wide scoring rules. Provider weights stay on each scholarship
+ * and are not part of this object.
+ */
+const scoringConfiguration = () => ({
+  defaultWeights: {
+    gwaWeight: DEFAULT_WEIGHTS.gwaWeight,
+    incomeWeight: DEFAULT_WEIGHTS.incomeWeight,
+    tagsWeight: DEFAULT_WEIGHTS.tagsWeight
+  },
+  classification: [
+    {
+      minimumScore: CLASSIFICATION_THRESHOLDS.highlyRecommended,
+      label: 'Highly Recommended'
+    },
+    {
+      minimumScore: CLASSIFICATION_THRESHOLDS.recommended,
+      label: 'Recommended'
+    },
+    {
+      minimumScore: CLASSIFICATION_THRESHOLDS.potentialMatch,
+      label: 'Potential Match'
+    },
+    {
+      minimumScore: null,
+      label: 'Low Compatibility'
+    }
+  ]
+});
+
+/**
+ * Returns null when any hard filter fails, a component score is
+ * unavailable, or criteriaWeights is present but not an approved
+ * total of 1. Invalid weights are left out of the ranking. They are
+ * not replaced component-by-component and not clamped into a score.
+ * A missing criteriaWeights value uses 0.4 / 0.4 / 0.2.
  *
  * S_total = (gpaScore * gwaWeight) + (incomeScore * incomeWeight) + (tagsScore * tagsWeight)
- * Component scores are 0–100 and weights sum to 1, so S_total is 0–100.
+ * Component scores are 0–100 and approved weights sum to 1, so S_total is 0–100.
  */
 const evaluateScholarship = (
   studentProfile,
@@ -728,6 +836,11 @@ const evaluateScholarship = (
   }
 
   const weights = getWeights(scholarship);
+
+  if (!weights) {
+    return null;
+  }
+
   const totalScore = roundScore(
     Math.min(
       100,
@@ -766,6 +879,10 @@ const rankScholarships = (
 
 module.exports = {
   INCOME_BRACKETS,
+  DEFAULT_WEIGHTS,
+  FLAG_TAGS,
+  CLASSIFICATION_THRESHOLDS,
+  scoringConfiguration,
   passesHardFilters,
   matchesCourse,
   matchesLocation,
