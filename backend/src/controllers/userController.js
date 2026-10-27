@@ -1,7 +1,8 @@
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const StudentProfile = require('../models/StudentProfile');
-const ParentConsent = require('../models/ParentalConsent');
+const ParentConsent = require('../models/ParentalConsent'); 
 const emailService = require('../utils/emailService');
 const {
   buildVerificationUrl,
@@ -16,8 +17,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'iskolarmatch_fallback_secret_key';
 
 const SUPPORTED_GWA_SCALES = ['1.00-5.00', '60-100'];
 
-// Persist the scale onboarding already calculated. Fall back to the same
-// numeric ranges the form uses when a valid scale was not sent.
+// Resolve scale onboarding already calculated
 const resolveOnboardingGwaScale = (gwaScale, gwa) => {
   if (SUPPORTED_GWA_SCALES.includes(gwaScale)) {
     return gwaScale;
@@ -56,8 +56,7 @@ exports.handleOnboarding = async (req, res) => {
       municipality,
       householdIncome,
       guardianName,
-      guardianEmail,
-      isMinor
+      guardianEmail
     } = req.body;
 
     const studentUser = await User.findById(userId);
@@ -65,7 +64,7 @@ exports.handleOnboarding = async (req, res) => {
       return res.status(404).json({ success: false, message: "User account not found." });
     }
 
-    // 🔒 Role Enforcement: Ensure only users with a student role go through student onboarding
+    // Role Enforcement: Ensure only users with a student role go through student onboarding
     if (studentUser.role !== 'student') {
       return res.status(403).json({ 
         success: false, 
@@ -73,12 +72,47 @@ exports.handleOnboarding = async (req, res) => {
       });
     }
 
+    // Guard against re-onboarding or pending consent bypassing
+    if (studentUser.status === 'pending_consent') {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Account is pending parental consent. Onboarding cannot be re-submitted." 
+      });
+    }
+
+    if (studentUser.isOnboarded) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Account onboarding has already been completed." 
+      });
+    }
+
+    if (!dob) {
+      return res.status(400).json({ success: false, message: "Date of birth is required." });
+    }
+
+    // Authoritative Server-Side Age & Minor Computation from DOB
+    const birthDate = new Date(dob);
+    if (isNaN(birthDate.getTime())) {
+      return res.status(400).json({ success: false, message: "Invalid date of birth format." });
+    }
+
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+
+    const isMinor = age < 18;
+
+    let normalizedGuardianEmail = null;
     if (isMinor) {
       if (!guardianEmail) {
         return res.status(400).json({ success: false, message: "Guardian email is required for minors." });
       }
 
-      const normalizedGuardianEmail = guardianEmail.trim().toLowerCase();
+      normalizedGuardianEmail = guardianEmail.trim().toLowerCase();
       const normalizedStudentEmail = studentUser.email.trim().toLowerCase();
 
       if (normalizedGuardianEmail === normalizedStudentEmail) {
@@ -90,10 +124,7 @@ exports.handleOnboarding = async (req, res) => {
     }
 
     let consentToken = null;
-    let normalizedGuardianEmail = null;
-
     if (isMinor) {
-      normalizedGuardianEmail = guardianEmail.trim().toLowerCase();
       consentToken = jwt.sign(
         { 
           userId: studentUser._id, 
@@ -105,24 +136,23 @@ exports.handleOnboarding = async (req, res) => {
       );
     }
 
-    // 1. Update Core User Account State.
-    // The verification token is claimed after the profile save so a duplicate
-    // onboarding request cannot replace a link that was just issued.
+    // 1. Update Core User Account State
     studentUser.status = isMinor ? 'pending_consent' : 'active';
     studentUser.isOnboarded = true;
+
     const previousVerificationToken = studentUser.emailVerificationToken;
     const previousVerificationExpire = studentUser.emailVerificationExpire;
 
     await studentUser.save();
 
-    // 2. Create or update the StudentProfile using designated model (Aligned to schema: gwa & municipalityCity)
+    // 2. Create or update StudentProfile
     const resolvedGwaScale = resolveOnboardingGwaScale(gwaScale, gpa);
 
     await StudentProfile.findOneAndUpdate(
       { userId: userId },
       {
         userId: userId,
-        dateOfBirth: dob,
+        dateOfBirth: birthDate,
         academicLevel: academicLevel,
         yearLevel: yearLevel,
         course: course,
@@ -142,7 +172,7 @@ exports.handleOnboarding = async (req, res) => {
       }
     );
 
-    // 3. Create or update record in designated ParentConsent model if minor (Safe guardianName handling)
+    // 3. Create or update ParentConsent record if minor
     if (isMinor) {
       const safeGuardianName = guardianName ? guardianName.trim() : 'Parent/Guardian';
 
@@ -163,7 +193,7 @@ exports.handleOnboarding = async (req, res) => {
       );
     }
 
-    // 📝 AUDIT LOG: Onboarding Completed
+    // AUDIT LOG: Onboarding Completed
     const actorName = studentUser.name || studentUser.email;
     await recordAuditLog({
       actor: actorName,
@@ -174,10 +204,10 @@ exports.handleOnboarding = async (req, res) => {
       severity: 'Info'
     });
 
-    // 📧 One verification email for adult students. A fresh token is reused
-    // instead of minted again, so a repeated onboarding request stays valid.
     let emailSent;
     let verificationMessage = 'Profile saved and a verification email has been sent.';
+
+    // Email dispatch for adult students
     if (!isMinor) {
       const claimed = await claimVerificationToken(studentUser._id);
 
@@ -214,7 +244,7 @@ exports.handleOnboarding = async (req, res) => {
       }
     }
 
-    // 📧 Dispatch Consent Email for Minor Students using Designated Model attributes
+    // Email dispatch for minor students
     if (isMinor) {
       const consentLink = `${clientBaseUrl()}/consent/verify?token=${consentToken}`;
       const safeGuardianName = guardianName ? guardianName.trim() : 'Parent/Guardian';
@@ -293,7 +323,6 @@ exports.verifyConsent = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid token purpose' });
     }
 
-    // Query designated ParentConsent collection
     const consentRecord = await ParentConsent.findOne({
       studentId: decoded.userId,
       consentToken: token,
@@ -304,7 +333,6 @@ exports.verifyConsent = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Consent request not found or already processed.' });
     }
 
-    // Fetch StudentProfile so academic & location data populate correctly for ParentConsentPage
     const studentProfile = await StudentProfile.findOne({ userId: consentRecord.studentId._id });
 
     const studentData = {
@@ -363,7 +391,6 @@ exports.approveConsent = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid token purpose' });
     }
 
-    // 1. Update designated ParentConsent model record status
     const consentRecord = await ParentConsent.findOneAndUpdate(
       { studentId: decoded.userId, consentToken: token },
       {
@@ -378,7 +405,6 @@ exports.approveConsent = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Invalid or expired consent token.' });
     }
 
-    // 2. Activate corresponding User account
     const updatedUser = await User.findByIdAndUpdate(
       decoded.userId,
       {
@@ -442,7 +468,6 @@ exports.resendConsentEmail = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
-    // Fetch designated ParentConsent record
     const consentRecord = await ParentConsent.findOne({ studentId: currentId, status: 'pending' });
     if (!consentRecord) {
       return res.status(404).json({ success: false, message: 'No pending parental consent record found.' });

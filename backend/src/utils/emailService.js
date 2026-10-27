@@ -1,4 +1,3 @@
-// backend/src/utils/emailService.js
 const { Resend } = require('resend');
 const jwt = require('jsonwebtoken');
 const fs = require('fs');
@@ -6,12 +5,31 @@ const fs = require('fs');
 const JWT_SECRET = process.env.JWT_SECRET || 'iskolarmatch_fallback_secret_key';
 
 /**
- * 🔑 Safely initialize Resend at runtime (prevents dotenv load order bugs)
+ * Dynamic URL helper: Uses CLIENT_URL if set, or falls back dynamically 
+ * based on environment (localhost for dev, website for prod).
+ */
+const getClientUrl = () => {
+  return (
+    process.env.CLIENT_URL ||
+    process.env.FRONTEND_URL ||
+    (process.env.NODE_ENV === 'production'
+      ? 'https://iskolarmatch.website'
+      : 'http://localhost:5173')
+  );
+};
+
+const resolveSignInUrl = () => {
+  const frontendUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
+  return `${String(frontendUrl).replace(/\/$/, '')}/auth?mode=signin`;
+};
+
+/**
+ * Safely initialize Resend at runtime (prevents dotenv load order bugs)
  */
 const getResendClient = () => {
-  const rawKey = process.env.RESEND_API_KEY;
-  const apiKey = rawKey ? rawKey.trim().replace(/^["']|["']$/g, '') : '';
-
+  const rawKey = process.env.RESEND_API_KEY || '';
+  const apiKey = rawKey.trim().replace(/^["']|["']$/g, '');
+  
   if (!apiKey) {
     console.error('❌ [Resend Error]: RESEND_API_KEY is missing or empty in environment variables!');
   }
@@ -29,10 +47,6 @@ let warnedSandboxSender = false;
 
 /**
  * FROM_EMAIL must be an address on a domain verified in Resend.
- * The onboarding@resend.dev fallback is Resend's shared sandbox sender.
- * Mail from that domain is often placed in spam, and DNS for the app's own
- * domain cannot authenticate it. SPF, DKIM, and DMARC have to be published
- * for the verified sending domain using the records Resend displays.
  */
 const resolveFromAddress = (label) => {
   const configured = process.env.FROM_EMAIL && String(process.env.FROM_EMAIL).trim();
@@ -122,8 +136,7 @@ const sendParentConsentEmail = async ({ guardianEmail, guardianName = 'Parent/Gu
         throw new Error('Either consentLink or userId must be provided.');
       }
       const token = generateConsentToken(userId, guardianEmail);
-      const frontendUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
-      finalConsentUrl = `${frontendUrl}/consent/verify?token=${token}`;
+      finalConsentUrl = `${getClientUrl()}/consent/verify?token=${token}`;
     }
 
     const htmlTemplate = `
@@ -294,9 +307,65 @@ const sendProviderConfirmation = async (repEmail, repName, institutionName) => {
   }
 };
 
-const resolveSignInUrl = () => {
-  const frontendUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
-  return `${String(frontendUrl).replace(/\/$/, '')}/auth?mode=signin`;
+/**
+ * 6. Send Password Reset Instructions
+ */
+const sendAdminInvitationEmail = async (email, setupUrl, recipientName) => {
+  try {
+    const resend = getResendClient();
+    const safeName = escapeHtml(recipientName || 'Administrator');
+    const safeUrl = escapeHtml(setupUrl);
+
+    const response = await resend.emails.send({
+      from: resolveFromAddress('IskolarMatch'),
+      to: [email],
+      subject: 'Set your IskolarMatch administrator password',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
+          <h2 style="color: #047857;">Administrator invitation</h2>
+          <p>Hello ${safeName},</p>
+          <p>An IskolarMatch administrator created an account for you. Use the button below to choose your password. This link expires in 30 minutes and can only be used once.</p>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${safeUrl}" style="background-color: #047857; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Set Password</a>
+          </div>
+          <p style="font-size: 12px; color: #666;">If you were not expecting an administrator invitation, you can ignore this email.</p>
+        </div>
+      `,
+    });
+
+    return handleResendResponse(response, 'Admin Invitation', email);
+  } catch (error) {
+    console.error(`❌ [MAILER ERROR] Failed to send admin invitation to ${email}:`, error.message);
+    throw new Error(`Email delivery failed: ${error.message}`);
+  }
+};
+
+const sendResetPasswordEmail = async (email, resetUrl) => {
+  try {
+    const resend = getResendClient();
+    
+    const response = await resend.emails.send({
+      from: resolveFromAddress('IskolarMatch'),
+      to: [email],
+      subject: 'Password Reset Instructions - IskolarMatch',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
+          <h2 style="color: #047857;">Password Reset Request</h2>
+            <p>You requested a password reset for your IskolarMatch account.</p>
+            <p>Click the secure button below to choose a new password. This link expires in 30 minutes.</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${resetUrl}" style="background-color: #047857; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Reset Password</a>
+            </div>
+            <p style="font-size: 12px; color: #666;">If you did not request this, please ignore this email and your password will remain unchanged.</p>
+        </div>
+      `,
+    });
+
+    return handleResendResponse(response, 'Password Reset', email);
+  } catch (error) {
+    console.error(`❌ [MAILER ERROR] Failed to send password reset email to ${email}:`, error.message);
+    throw new Error(`Email delivery failed: ${error.message}`);
+  }
 };
 
 const buildProviderApprovalEmail = ({ recipientName, organizationName, signInUrl } = {}) => {
@@ -461,6 +530,8 @@ module.exports = {
   sendAccountLockoutEmail,
   sendProviderAdminNotification,
   sendProviderConfirmation,
+  sendAdminInvitationEmail,
+  sendResetPasswordEmail,
   sendProviderApprovalEmail,
   sendProviderRejectionEmail,
 };

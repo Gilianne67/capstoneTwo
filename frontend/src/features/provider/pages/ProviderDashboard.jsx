@@ -17,11 +17,10 @@ import {
   CalendarDays
 } from 'lucide-react';
 
-
 // Reusable Common Components
 import PageHeader from '../../../components/common/PageHeader';
 import StatusBadge from '../../../components/common/StatusBadge';
-
+import BroadcastBanner from '../../../components/common/BroadcastBanner';
 
 // Create / Edit Listing View Component
 import CreateListing from './CreateListing';
@@ -33,7 +32,6 @@ export default function ProviderDashboard() {
   // Navigation State ('dashboard' | 'create' | 'edit')
   const [currentView, setCurrentView] = useState('dashboard');
   const [editingListing, setEditingListing] = useState(null);
-
 
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -64,7 +62,6 @@ export default function ProviderDashboard() {
     }, 3500);
   };
 
-
   // Dynamic Greeting Helper
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -74,108 +71,108 @@ export default function ProviderDashboard() {
   };
 
   // Fetch Dashboard Data (with Fallback Engine)
- 
   const fetchDashboardData = useCallback(async () => {
-  setIsLoading(true);
-  setLoadError('');
+    setIsLoading(true);
+    setLoadError('');
 
-  try {
-    const token = localStorage.getItem('token')
+    try {
+      const token = localStorage.getItem('token');
 
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(token && { Authorization: `Bearer ${token}` })
-    };
+      const headers = {
+        'Content-Type': 'application/json',
+        ...(token && { Authorization: `Bearer ${token}` })
+      };
 
-    const [dashboardRes, listingsRes] = await Promise.all([
-      fetch(`${API_BASE_URL}/providers/dashboard`, { headers }),
-      fetch(`${API_BASE_URL}/scholarships/my`, { headers })
-    ]);
+      const [dashboardRes, listingsRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/providers/dashboard`, { headers }),
+        fetch(`${API_BASE_URL}/scholarships/my`, { headers })
+      ]);
 
-    const dashboardData = await dashboardRes.json();
-    const listingsData = await listingsRes.json();
+      const dashboardData = await dashboardRes.json();
+      const listingsData = await listingsRes.json();
 
-    if (!dashboardRes.ok) {
-      throw new Error(
-        dashboardData.message || 'Failed to load provider dashboard.'
-      );
+      if (!dashboardRes.ok) {
+        throw new Error(
+          dashboardData.message || 'Failed to load provider dashboard.'
+        );
+      }
+
+      if (!listingsRes.ok) {
+        throw new Error(
+          listingsData.message || 'Failed to load scholarship listings.'
+        );
+      }
+
+      // Provider information
+      if (dashboardData.dashboard?.provider) {
+        setProviderUser({
+          name: dashboardData.dashboard.provider.institutionName,
+          role: 'Scholarship Provider'
+        });
+      }
+
+      // Scholarship listings
+      const fetchedListings = listingsData.scholarships || [];
+
+      setListings(fetchedListings);
+
+    } catch (error) {
+      console.error('Failed to fetch provider dashboard:', error);
+      setListings([]);
+      setLoadError(error.message || 'Unable to load your scholarship listings.');
+
+    } finally {
+      setIsLoading(false);
     }
+  }, []);
 
-    if (!listingsRes.ok) {
-      throw new Error(
-        listingsData.message || 'Failed to load scholarship listings.'
-      );
-    }
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
 
-    // Provider information
-    if (dashboardData.dashboard?.provider) {
-      setProviderUser({
-        name: dashboardData.dashboard.provider.institutionName,
-        role: 'Scholarship Provider'
-      });
-    }
-
-    // Scholarship listings
-    const fetchedListings = listingsData.scholarships || [];
-
-    setListings(fetchedListings);
-
-   } catch (error) {
-    console.error('Failed to fetch provider dashboard:', error);
-    setListings([]);
-    setLoadError(error.message || 'Unable to load your scholarship listings.');
-
-  } finally {
-    setIsLoading(false);
-  }
-}, []);
-
-useEffect(() => {
-  fetchDashboardData();
-}, [fetchDashboardData]);
   // Execute Toggle Status
   const executeToggleStatus = async (listingId, newStatus) => {
-  try {
-    const token = localStorage.getItem('token');
+    try {
+      const token = localStorage.getItem('token');
 
-    const res = await fetch(
-      `${API_BASE_URL}/scholarships/${listingId}/status`,
-      {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token && { Authorization: `Bearer ${token}` })
-        },
-        body: JSON.stringify({
-          status: newStatus
-        })
+      const res = await fetch(
+        `${API_BASE_URL}/scholarships/${listingId}/status`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token && { Authorization: `Bearer ${token}` })
+          },
+          body: JSON.stringify({
+            status: newStatus
+          })
+        }
+      );
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(
+          data.message || 'Status update failed on server.'
+        );
       }
-    );
 
-    const data = await res.json();
+      showToast(
+        `Scholarship status changed to ${newStatus}.`,
+        'success'
+      );
 
-    if (!res.ok) {
-      throw new Error(
-        data.message || 'Status update failed on server.'
+      await fetchDashboardData();
+
+    } catch (error) {
+      console.error('Status update failed:', error);
+
+      showToast(
+        error.message || 'Unable to update scholarship status.',
+        'error'
       );
     }
-
-    showToast(
-      `Scholarship status changed to ${newStatus}.`,
-      'success'
-    );
-
-    await fetchDashboardData();
-
-  } catch (error) {
-    console.error('Status update failed:', error);
-
-    showToast(
-      error.message || 'Unable to update scholarship status.',
-      'error'
-    );
-  }
-};
+  };
 
   // Open Confirmation Popup for Status Toggle
   const handleToggleStatus = (listingId, currentStatus, title) => {
@@ -253,49 +250,46 @@ useEffect(() => {
     );
   }
 
+  // Dashboard overview data
+  const activeScholarships = listings.filter(
+    (item) => item.status === 'Open'
+  );
 
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
+  const closingSoon = listings
+    .filter((item) => {
+      if (!item.deadline || item.status !== 'Open') return false;
 
-// Dashboard overview data
-const activeScholarships = listings.filter(
-  (item) => item.status === 'Open'
-);
+      const deadline = new Date(item.deadline);
+      deadline.setHours(23, 59, 59, 999);
 
+      const daysUntil =
+        (deadline - today) / (1000 * 60 * 60 * 24);
 
-const today = new Date();
-today.setHours(0, 0, 0, 0);
+      return daysUntil >= 0 && daysUntil <= 14;
+    })
+    .sort(
+      (a, b) =>
+        new Date(a.deadline) - new Date(b.deadline)
+    )
+    .slice(0, 3);
 
-const closingSoon = listings
-  .filter((item) => {
-    if (!item.deadline || item.status !== 'Open') return false;
+  const recentScholarships = [...listings]
+    .sort((a, b) => {
+      if (!a.createdAt && !b.createdAt) return 0;
+      if (!a.createdAt) return 1;
+      if (!b.createdAt) return -1;
 
-    const deadline = new Date(item.deadline);
-    deadline.setHours(23, 59, 59, 999);
-
-    const daysUntil =
-      (deadline - today) / (1000 * 60 * 60 * 24);
-
-    return daysUntil >= 0 && daysUntil <= 14;
-  })
-  .sort(
-    (a, b) =>
-      new Date(a.deadline) - new Date(b.deadline)
-  )
-  .slice(0, 3);
-
-const recentScholarships = [...listings]
-  .sort((a, b) => {
-    if (!a.createdAt && !b.createdAt) return 0;
-    if (!a.createdAt) return 1;
-    if (!b.createdAt) return -1;
-
-    return new Date(b.createdAt) - new Date(a.createdAt);
-  })
-  .slice(0, 5);
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    })
+    .slice(0, 5);
 
   if (isLoading) {
     return (
       <div className="space-y-6 max-w-7xl mx-auto pb-12">
+        <BroadcastBanner />
         <PageHeader 
           title={`${getGreeting()}, Provider`} 
           subtitle="Manage scholarship offerings, configure matching weights, and monitor outbound application traffic."
@@ -310,6 +304,9 @@ const recentScholarships = [...listings]
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12 relative">
+      {/* Active Broadcast Announcements Banner */}
+      <BroadcastBanner />
+
       {/* Toast Notification Banner */}
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-3 bg-slate-900 text-white rounded-xl shadow-xl text-xs font-semibold animate-in fade-in slide-in-from-bottom-3 duration-200">
@@ -417,246 +414,214 @@ const recentScholarships = [...listings]
         </p>
       </div>
 
-
       {/* Dashboard Summary */}
-<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-
-  {/* Active */}
-  <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs">
-    <div className="flex items-center justify-between">
-      <div>
-        <p className="text-xs font-semibold text-slate-500">
-          Active Scholarships
-        </p>
-        <p className="text-2xl font-extrabold text-slate-900 mt-1">
-          {activeScholarships.length}
-        </p>
-      </div>
-
-      <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600">
-        <Layers className="h-5 w-5" />
-      </div>
-    </div>
-
-    <p className="text-[11px] text-slate-400 mt-3">
-      Currently accepting applications
-    </p>
-  </div>
-
-
-  {/* Closing Soon */}
-  <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs">
-    <div className="flex items-center justify-between">
-      <div>
-        <p className="text-xs font-semibold text-slate-500">
-          Closing Soon
-        </p>
-        <p className="text-2xl font-extrabold text-slate-900 mt-1">
-          {closingSoon.length}
-        </p>
-      </div>
-
-      <div className="p-2.5 rounded-xl bg-amber-50 text-amber-600">
-        <Clock3 className="h-5 w-5" />
-      </div>
-    </div>
-
-    <p className="text-[11px] text-slate-400 mt-3">
-      Within the next 14 days
-    </p>
-  </div>
-
-  {/* Total */}
-  <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs">
-    <div className="flex items-center justify-between">
-      <div>
-        <p className="text-xs font-semibold text-slate-500">
-          Total Scholarships
-        </p>
-        <p className="text-2xl font-extrabold text-slate-900 mt-1">
-          {listings.length}
-        </p>
-      </div>
-
-      <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600">
-        <CalendarDays className="h-5 w-5" />
-      </div>
-    </div>
-
-    <p className="text-[11px] text-slate-400 mt-3">
-      All scholarship listings
-    </p>
-  </div>
-
-</div>
-
-{/* Closing Soon */}
-<div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs">
-
-  <div className="flex items-center justify-between mb-4">
-    <div>
-      <h3 className="text-base font-bold text-slate-900">
-        Scholarships Closing Soon
-      </h3>
-
-      <p className="text-xs text-slate-500 mt-0.5">
-        Applications approaching their deadline
-      </p>
-    </div>
-  </div>
-
-  {closingSoon.length === 0 ? (
-    <div className="py-8 text-center">
-      <CheckCircle2 className="h-7 w-7 text-emerald-500 mx-auto mb-2" />
-
-      <p className="text-xs font-semibold text-slate-700">
-        No scholarships are closing soon.
-      </p>
-
-      <p className="text-[11px] text-slate-400 mt-1">
-        Your current open scholarships have more than 14 days remaining.
-      </p>
-    </div>
-  ) : (
-    <div className="divide-y divide-slate-100">
-      {closingSoon.map((scholarship) => {
-
-        const deadline = new Date(scholarship.deadline);
-        const daysLeft = Math.ceil(
-          (deadline - today) / (1000 * 60 * 60 * 24)
-        );
-
-        return (
-          <div
-            key={scholarship._id}
-            className="flex items-center justify-between py-3 first:pt-0 last:pb-0"
-          >
-            <div className="min-w-0">
-              <p className="text-sm font-bold text-slate-800 truncate">
-                {scholarship.name}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Active */}
+        <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold text-slate-500">
+                Active Scholarships
               </p>
-
-              <div className="flex items-center gap-1.5 mt-1">
-                <CalendarDays className="h-3.5 w-3.5 text-slate-400" />
-
-                <span className="text-[11px] text-slate-500">
-                  Deadline:{' '}
-                  {formatDeadlineDate(scholarship.deadline)}
-                </span>
-              </div>
+              <p className="text-2xl font-extrabold text-slate-900 mt-1">
+                {activeScholarships.length}
+              </p>
             </div>
-
-            <span className="shrink-0 ml-4 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold">
-              {daysLeft === 0
-                ? 'Due today'
-                : daysLeft === 1
-                  ? '1 day left'
-                  : `${daysLeft} days left`}
-            </span>
+            <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600">
+              <Layers className="h-5 w-5" />
+            </div>
           </div>
-        );
-      })}
-    </div>
-  )}
-</div>
+          <p className="text-[11px] text-slate-400 mt-3">
+            Currently accepting applications
+          </p>
+        </div>
 
-   {/* Recent Scholarship Listings */}
-<div className="bg-white border border-slate-200/80 rounded-2xl p-5 space-y-4 shadow-xs">
+        {/* Closing Soon */}
+        <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold text-slate-500">
+                Closing Soon
+              </p>
+              <p className="text-2xl font-extrabold text-slate-900 mt-1">
+                {closingSoon.length}
+              </p>
+            </div>
+            <div className="p-2.5 rounded-xl bg-amber-50 text-amber-600">
+              <Clock3 className="h-5 w-5" />
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-400 mt-3">
+            Within the next 14 days
+          </p>
+        </div>
 
-  <div className="flex items-center justify-between">
-    <div>
-      <h3 className="text-base font-bold text-slate-900">
-        Recent Scholarship Listings
-      </h3>
+        {/* Total */}
+        <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold text-slate-500">
+                Total Scholarships
+              </p>
+              <p className="text-2xl font-extrabold text-slate-900 mt-1">
+                {listings.length}
+              </p>
+            </div>
+            <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600">
+              <CalendarDays className="h-5 w-5" />
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-400 mt-3">
+            All scholarship listings
+          </p>
+        </div>
+      </div>
 
-      <p className="text-xs text-slate-500 mt-0.5">
-        Your latest scholarship postings
-      </p>
-    </div>
-
-    <button
-      type="button"
-      onClick={() => {
-        
-        navigate('/dashboard/provider/listings');
-      }}
-      className="text-xs font-bold text-emerald-600 hover:text-emerald-700 transition-colors"
-    >
-      View All →
-    </button>
-  </div>
-
-  {recentScholarships.length === 0 ? (
-    <div className="py-10 text-center border border-dashed border-slate-200 rounded-xl">
-      <FileText className="h-7 w-7 text-slate-300 mx-auto mb-2" />
-
-      <p className="text-xs font-semibold text-slate-600">
-        No scholarship listings yet.
-      </p>
-
-      <p className="text-[11px] text-slate-400 mt-1">
-        Create your first scholarship listing to get started.
-      </p>
-    </div>
-  ) : (
-    <div className="divide-y divide-slate-100">
-
-      {recentScholarships.map((listing) => (
-        <div
-          key={listing._id}
-          className="flex items-center justify-between gap-4 py-3.5 first:pt-0 last:pb-0"
-        >
-
-          {/* Scholarship Information */}
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-bold text-slate-800 truncate">
-              {listing.name}
+      {/* Closing Soon Section */}
+      <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-base font-bold text-slate-900">
+              Scholarships Closing Soon
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Applications approaching their deadline
             </p>
+          </div>
+        </div>
 
-            <div className="flex flex-wrap items-center gap-3 mt-1.5">
+        {closingSoon.length === 0 ? (
+          <div className="py-8 text-center">
+            <CheckCircle2 className="h-7 w-7 text-emerald-500 mx-auto mb-2" />
+            <p className="text-xs font-semibold text-slate-700">
+              No scholarships are closing soon.
+            </p>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Your current open scholarships have more than 14 days remaining.
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {closingSoon.map((scholarship) => {
+              const deadline = new Date(scholarship.deadline);
+              const daysLeft = Math.ceil(
+                (deadline - today) / (1000 * 60 * 60 * 24)
+              );
 
-              <span className="text-[11px] text-slate-500 flex items-center gap-1">
-                <CalendarDays className="h-3 w-3" />
-
-                {formatDeadlineDate(listing.deadline) || 'No deadline'}
-              </span>
-
-              {listing.applicationURL && (
-                <a
-                  href={listing.applicationURL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[11px] text-emerald-600 hover:underline flex items-center gap-1"
+              return (
+                <div
+                  key={scholarship._id}
+                  className="flex items-center justify-between py-3 first:pt-0 last:pb-0"
                 >
-                  Application Portal
-                  <ExternalLink className="h-3 w-3" />
-                </a>
-              )}
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-slate-800 truncate">
+                      {scholarship.name}
+                    </p>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <CalendarDays className="h-3.5 w-3.5 text-slate-400" />
+                      <span className="text-[11px] text-slate-500">
+                        Deadline: {formatDeadlineDate(scholarship.deadline)}
+                      </span>
+                    </div>
+                  </div>
 
-            </div>
+                  <span className="shrink-0 ml-4 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold">
+                    {daysLeft === 0
+                      ? 'Due today'
+                      : daysLeft === 1
+                        ? '1 day left'
+                        : `${daysLeft} days left`}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Recent Scholarship Listings */}
+      <div className="bg-white border border-slate-200/80 rounded-2xl p-5 space-y-4 shadow-xs">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-bold text-slate-900">
+              Recent Scholarship Listings
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Your latest scholarship postings
+            </p>
           </div>
 
-          {/* Status */}
-          <StatusBadge status={listing.status} />
-
-          {/* Edit */}
           <button
             type="button"
-            onClick={() => handleStartEdit(listing)}
-            title="Edit Scholarship"
-            className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-500 hover:text-blue-600 transition-colors cursor-pointer"
+            onClick={() => {
+              navigate('/dashboard/provider/listings');
+            }}
+            className="text-xs font-bold text-emerald-600 hover:text-emerald-700 transition-colors"
           >
-            <Edit className="h-4 w-4" />
+            View All →
           </button>
-
         </div>
-      ))}
 
+        {recentScholarships.length === 0 ? (
+          <div className="py-10 text-center border border-dashed border-slate-200 rounded-xl">
+            <FileText className="h-7 w-7 text-slate-300 mx-auto mb-2" />
+            <p className="text-xs font-semibold text-slate-600">
+              No scholarship listings yet.
+            </p>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Create your first scholarship listing to get started.
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {recentScholarships.map((listing) => (
+              <div
+                key={listing._id}
+                className="flex items-center justify-between gap-4 py-3.5 first:pt-0 last:pb-0"
+              >
+                {/* Scholarship Information */}
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-slate-800 truncate">
+                    {listing.name}
+                  </p>
+
+                  <div className="flex flex-wrap items-center gap-3 mt-1.5">
+                    <span className="text-[11px] text-slate-500 flex items-center gap-1">
+                      <CalendarDays className="h-3 w-3" />
+                      {formatDeadlineDate(listing.deadline) || 'No deadline'}
+                    </span>
+
+                    {listing.applicationURL && (
+                      <a
+                        href={listing.applicationURL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] text-emerald-600 hover:underline flex items-center gap-1"
+                      >
+                        Application Portal
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                {/* Status */}
+                <StatusBadge status={listing.status} />
+
+                {/* Edit */}
+                <button
+                  type="button"
+                  onClick={() => handleStartEdit(listing)}
+                  title="Edit Scholarship"
+                  className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-500 hover:text-blue-600 transition-colors cursor-pointer"
+                >
+                  <Edit className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
-  )}
-
-</div>
-
-       </div>
   );
 }

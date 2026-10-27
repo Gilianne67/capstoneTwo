@@ -10,18 +10,17 @@ import {
   ChevronDown,
   ChevronUp,
   Loader2,
-  AlertCircle,
   Inbox,
   Filter,
   CheckCircle2,
   ArrowRight,
-  Flame,
   Award,
-  Zap
+  Lightbulb
 } from 'lucide-react';
 
 import { useAuth } from '../../../context/AuthContext';
 import ConfirmModal from '../../../components/common/ConfirmModal';
+import BroadcastBanner from '../../../components/common/BroadcastBanner';
 
 import { API_BASE_URL } from '../../../config/api';
 
@@ -51,6 +50,7 @@ const mapMatchFromApi = (match) => {
     provider: scholarship.scholarshipType,
     amount: scholarship.grantValue,
     deadline: scholarship.deadline,
+    description: scholarship.description || scholarship.eligibilityCriteria || 'No description provided for this grant.',
     weightedScore: match.totalScore,
     tag: match.classification,
     isSaved: false,
@@ -100,7 +100,6 @@ const formatGrantValue = (amount, amountPeriod) => {
   return { value: 'Financial Grant', period: null };
 };
 
-// Helper function to return dynamic Tagalog greeting based on current time
 const getGreeting = () => {
   const currentHour = new Date().getHours();
   if (currentHour < 12) {
@@ -348,21 +347,22 @@ export default function StudentDashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Active Broadcast Announcements */}
+      <BroadcastBanner />
 
-      {/* Dynamic Student Banner with Geometric Pattern & Dynamic Greeting */}
-      <div className="relative overflow-hidden rounded-3xl bg-primary p-6 md:p-8 text-white shadow-lg">
-        {/* Background Geometric Pattern Accent */}
+      {/* Dynamic Student Banner */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-primary to-primary/90 p-6 md:p-8 text-white shadow-xl">
         <div className="absolute inset-0 z-0 opacity-10 pointer-events-none bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:24px_24px]" />
         <div className="absolute -bottom-16 -right-16 w-80 h-80 rounded-full border border-white/10 bg-white/5 backdrop-blur-3xl pointer-events-none" />
 
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2">
             <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">
-  {getGreeting()}, {userProfile.name}!
-</h1>
-<p className="text-xs md:text-sm text-white/90 max-w-xl font-medium leading-relaxed">
-  We found <strong className="text-accent font-black">{matchCount} scholarship matches</strong> for you based on your profile.
-</p>
+              {getGreeting()}, {userProfile.name}!
+            </h1>
+            <p className="text-xs md:text-sm text-white/90 max-w-xl font-medium leading-relaxed">
+              We found <strong className="text-accent font-black">{matchCount} scholarship matches</strong> for you based on your profile.
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -405,15 +405,14 @@ export default function StudentDashboard() {
         </button>
       </div>
 
-      {/* Main Layout Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Main Grid: Matches + Quick Tip Column */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         
-        {/* Left: Direct Matched Scholarships */}
-        <div className="lg:col-span-2 space-y-4">
+        {/* Left Section: All Matches (3 Columns Grid) */}
+        <div className="lg:col-span-3 space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-base font-extrabold text-app-text flex items-center gap-2">
-                
                 <span>Top Matches For You</span>
               </h2>
               <p className="text-xs text-text-muted font-medium">Ranked directly by your GWA, residence, and income class.</p>
@@ -437,167 +436,154 @@ export default function StudentDashboard() {
               </p>
             </div>
           ) : (
-            <div className="space-y-3.5">
-              {(() => {
-                const item = weightedMatches[0];
-                const isExpanded = expandedMatchId === item._id;
-                const matchScore = item.weightedScore ?? item.matchScore ?? 0;
-                const grant = formatGrantValue(item.amount, item.amountPeriod);
-                const canOpenDetails = Boolean(item.scholarship?._id);
+            <div className="space-y-4">
+              {/* 🟩 ALL MATCH CARDS (Square Grid) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                {weightedMatches.map((item) => {
+                  const isExpanded = expandedMatchId === item._id;
+                  const matchScore = item.weightedScore ?? item.matchScore ?? 0;
+                  const grant = formatGrantValue(item.amount, item.amountPeriod);
+                  const canOpenDetails = Boolean(item.scholarship?._id);
 
-                return (
-                  <div 
-                    key={item._id}
-                    role={canOpenDetails ? 'link' : undefined}
-                    tabIndex={canOpenDetails ? 0 : undefined}
-                    onClick={() => openScholarshipDetails(item)}
-                    onKeyDown={(event) => {
-                      if (canOpenDetails && (event.key === 'Enter' || event.key === ' ')) {
-                        event.preventDefault();
-                        openScholarshipDetails(item);
-                      }
-                    }}
-                    className={`bg-card-bg border border-app-text/10 rounded-2xl p-5 hover:border-primary/50 transition-all shadow-xs relative overflow-hidden group ${
-                      canOpenDetails ? 'cursor-pointer' : ''
-                    }`}
-                  >
-                    {/* Top Accent Pill */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center gap-1 px-3 py-1 bg-secondary text-white text-[11px] font-black rounded-full shadow-xs">
-                          <CheckCircle2 className="h-3 w-3" />
-                          {matchScore}% Match Fit
-                        </span>
-
-                        {item.tag && (
-                          <span className="px-2.5 py-0.5 bg-primary/10 text-primary text-[11px] font-extrabold rounded-full">
-                            {item.tag}
+                  return (
+                    <div 
+                      key={item._id}
+                      role={canOpenDetails ? 'link' : undefined}
+                      tabIndex={canOpenDetails ? 0 : undefined}
+                      onClick={() => openScholarshipDetails(item)}
+                      onKeyDown={(event) => {
+                        if (canOpenDetails && (event.key === 'Enter' || event.key === ' ')) {
+                          event.preventDefault();
+                          openScholarshipDetails(item);
+                        }
+                      }}
+                      className={`bg-card-bg border border-app-text/10 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-primary/40 transition-all duration-300 relative flex flex-col justify-between aspect-square group ${
+                        canOpenDetails ? 'cursor-pointer' : ''
+                      }`}
+                    >
+                      {/* Header Badge & Bookmark */}
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-secondary/15 text-secondary text-[10px] font-black rounded-full border border-secondary/20">
+                            <CheckCircle2 className="h-3 w-3 text-secondary" />
+                            {matchScore}% Fit
                           </span>
-                        )}
+
+                          <button 
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleToggleSave(item._id);
+                            }}
+                            disabled={isSavingId === item._id}
+                            aria-label="Save scholarship"
+                            className={`p-1.5 rounded-xl transition-colors cursor-pointer ${
+                              item.isSaved 
+                                ? 'text-primary bg-primary/10' 
+                                : 'text-text-muted hover:text-primary hover:bg-primary/10'
+                            }`}
+                          >
+                            {isSavingId === item._id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Bookmark className="h-3.5 w-3.5" fill={item.isSaved ? 'currentColor' : 'none'} />
+                            )}
+                          </button>
+                        </div>
+
+                        {/* Title & Provider */}
+                        <h3 className="text-xs font-black text-app-text group-hover:text-primary transition-colors line-clamp-1 leading-snug">
+                          {item.title}
+                        </h3>
+                        <p className="text-[11px] text-text-muted font-medium mt-0.5 truncate">{item.provider}</p>
+                        
+                        {/* Scholarship Description */}
+                        <p className="text-[11px] text-text-muted line-clamp-2 mt-1.5 leading-relaxed">
+                          {item.description}
+                        </p>
                       </div>
 
-                      <button 
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleToggleSave(item._id);
-                        }}
-                        disabled={isSavingId === item._id}
-                        aria-label="Save scholarship"
-                        className={`p-2 rounded-xl transition-all cursor-pointer ${
-                          item.isSaved 
-                            ? 'text-primary bg-primary/10' 
-                            : 'text-text-muted hover:text-primary hover:bg-primary/10'
-                        }`}
-                      >
-                        {isSavingId === item._id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Bookmark className="h-4 w-4" fill={item.isSaved ? 'currentColor' : 'none'} />
-                        )}
-                      </button>
-                    </div>
+                      {/* Middle: Grant Amount & Qualification Dropdown */}
+                      <div className="my-1.5 space-y-1.5">
+                        <div className="bg-primary/5 p-2 rounded-xl border border-primary/10">
+                          <span className="text-[10px] text-text-muted font-bold uppercase tracking-wider block">Grant Amount</span>
+                          <strong className="text-sm font-extrabold text-primary">
+                            {grant.value}
+                            {grant.period && (
+                              <span className="text-[10px] font-normal text-text-muted">/{grant.period}</span>
+                            )}
+                          </strong>
+                        </div>
 
-                    {/* Title & Provider */}
-                    <h3 className="text-sm font-black text-app-text group-hover:text-primary transition-colors">
-                      {item.title}
-                    </h3>
-                    <p className="text-xs text-text-muted font-medium mt-0.5">{item.provider}</p>
+                        {item.matchBreakdown && (
+                          <div>
+                            <button 
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                toggleBreakdown(item._id);
+                              }}
+                              className="flex items-center gap-1 text-[10px] font-bold text-primary hover:underline cursor-pointer bg-transparent border-0 p-0"
+                            >
+                              <Award className="h-3 w-3 text-primary" />
+                              <span>Why you qualify</span>
+                              {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                            </button>
 
-                    {/* Qualification Reason Dropdown */}
-                    {item.matchBreakdown && (
-                      <div className="mt-3">
-                        <button 
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            toggleBreakdown(item._id);
-                          }}
-                          className="flex items-center gap-1.5 text-xs font-bold text-primary hover:underline cursor-pointer bg-transparent border-0 p-0"
-                        >
-                          <Award className="h-3.5 w-3.5 text-primary" />
-                          <span>Why you qualify for this</span>
-                          {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                        </button>
-
-                        {isExpanded && (
-                          <div className="mt-2 p-3 bg-app-bg rounded-xl border border-app-text/10 text-xs space-y-2 animate-in fade-in duration-200">
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                              <div className="bg-card-bg p-2 rounded-lg border border-app-text/10">
-                                <span className="text-text-muted text-[10px] uppercase font-bold block">Academic Fit</span>
-                                <strong className="text-app-text text-xs">{item.matchBreakdown.gwa?.score}/{item.matchBreakdown.gwa?.max} pts</strong>
-                                <p className="text-[10px] text-text-muted mt-0.5">{item.matchBreakdown.gwa?.detail}</p>
+                            {isExpanded && (
+                              <div className="mt-1 p-2 bg-app-bg rounded-lg border border-app-text/10 text-[9px] space-y-0.5 animate-in fade-in duration-200">
+                                <p>Academic: <strong className="text-app-text">{item.matchBreakdown.gwa?.score}/100</strong></p>
+                                <p>Income: <strong className="text-app-text">{item.matchBreakdown.financial?.score}/100</strong></p>
                               </div>
-
-                              <div className="bg-card-bg p-2 rounded-lg border border-app-text/10">
-                                <span className="text-text-muted text-[10px] uppercase font-bold block">Eligibility Fit</span>
-                                <strong className="text-app-text text-xs">{item.matchBreakdown.location?.score}/{item.matchBreakdown.location?.max} pts</strong>
-                                <p className="text-[10px] text-text-muted mt-0.5">{item.matchBreakdown.location?.detail}</p>
-                              </div>
-
-                              <div className="bg-card-bg p-2 rounded-lg border border-app-text/10">
-                                <span className="text-text-muted text-[10px] uppercase font-bold block">Financial Bracket</span>
-                                <strong className="text-app-text text-xs">{item.matchBreakdown.financial?.score}/{item.matchBreakdown.financial?.max} pts</strong>
-                                <p className="text-[10px] text-text-muted mt-0.5">{item.matchBreakdown.financial?.detail}</p>
-                              </div>
-                            </div>
+                            )}
                           </div>
                         )}
                       </div>
-                    )}
 
-                    {/* Footer Info & Direct Apply Action */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 pt-3 mt-3 border-t border-app-text/10 text-xs">
-                      <div>
-                        <span className="text-text-muted font-medium">Grant Amount: </span>
-                        <strong className="text-sm font-extrabold text-app-text">
-                          {grant.value}
-                          {grant.period && (
-                            <span className="text-xs font-normal text-text-muted">/{grant.period}</span>
-                          )}
-                        </strong>
-                      </div>
-
-                      <div className="flex items-center gap-3">
-                        <span className="text-text-muted text-[11px] font-medium">
+                      {/* Footer: Due Date & Action */}
+                      <div className="pt-2 border-t border-app-text/10 flex items-center justify-between gap-1.5">
+                        <span className="text-text-muted text-[10px] font-medium truncate">
                           Due: <strong className="text-app-text">{formatDate(item.deadline)}</strong>
                         </span>
 
                         <button 
                           type="button"
                           onClick={(event) => handleApplyClick(event, item)}
-                          className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white hover:bg-primary/90 rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-xs"
+                          className="flex items-center gap-1 px-2.5 py-1.5 bg-primary text-white hover:bg-primary/90 rounded-xl text-[10px] font-extrabold transition-all cursor-pointer shadow-xs shrink-0"
                         >
-                          <span>Apply Direct</span>
-                          <ExternalLink className="h-3.5 w-3.5" />
+                          <span>Apply</span>
+                          <ExternalLink className="h-3 w-3" />
                         </button>
                       </div>
                     </div>
-                  </div>
-                );
-              })()}
-
-              <button
-                type="button"
-                onClick={() => navigate('/dashboard/student/matches')}
-                className="flex items-center justify-center gap-1.5 w-full px-4 py-2.5 rounded-2xl border border-app-text/10 bg-card-bg text-primary font-extrabold text-xs hover:border-primary/40 transition-all cursor-pointer"
-              >
-                <span>Show More Scholarships</span>
-                <ArrowRight className="h-3.5 w-3.5" />
-              </button>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
 
-        <div className="space-y-4">
-          {/* Quick Tip Box with Theme Primary */}
-          <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4 space-y-1 text-xs">
-            <p className="font-extrabold text-primary flex items-center gap-1.5">
-              Quick Iskolar Tip
+        {/* Right Section: Quick Iskolar Tip Box */}
+        <div className="lg:col-span-1 space-y-4">
+          <div className="bg-gradient-to-br from-primary/10 via-primary/5 to-card-bg border border-primary/20 rounded-2xl p-5 space-y-3 shadow-xs">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-primary text-white rounded-xl shadow-xs">
+                <Lightbulb className="h-4 w-4" />
+              </div>
+              <h3 className="font-extrabold text-sm text-primary">Quick Iskolar Tip</h3>
+            </div>
+            
+            <p className="text-xs text-text-muted leading-relaxed font-medium">
+              Keep your profile up to date! Providers prioritize students whose profiles match.
             </p>
-            <p className="text-text-muted leading-relaxed text-[11px]">
-              Keep your profile GWA up to date! Providers prioritize students whose profiles match their target grade range.
-            </p>
+
+            <button
+              type="button"
+              onClick={() => navigate('/dashboard/student/profile')}
+              className="text-[11px] font-bold text-primary hover:underline flex items-center gap-1 pt-1"
+            >
+              Update Profile Now <ArrowRight className="h-3 w-3" />
+            </button>
           </div>
         </div>
 

@@ -6,25 +6,16 @@ const {
   deleteTaxonomyTag
 } = require('../controllers/taxonomyController');
 
-// Make sure this path points directly to your auth middleware file
-const auth = require('../middleware/auth'); // or '../middleware/authMiddleware'
+const { protect, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Verify middleware functions exist before passing them to router.use
-if (auth && auth.protect) {
-  router.use(auth.protect);
-}
-if (auth && auth.adminOnly) {
-  router.use(auth.adminOnly);
-}
-
 router.route('/')
-  .get(getTaxonomyTags)
-  .post(createTaxonomyTag);
+  .get(getTaxonomyTags) // Public read access
+  .post(protect, authorize('admin', 'super_admin'), createTaxonomyTag); // Admin only
 
 router.route('/:id')
-  .patch(updateTaxonomyTag)
-  .delete(deleteTaxonomyTag);
+  .patch(protect, authorize('admin', 'super_admin'), updateTaxonomyTag)
+  .delete(protect, authorize('admin', 'super_admin'), deleteTaxonomyTag);
 
 module.exports = router;

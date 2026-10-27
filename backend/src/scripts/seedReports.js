@@ -28,7 +28,7 @@ const seedModerationReports = async () => {
       student = await User.create({
         name: 'Juan Dela Cruz',
         email: 'juan.student@test.com',
-        password: 'Password123!',
+        password: 'Password123!seed',
         role: 'student',
       });
       console.log('👤 Created dummy student user.');
@@ -39,7 +39,7 @@ const seedModerationReports = async () => {
       provider = await User.create({
         name: 'Global Education Foundation',
         email: 'provider@test.com',
-        password: 'Password123!',
+        password: 'Password123!seed',
         role: 'provider',
       });
       console.log('🏢 Created dummy provider user.');

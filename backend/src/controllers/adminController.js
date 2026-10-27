@@ -1,16 +1,19 @@
 const Provider = require('../models/Provider');
 const User = require('../models/User');
 const ParentalConsent = require('../models/ParentalConsent');
+const SystemConfig = require('../models/SystemConfig');
 const asyncHandler = require('../utils/asyncHandler');
 const ErrorResponse = require('../utils/errorResponse');
+const emailService = require('../utils/emailService');
+const { recordAuditLog } = require('./auditController');
+const crypto = require('crypto');
 const {
   parseBooleanFlag,
   resolveRegisteredAccountEmail,
 } = require('../utils/providerVerification');
-const emailService = require('../utils/emailService');
-const auditController = require('./auditController');
 const { revokeUserSessions } = require('../services/tokenService');
 const matchCache = require('../services/matchCache');
+const { canonicalRole, isSuperadminRole, isAdminRole } = require('../middleware/auth');
 
 const ACCOUNT_STATUSES = ['pending_consent', 'active', 'suspended'];
 
@@ -208,7 +211,7 @@ exports.updateProviderVerification = asyncHandler(async (req, res, next) => {
     ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
     : 'Admin User';
 
-  await auditController.recordAuditLog({
+  await recordAuditLog({
     actor: adminActor,
     role: 'Admin',
     action: isApproved ? 'PROVIDER_VERIFIED' : 'PROVIDER_REJECTED',
@@ -221,8 +224,9 @@ exports.updateProviderVerification = asyncHandler(async (req, res, next) => {
 
   const recipientEmail = await resolveRegisteredAccountEmail(
     provider.userId,
-    (id) => User.findById(id)
-  );
+    (userId) => User.findById(userId)
+  ) || provider.representative?.workEmail || provider.contactEmail;
+
   const recipientName = getUserField(provider.userId, 'name')
     || (provider.representative && provider.representative.name)
     || 'Partner';
@@ -232,9 +236,7 @@ exports.updateProviderVerification = asyncHandler(async (req, res, next) => {
   if (!statusChanged && !finalFlagChanged) {
     notification.reason = 'unchanged';
   } else if (!recipientEmail) {
-    console.error(
-      `Provider verification email skipped for ${provider._id}: no persisted recipient email.`
-    );
+    console.error(`Provider verification email skipped for ${provider._id}: no persisted recipient email.`);
     notification.warning = 'Verification was updated, but no registered email was available to notify the provider.';
   } else {
     try {
@@ -300,7 +302,7 @@ exports.updateScholarshipStatus = asyncHandler(async (req, res, next) => {
     ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
     : 'Admin User';
 
-  await auditController.recordAuditLog({
+  await recordAuditLog({
     actor: adminActor,
     role: 'Admin',
     action: 'SCHOLARSHIP_MODERATED',
@@ -336,7 +338,7 @@ exports.updateConsentStatus = asyncHandler(async (req, res, next) => {
     ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
     : 'Admin User';
 
-  await auditController.recordAuditLog({
+  await recordAuditLog({
     actor: adminActor,
     role: 'Admin',
     action: 'CONSENT_MODERATED',
@@ -416,7 +418,6 @@ exports.getVerifications = asyncHandler(async (req, res, next) => {
       ? p.verificationDocuments
       : (Array.isArray(p.documents) ? p.documents : []);
 
-    // Safely resolve Representative Details across populated/unpopulated schemas
     const repName = p.representative?.name || p.contactPerson || getUserField(p.userId, 'name') || 'Not Provided';
     const repTitle = p.representative?.title || p.representative?.jobTitle || getUserField(p.userId, 'title') || getUserField(p.userId, 'jobTitle') || 'Not Provided';
     const repEmail = p.representative?.workEmail || p.contactEmail || getUserField(p.userId, 'email') || 'Not Provided';
@@ -513,6 +514,15 @@ exports.updateUserAccountStatus = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse('User not found', 404));
   }
 
+  const actorId = req.user && (req.user._id || req.user.id);
+  if (actorId && String(user._id) === String(actorId)) {
+    return next(new ErrorResponse('You cannot change your own account status.', 403));
+  }
+
+  if (isAdminRole(user.role) && !isSuperadminRole(req.user && req.user.role)) {
+    return next(new ErrorResponse('Only a super admin can change an administrator account status.', 403));
+  }
+
   const previousStatus = user.status;
   user.status = status;
   await user.save();
@@ -542,7 +552,7 @@ exports.updateUserAccountStatus = asyncHandler(async (req, res, next) => {
       ? `Tracked session revocation completed (${revocation.blocklisted} blocklisted, ${revocation.skipped} expired).`
       : `Tracked session revocation incomplete (${revocation.blocklisted} blocklisted, ${revocation.failed} failed, reason: ${revocation.reason || 'unknown'}).`;
 
-  await auditController.recordAuditLog({
+  await recordAuditLog({
     actor: adminActor,
     role: 'Admin',
     action: 'ACCOUNT_STATUS_CHANGE',
@@ -575,6 +585,158 @@ exports.updateUserAccountStatus = asyncHandler(async (req, res, next) => {
       ? suspensionMessage(revocation)
       : `Account status updated to ${status}.`,
     ...payload,
+  });
+});
+
+// @desc    Get Global System Configuration
+// @route   GET /api/v1/admin/config
+// @access  Private (Admin / Super Admin)
+exports.getSystemConfig = asyncHandler(async (req, res, next) => {
+  let config = await SystemConfig.findOne();
+  if (!config) {
+    config = await SystemConfig.create({ maintenanceMode: false, autoApproveProviders: false });
+  }
+
+  res.status(200).json({
+    success: true,
+    data: config,
+  });
+});
+
+// @desc    Update Global System Configuration
+// @route   PUT /api/v1/admin/config
+// @access  Private (Admin / Super Admin)
+exports.updateSystemConfig = asyncHandler(async (req, res, next) => {
+  const { maintenanceMode, autoApproveProviders } = req.body;
+
+  let config = await SystemConfig.findOne();
+  if (!config) {
+    config = new SystemConfig();
+  }
+
+  config.maintenanceMode = maintenanceMode !== undefined ? maintenanceMode : config.maintenanceMode;
+  config.autoApproveProviders = autoApproveProviders !== undefined ? autoApproveProviders : config.autoApproveProviders;
+  config.updatedBy = req.user._id;
+
+  await config.save();
+
+  const adminActor = req.user 
+    ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
+    : 'Admin User';
+
+  await recordAuditLog({
+    actor: adminActor,
+    role: 'Admin',
+    action: 'SYSTEM_CONFIG_UPDATED',
+    details: `Updated settings: maintenanceMode=${config.maintenanceMode}, autoApproveProviders=${config.autoApproveProviders}`,
+    ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+    severity: 'Info'
+  });
+
+  res.status(200).json({
+    success: true,
+    data: config,
+    message: 'System configuration saved successfully.',
+  });
+});
+
+// @desc    Invite / Provision New Admin Account
+// @route   POST /api/v1/admin/invite
+// @access  Private (Admin / Super Admin)
+exports.inviteAdmin = asyncHandler(async (req, res, next) => {
+  const { fullName, email, adminRole } = req.body;
+
+  if (!fullName || !email) {
+    return next(new ErrorResponse('Please provide full name and official email address.', 400));
+  }
+
+  const normalizedEmail = String(email).toLowerCase().trim();
+  const existingUser = await User.findOne({ email: normalizedEmail });
+  if (existingUser) {
+    return next(new ErrorResponse('An account with this email address already exists.', 400));
+  }
+
+  const requestedRole = canonicalRole(adminRole);
+  if (requestedRole === 'superadmin' && !isSuperadminRole(req.user && req.user.role)) {
+    return next(new ErrorResponse('Only a super admin can provision another super admin.', 403));
+  }
+
+  const roleToAssign = requestedRole === 'superadmin' ? 'superadmin' : 'admin';
+  const placeholderPassword = crypto.randomBytes(32).toString('hex');
+
+  let newAdminUser;
+  try {
+    newAdminUser = await User.create({
+      name: fullName,
+      email: normalizedEmail,
+      password: placeholderPassword,
+      role: roleToAssign,
+      isVerified: true,
+    });
+
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    newAdminUser.resetPasswordToken = crypto
+      .createHash('sha256')
+      .update(resetToken)
+      .digest('hex');
+    newAdminUser.resetPasswordExpire = Date.now() + 30 * 60 * 1000;
+    await newAdminUser.save({ validateBeforeSave: false });
+
+    const clientUrl =
+      process.env.CLIENT_URL ||
+      (process.env.NODE_ENV === 'production'
+        ? 'https://iskolarmatch.website'
+        : 'http://localhost:5173');
+    const setupUrl = `${clientUrl}/reset-password/${resetToken}`;
+
+    if (typeof emailService.sendAdminInvitationEmail !== 'function') {
+      throw new Error('Admin invitation email is not configured.');
+    }
+
+    await emailService.sendAdminInvitationEmail(newAdminUser.email, setupUrl, newAdminUser.name);
+  } catch (err) {
+    let removed = !newAdminUser;
+    if (newAdminUser && newAdminUser._id) {
+      try {
+        await User.findByIdAndDelete(newAdminUser._id);
+        removed = true;
+      } catch (cleanupError) {
+        removed = false;
+        console.error('Failed to roll back admin invitation:', cleanupError.message);
+      }
+    }
+
+    console.error('Admin invitation email failed:', err.message);
+    return next(new ErrorResponse(
+      removed
+        ? 'The invitation email could not be sent. No admin account was created.'
+        : 'The invitation email could not be sent, and the new account could not be removed.',
+      500
+    ));
+  }
+
+  const adminActor = req.user 
+    ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
+    : 'Admin User';
+
+  await recordAuditLog({
+    actor: adminActor,
+    role: 'Admin',
+    action: 'ADMIN_ACCOUNT_PROVISIONED',
+    details: `Emailed a password-setup link for a new ${roleToAssign} account at ${normalizedEmail}.`,
+    ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+    severity: 'Warning'
+  });
+
+  res.status(201).json({
+    success: true,
+    message: `An invitation link was emailed to ${normalizedEmail}. It expires in 30 minutes.`,
+    data: {
+      id: newAdminUser._id,
+      name: newAdminUser.name,
+      email: newAdminUser.email,
+      role: newAdminUser.role,
+    },
   });
 });
 
