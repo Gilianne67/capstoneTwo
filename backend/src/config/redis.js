@@ -30,8 +30,9 @@ const redisClient = createClient({
   socket: {
     connectTimeout: 500, // Socket connection timeout in ms
     reconnectStrategy: (retries) => {
-      // If running locally without REDIS_URL, stop reconnecting immediately
-      if (!hasExplicitRedisUrl && process.env.NODE_ENV === 'development') {
+      // Local fallback has no Redis server to wait for. Retrying keeps
+      // the process alive after a refused connection.
+      if (!hasExplicitRedisUrl && !process.env.REDISHOST) {
         return false;
       }
       return Math.min(retries * 100, 3000);

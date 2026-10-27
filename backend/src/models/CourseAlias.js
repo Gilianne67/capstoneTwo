@@ -41,6 +41,27 @@ const courseAliasSchema = new mongoose.Schema(
 
 courseAliasSchema.index({ academicLevel: 1, canonicalName: 1 });
 
+const invalidateCourseAliasCache = () => {
+  const matchCache = require('../services/matchCache');
+  return matchCache.invalidateMatchCache();
+};
+
+[
+  'save',
+  'insertMany',
+  'updateOne',
+  'updateMany',
+  'findOneAndUpdate',
+  'replaceOne',
+  'deleteOne',
+  'deleteMany',
+  'findOneAndDelete'
+].forEach((hook) => {
+  courseAliasSchema.post(hook, function invalidateAliasMatchCache() {
+    return invalidateCourseAliasCache();
+  });
+});
+
 module.exports =
   mongoose.models.CourseAlias ||
   mongoose.model('CourseAlias', courseAliasSchema);

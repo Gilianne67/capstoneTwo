@@ -43,7 +43,7 @@ const protect = async (req, res, next) => {
       if (blacklisted) {
         return res.status(401).json({
           success: false,
-          message: 'Your session has expired. Please log in again.',
+          message: 'Your session has been revoked. Please log in again.',
         });
       }
     }
@@ -63,6 +63,17 @@ const protect = async (req, res, next) => {
       return res.status(401).json({
         success: false,
         message: 'We could not find your account. Please sign up or log in again.',
+      });
+    }
+
+    // Suspension is read from the persisted account, not the JWT claim and
+    // not Redis. Logout stays available so the presented token can still be
+    // blocklisted. The blocklist check above remains fail-open when Redis is
+    // down; this status check is fail-closed for suspended accounts.
+    if (req.user.status === 'suspended' && !isLogoutRequest(req)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has been suspended due to security concerns. Please contact support.',
       });
     }
 

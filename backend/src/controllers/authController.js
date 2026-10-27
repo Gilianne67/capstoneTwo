@@ -4,7 +4,11 @@ const User = require('../models/User');
 const Provider = require('../models/Provider');
 const asyncHandler = require('../utils/asyncHandler');
 const ErrorResponse = require('../utils/errorResponse');
-const { blacklistToken } = require('../services/tokenService');
+const {
+  blacklistToken,
+  registerIssuedToken,
+  forgetIssuedToken,
+} = require('../services/tokenService');
 const { recordAuditLog } = require('./auditController');
 const emailService = require('../utils/emailService');
 const {
@@ -36,6 +40,13 @@ const calculateLockoutDuration = (attempts) => {
 // Helper function to send JWT via HttpOnly Cookie + JSON Payload
 const sendTokenResponse = async (user, statusCode, res, message, req) => {
   const token = user.getSignedJwtToken ? user.getSignedJwtToken() : user.generateToken?.();
+  if (token && user && user._id) {
+    try {
+      await registerIssuedToken(user._id, token);
+    } catch (err) {
+      console.warn('Session index update skipped.');
+    }
+  }
   const cookieExpireDays = parseInt(process.env.JWT_COOKIE_EXPIRE, 10) || 30;
 
   const options = {
@@ -503,10 +514,17 @@ exports.getMe = asyncHandler(async (req, res, next) => {
 exports.logout = asyncHandler(async (req, res, next) => {
   if (req.token) {
     try {
-      await blacklistToken(req.token);
+      const revoked = await blacklistToken(req.token);
+      if (revoked && revoked.ok === false && revoked.reason !== 'already_expired') {
+        console.warn('Redis token revocation skipped:', revoked.reason || 'unknown');
+      }
     } catch (err) {
       console.warn('Redis token revocation skipped:', err.message);
     }
+  }
+
+  if (req.token && req.user) {
+    await forgetIssuedToken(req.user.id || req.user._id, req.token);
   }
 
   if (req.user) {

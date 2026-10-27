@@ -9,6 +9,10 @@ const {
 } = require('../utils/providerVerification');
 const emailService = require('../utils/emailService');
 const auditController = require('./auditController');
+const { revokeUserSessions } = require('../services/tokenService');
+const matchCache = require('../services/matchCache');
+
+const ACCOUNT_STATUSES = ['pending_consent', 'active', 'suspended'];
 
 // Safe import for Scholarship
 let Scholarship;
@@ -289,6 +293,8 @@ exports.updateScholarshipStatus = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse(`Scholarship listing not found with ID ${id}`, 404));
   }
 
+  await matchCache.invalidateMatchCache();
+
   // 📝 AUDIT LOG: Scholarship Moderation Action
   const adminActor = req.user 
     ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
@@ -463,6 +469,112 @@ exports.getVerifications = asyncHandler(async (req, res, next) => {
   res.status(200).json({
     success: true,
     data: verifications
+  });
+});
+
+const publicRevocation = (revocation) => ({
+  required: Boolean(revocation.required),
+  success: Boolean(revocation.success),
+  blocklisted: revocation.blocklisted || 0,
+  failed: revocation.failed || 0,
+  skipped: revocation.skipped || 0,
+  reason: revocation.reason || null,
+  elapsedMs: typeof revocation.elapsedMs === 'number' ? revocation.elapsedMs : null,
+  ...(revocation.indexCleanupFailed ? { indexCleanupFailed: true } : {}),
+});
+
+const suspensionMessage = (revocation) => {
+  if (!revocation.success) {
+    return 'Account status was updated to suspended, but one or more session revocations failed.';
+  }
+  if (revocation.reason === 'no_tracked_sessions') {
+    return 'Account status updated to suspended. No tracked sessions were found to revoke.';
+  }
+  return 'Account status updated to suspended and tracked sessions were revoked.';
+};
+
+// @desc    Update a user account status and revoke sessions when suspending
+// @route   PATCH /api/v1/admin/users/:id/status
+// @access  Private (Admin / Super Admin)
+exports.updateUserAccountStatus = asyncHandler(async (req, res, next) => {
+  const { id } = req.params;
+  const { status } = req.body || {};
+
+  if (!id) {
+    return next(new ErrorResponse('User id is required.', 400));
+  }
+
+  if (typeof status !== 'string' || !ACCOUNT_STATUSES.includes(status)) {
+    return next(new ErrorResponse('Unsupported account status.', 400));
+  }
+
+  const user = await User.findById(id);
+  if (!user) {
+    return next(new ErrorResponse('User not found', 404));
+  }
+
+  const previousStatus = user.status;
+  user.status = status;
+  await user.save();
+
+  let revocation = {
+    required: false,
+    success: true,
+    blocklisted: 0,
+    failed: 0,
+    skipped: 0,
+    reason: null,
+    elapsedMs: null,
+  };
+
+  if (status === 'suspended') {
+    const statusChangedAt = process.hrtime.bigint();
+    revocation = await revokeUserSessions(user._id, { statusChangedAt });
+    revocation.required = true;
+  }
+
+  const adminActor = req.user
+    ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email
+    : 'Admin User';
+  const revocationDetail = status !== 'suspended'
+    ? 'Session revocation was not required.'
+    : revocation.success
+      ? `Tracked session revocation completed (${revocation.blocklisted} blocklisted, ${revocation.skipped} expired).`
+      : `Tracked session revocation incomplete (${revocation.blocklisted} blocklisted, ${revocation.failed} failed, reason: ${revocation.reason || 'unknown'}).`;
+
+  await auditController.recordAuditLog({
+    actor: adminActor,
+    role: 'Admin',
+    action: 'ACCOUNT_STATUS_CHANGE',
+    details: `Account status for ${user.email || user._id} changed from ${previousStatus || 'unknown'} to ${status}. ${revocationDetail}`,
+    ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+    severity: status === 'suspended' ? 'Warning' : 'Info',
+  });
+
+  const payload = {
+    statusUpdated: true,
+    data: {
+      id: user._id,
+      status,
+      previousStatus: previousStatus || null,
+    },
+    revocation: publicRevocation(revocation),
+  };
+
+  if (status === 'suspended' && !revocation.success) {
+    return res.status(503).json({
+      success: false,
+      message: suspensionMessage(revocation),
+      ...payload,
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: status === 'suspended'
+      ? suspensionMessage(revocation)
+      : `Account status updated to ${status}.`,
+    ...payload,
   });
 });
 
