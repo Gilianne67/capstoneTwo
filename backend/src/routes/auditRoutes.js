@@ -1,11 +1,11 @@
 const express = require('express');
 const { getAuditLogs, logExportAction } = require('../controllers/auditController');
-const auth = require('../middleware/auth');
+const { protect, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 
-if (auth && auth.protect) router.use(auth.protect);
-if (auth && auth.adminOnly) router.use(auth.adminOnly);
+// Restrict all audit log routes strictly to admins and super_admins
+router.use(protect, authorize('admin', 'super_admin', 'superadmin'));
 
 router.get('/', getAuditLogs);
 router.post('/export', logExportAction);

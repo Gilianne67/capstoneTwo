@@ -11,26 +11,28 @@ const {
   getVerifications,
   updateVerificationQueueStatus,
   updateUserAccountStatus,
+  getSystemConfig,
+  updateSystemConfig,
+  inviteAdmin,
 } = require('../controllers/adminController');
 
-// Import auth middleware functions
+// Import auth middleware functions safely
 const authMiddleware = require('../middleware/auth');
-
 const protect = authMiddleware.protect || authMiddleware;
+const canonicalRole = authMiddleware.canonicalRole || ((role) => String(role || '').toLowerCase());
 
-// 1. Authenticate user session
+// 1. Authenticate user session for all routes on this router
 if (protect) router.use(protect);
 
-// 2. Strict & Safe Role Authorization
+// 2. Strict & Safe Role Authorization (Covers all endpoints below)
 router.use((req, res, next) => {
-  const allowedRoles = ['superadmin', 'admin', 'super_admin'];
+  const allowedRoles = ['superadmin', 'admin'];
 
   if (!req.user || !req.user.role) {
     return res.status(401).json({ success: false, error: 'Authentication required' });
   }
 
-  // Case-insensitive role comparison
-  const userRole = String(req.user.role).toLowerCase();
+  const userRole = canonicalRole(req.user.role);
 
   if (allowedRoles.includes(userRole)) {
     return next();
@@ -43,38 +45,34 @@ router.use((req, res, next) => {
 // DASHBOARD & QUEUE ACTION ROUTES
 // ================================
 
-// GET /api/v1/admin/dashboard - Fetch metrics and top 10 queue items
 router.get('/dashboard', getAdminDashboard);
-
-// GET /api/v1/admin/verifications - Fetch all verifications queue items
 router.get('/verifications', getVerifications);
-router.get('/verification-queue', getVerifications); // Alias for frontend routing alignment
+router.get('/verification-queue', getVerifications); // Alias
 
-// PATCH /api/v1/admin/verifications/:id/status - Approve/Reject verification
 router.patch('/verifications/:id/status', updateVerificationQueueStatus);
-
-// PATCH /api/v1/admin/providers/:id/verification - Verify/Reject provider from dashboard queue
 router.patch('/providers/:id/verification', updateProviderVerification);
-
-// PATCH /api/v1/admin/scholarships/:id/status - Approve/Reject scholarship from dashboard queue
 router.patch('/scholarships/:id/status', updateScholarshipStatus);
-
-// PATCH /api/v1/admin/parental-consent/:id/status - Verify/Reject parental consent from dashboard queue
 router.patch('/parental-consent/:id/status', updateConsentStatus);
 
 // PATCH /api/v1/admin/users/:id/status - Change account status; suspension revokes tracked sessions
 router.patch('/users/:id/status', updateUserAccountStatus);
 
-
 // ================================
 // PROVIDER REVIEW & DETAIL ROUTES
 // ================================
 
-// STATIC ROUTE FIRST: Fetch all applications pending review
 router.get('/providers/pending', getPendingProviders);
-
-// PARAMETERIZED ROUTES SECOND: Fetch/Update specific provider by ID
 router.get('/providers/:providerId', getProviderById);
 router.put('/providers/:providerId/review', reviewProviderApplication);
+
+// ================================
+// SYSTEM CONFIGURATION & ADMIN PROVISIONING
+// ================================
+
+router.route('/config')
+  .get(getSystemConfig)
+  .put(updateSystemConfig);
+  
+router.post('/invite', inviteAdmin);
 
 module.exports = router;

@@ -36,7 +36,10 @@ const errorHandler = require('./middleware/error');
 const moderationRoutes = require('./routes/moderationRoutes');
 const taxonomyRoutes = require('./routes/taxonomyRoutes');
 const auditRoutes = require('./routes/auditRoutes');
-const { protect } = require('./middleware/auth'); // Added auth protection middleware
+const { protect } = require('./middleware/auth');
+const broadcastRoutes = require('./routes/broadcastRoutes');
+const { getActiveUserBroadcasts } = require('./controllers/broadcastController');
+const faqRoutes = require('./routes/faqRoutes');
 
 // Security Middlewares
 app.use(
@@ -45,36 +48,33 @@ app.use(
   })
 );
 
-// CORS Configuration
 const allowedOrigins = [
   process.env.CLIENT_URL,
   process.env.FRONTEND_URL,
-  'https://iskolarmatch.up.railway.app',
-  'https://iskolarmatch-backend.up.railway.app',
-  'http://localhost:3000',
-  'http://localhost:5173',
-  'http://localhost:5174',
-].filter(Boolean);
+  'http://localhost:5173',          // Local Vite dev
+  'http://localhost:3000',          // Alternative local port
+  'https://iskolarmatch.website',     // Production frontend
+  'https://www.iskolarmatch.website'  // Production www alias
+].filter(Boolean); 
 
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      // Allow requests with no origin (mobile apps, Postman, curl)
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.indexOf(origin) !== -1) {
-        return callback(null, true);
-      }
-      // Allow any Vercel preview links (*.vercel.app)
-      if (/^https:\/\/.*\.vercel\.app$/.test(origin)) {
-        return callback(null, true);
-      }
-      return callback(null, true); // Permissive for staging/testing
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  })
-);
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      return callback(null, true);
+    } else {
+      console.warn(`🚨 [CORS BLOCKED] Unauthorized origin attempted connection: ${origin}`);
+      return callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+};
+
+app.use(cors(corsOptions));
+app.options(/(.*)/, cors(corsOptions)); // Handle preflight requests
 
 // Body Parsing & Cookie Handling
 app.use(express.json());
@@ -94,7 +94,7 @@ const limiter = rateLimit({
 });
 app.use('/api/v1', limiter);
 
-// Root Endpoint (Prevents 404 when hitting base URL)
+// Root Endpoint
 app.get('/', (req, res) => {
   res.status(200).json({ status: 'success', message: 'IskolarMatch API Online' });
 });
@@ -115,11 +115,14 @@ app.use('/api/v1/scholarships', scholarshipRoutes);
 app.use('/api/v1/students', studentRoutes);
 app.use('/api/v1/matching', matchingRoutes);
 app.use('/api/v1/documents', documentRoutes);
-app.use('/api/v1/admin/moderation', moderationRoutes); 
+app.use('/api/v1/admin/moderation', moderationRoutes);
 app.use('/api/v1/admin/taxonomy', taxonomyRoutes);
 app.use('/api/v1/admin/audit-logs', auditRoutes);
+app.use('/api/v1/admin', broadcastRoutes);
+app.get('/api/v1/broadcasts/active', protect, getActiveUserBroadcasts);
+app.use('/api/v1/faqs', faqRoutes);
 
-// Quick fallback endpoint for notifications (prevents 404 crash on frontend load)
+// Quick fallback endpoint for notifications
 app.get('/api/v1/notifications/unread-count', protect, (req, res) => {
   res.status(200).json({
     success: true,

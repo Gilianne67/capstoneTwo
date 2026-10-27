@@ -139,19 +139,31 @@ export function AuthProvider({ children }) {
   };
 
   // Password Reset Request
-  const resetPassword = async (email) => {
+const resetPassword = async (email) => {
+    console.log(`🌐 [AuthContext] Sending forgotpassword fetch request to: ${API_BASE_URL}/auth/forgotpassword`);
+    
     const res = await fetch(`${API_BASE_URL}/auth/forgotpassword`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
+      credentials: 'include',
+      body: JSON.stringify({ email: email.trim().toLowerCase() }),
     });
 
     const data = await res.json();
+    console.log(`📩 [AuthContext] forgotpassword API Response:`, data);
+
     if (!res.ok) throw new Error(data.message || data.error || 'Failed to send reset email');
     return data;
   };
 
   // Logout Handler
+  const replaceSession = (nextToken) => {
+    const jwtToken = String(nextToken || '').replace(/^"|"$/g, '').trim();
+    if (!jwtToken) return;
+    localStorage.setItem('token', jwtToken);
+    setToken(jwtToken);
+  };
+
   const logout = async () => {
     const activeToken = getCleanToken();
 
@@ -172,7 +184,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout, resetPassword, updateUser, getRedirectPath, getCleanToken }}>
+    <AuthContext.Provider value={{ user, token, loading, login, register, logout, resetPassword, updateUser, replaceSession, getRedirectPath, getCleanToken }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Lock, Eye, EyeOff, ShieldAlert, CheckCircle2 } from 'lucide-react';
+import { MIN_PASSWORD_LENGTH } from '../../config/passwordPolicy';
 
 export function SecurityForm({
   onSave,
@@ -14,25 +15,44 @@ export function SecurityForm({
   });
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
   const [statusMessage, setStatusMessage] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const handleChange = (e) => {
     if (!passwordChangeAvailable) return;
     setPasswords({ ...passwords, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!passwordChangeAvailable) return;
+    if (!passwordChangeAvailable || submitting) return;
 
     if (passwords.newPassword !== passwords.confirmPassword) {
       setStatusMessage({ type: 'error', text: 'New passwords do not match.' });
       return;
     }
-    
-    // Trigger parent callback
-    if (onSave) onSave({ passwords, twoFactorEnabled });
-    setStatusMessage({ type: 'success', text: 'Security settings updated successfully!' });
-    setPasswords({ currentPassword: '', newPassword: '', confirmPassword: '' });
+
+    if (passwords.newPassword.length < MIN_PASSWORD_LENGTH) {
+      setStatusMessage({ type: 'error', text: `Password must be at least ${MIN_PASSWORD_LENGTH} characters long.` });
+      return;
+    }
+
+    setSubmitting(true);
+    setStatusMessage(null);
+    try {
+      const resultMessage = onSave ? await onSave({ passwords, twoFactorEnabled }) : null;
+      setStatusMessage({
+        type: 'success',
+        text: resultMessage || 'Password updated successfully.',
+      });
+      setPasswords({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    } catch (err) {
+      setStatusMessage({
+        type: 'error',
+        text: err.message || 'Password could not be updated.',
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -83,7 +103,7 @@ export function SecurityForm({
               required={passwordChangeAvailable}
               disabled={!passwordChangeAvailable}
               className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-medium text-app-text focus:outline-hidden focus:border-primary disabled:opacity-60 disabled:cursor-not-allowed"
-              placeholder="Min. 8 characters"
+              placeholder={`Min. ${MIN_PASSWORD_LENGTH} characters`}
             />
           </div>
 
@@ -144,10 +164,10 @@ export function SecurityForm({
 
         <button
           type="submit"
-          disabled={!passwordChangeAvailable}
+          disabled={!passwordChangeAvailable || submitting}
           className="w-full sm:w-auto px-5 py-2.5 bg-primary text-white text-xs font-bold rounded-xl hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Update Password
+          {submitting ? 'Updating...' : 'Update Password'}
         </button>
       </form>
     </div>

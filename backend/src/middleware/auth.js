@@ -10,6 +10,9 @@ const {
 const isLogoutRequest = (req) =>
   req.method === 'GET' && String(req.originalUrl || req.url || '').split('?')[0].endsWith('/auth/logout');
 
+const rejectedProviderMessage = (provider) =>
+  `Your provider application was declined. Reason: ${provider?.rejectionReason || 'Please contact support for more details.'}`;
+
 /**
  * Authentication Middleware
  */
@@ -66,6 +69,21 @@ const protect = async (req, res, next) => {
       });
     }
 
+    // passwordChangedAt is stored in milliseconds. JWT iat only has second
+    // precision, so a token from the same UTC second is accepted only when it
+    // carries this exact cutoff. Redis revocation stays fail-open above.
+    // Logout stays available.
+    if (req.user.passwordChangedAt && !isLogoutRequest(req)) {
+      const changedAtMs = new Date(req.user.passwordChangedAt).getTime();
+      const tokenChangedAt = Number(decoded.passwordChangedAt);
+      if (!Number.isFinite(changedAtMs) || tokenChangedAt !== changedAtMs) {
+        return res.status(401).json({
+          success: false,
+          message: 'Your session has been revoked. Please log in again.',
+        });
+      }
+    }
+
     // Suspension is read from the persisted account, not the JWT claim and
     // not Redis. Logout stays available so the presented token can still be
     // blocklisted. The blocklist check above remains fail-open when Redis is
@@ -103,6 +121,23 @@ const isStudentPendingConsent = (user) =>
   user?.role === 'student' && user?.status === 'pending_consent';
 
 /**
+ * Stored super-admin accounts use `superadmin`. Older checks also say
+ * `super_admin` or `super-admin`. Those spellings are the same privilege.
+ */
+const canonicalRole = (role) => {
+  const value = String(role || '').trim().toLowerCase().replace(/-/g, '_');
+  if (value === 'super_admin' || value === 'superadmin') return 'superadmin';
+  return value;
+};
+
+const isSuperadminRole = (role) => canonicalRole(role) === 'superadmin';
+
+const isAdminRole = (role) => {
+  const value = canonicalRole(role);
+  return value === 'admin' || value === 'superadmin';
+};
+
+/**
  * Authorization Middleware
  * Restricts access to specific user roles.
  */
@@ -124,7 +159,8 @@ const authorize = (...roles) => {
       });
     }
 
-    if (!roles.includes(req.user.role)) {
+    const allowed = roles.map((role) => canonicalRole(role));
+    if (!allowed.includes(canonicalRole(req.user.role))) {
       return res.status(403).json({
         success: false,
         message: 'You do not have permission to access this page.',
@@ -137,4 +173,11 @@ const authorize = (...roles) => {
   return authorizeRequest;
 };
 
-module.exports = { protect, authorize, isStudentPendingConsent };
+module.exports = {
+  protect,
+  authorize,
+  isStudentPendingConsent,
+  canonicalRole,
+  isSuperadminRole,
+  isAdminRole,
+};

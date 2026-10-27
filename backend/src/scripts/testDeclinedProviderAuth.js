@@ -167,7 +167,7 @@ const main = async () => {
     password: 'correct-password-15',
     role: 'provider',
     organization: 'Rejected Org',
-    isVerified: false,
+    isVerified: true,
     isOnboarded: true,
     status: 'active',
   });
@@ -191,7 +191,7 @@ const main = async () => {
     password: 'correct-password-15',
     role: 'provider',
     organization: 'Final Org',
-    isVerified: false,
+    isVerified: true,
     isOnboarded: true,
     status: 'active',
   });

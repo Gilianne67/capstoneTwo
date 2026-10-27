@@ -96,7 +96,7 @@ const makeUser = async ({ role, emailName, verified = true, status = 'active' })
   const user = await User.create({
     name: `${MARKER} ${emailName}`,
     email: `qa.livehttp.${emailName}.${Date.now()}@example.com`,
-    password: 'Secret1',
+    password: 'Secret1-password',
     role,
     status,
     isOnboarded: true,

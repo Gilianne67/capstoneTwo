@@ -195,7 +195,7 @@ const main = async () => {
     body: {
       name: 'Ava Santos',
       email: 'Ava@Example.com',
-      password: 'password123',
+      password: 'password-12345678',
       role: 'student',
     },
     ip: '127.0.0.1',
@@ -208,7 +208,7 @@ const main = async () => {
     body: {
       name: 'Ava Santos',
       email: 'ava@example.com',
-      password: 'password123',
+      password: 'password-12345678',
       role: 'student',
     },
     ip: '127.0.0.1',
@@ -218,12 +218,13 @@ const main = async () => {
   assert.strictEqual(verificationEmails().length, 0);
 
   const loginBeforeVerification = await invoke(login, {
-    body: { email: 'ava@example.com', password: 'password123' },
+    body: { email: 'ava@example.com', password: 'password-12345678' },
     ip: '127.0.0.1',
     headers: {},
   });
-  assert.strictEqual(loginBeforeVerification.statusCode, 200);
-  assert.ok(loginBeforeVerification.body.token);
+  assert.strictEqual(loginBeforeVerification.statusCode, 403);
+  assert.strictEqual(loginBeforeVerification.body.requiresVerification, true);
+  assert.ok(!loginBeforeVerification.body.token);
 
   const student = storedUser('ava@example.com');
   const onboard = await invoke(handleOnboarding, {
@@ -251,8 +252,8 @@ const main = async () => {
     ip: '127.0.0.1',
     headers: {},
   });
-  assert.strictEqual(duplicateOnboarding.statusCode, 200);
-  assert.strictEqual(duplicateOnboarding.body.emailSent, true);
+  assert.strictEqual(duplicateOnboarding.statusCode, 400);
+  assert.match(duplicateOnboarding.body.message, /already been completed/i);
   assert.strictEqual(verificationEmails().length, 1);
   assert.strictEqual(student.emailVerificationToken, hashToken(firstToken));
 
@@ -283,7 +284,7 @@ const main = async () => {
   assert.strictEqual(student.isVerified, true);
 
   const loginAfterVerification = await invoke(login, {
-    body: { email: 'ava@example.com', password: 'password123' },
+    body: { email: 'ava@example.com', password: 'password-12345678' },
     ip: '127.0.0.1',
     headers: {},
   });
@@ -294,7 +295,7 @@ const main = async () => {
     body: {
       name: 'Ben Cruz',
       email: 'ben@example.com',
-      password: 'password123',
+      password: 'password-12345678',
       role: 'student',
     },
     ip: '127.0.0.1',
@@ -316,7 +317,9 @@ const main = async () => {
     }),
   ]);
   assert.strictEqual(firstRace.statusCode, 200);
-  assert.strictEqual(secondRace.statusCode, 200);
+  assert.strictEqual(secondRace.statusCode, 400);
+  assert.match(secondRace.body.message, /already been completed/i);
+  assert.strictEqual(ben.isOnboarded, true);
   const benEmails = verificationEmails().filter((email) => email.email === 'ben@example.com');
   assert.strictEqual(benEmails.length, 1);
   const benToken = tokenFrom(benEmails[0].verifyUrl);
@@ -369,7 +372,7 @@ const main = async () => {
     body: {
       name: 'Cara Diaz',
       email: 'cara@example.com',
-      password: 'password123',
+      password: 'password-12345678',
       role: 'student',
     },
     ip: '127.0.0.1',
@@ -421,7 +424,7 @@ const main = async () => {
     body: {
       name: 'Diego Ramos',
       email: 'diego@example.com',
-      password: 'password123',
+      password: 'password-12345678',
       role: 'student',
     },
     ip: '127.0.0.1',

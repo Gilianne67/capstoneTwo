@@ -1,14 +1,12 @@
 const Provider = require('../models/Provider');
 const Scholarship = require('../models/Scholarship');
 const SavedMatch = require('../models/SavedMatch');
-const {
-  closeExpiredScholarships
-} = require('../services/scholarshipExpirationService');
+const User = require('../models/User');
+const { closeExpiredScholarships } = require('../services/scholarshipExpirationService');
 const {
   resolveAnalyticsPeriod,
   buildProviderAnalytics,
 } = require('../services/providerAnalyticsService');
-const User = require('../models/User');
 const emailService = require('../utils/emailService');
 const { recordAuditLog } = require('./auditController');
 const {
@@ -206,8 +204,6 @@ exports.getDashboard = async (req, res) => {
 };
 
 // GET /api/v1/provider/analytics
-// Counts and trends for the authenticated provider only.
-// Does not close expired scholarships and does not read a client provider id.
 async function getAnalytics(req, res) {
   try {
     const periodResult = resolveAnalyticsPeriod(req.query, new Date());
@@ -281,11 +277,11 @@ exports.handleOnboarding = async (req, res) => {
       province,
       region,
       repName,
-      fullName, // Fallback key if frontend sends fullName
+      fullName,
       repTitle,
-      jobTitle, // Fallback key if frontend sends jobTitle
+      jobTitle,
       repEmail,
-      workEmail, // Fallback key if frontend sends workEmail
+      workEmail,
       documentType,
     } = req.body;
 
@@ -422,7 +418,7 @@ exports.handleOnboarding = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: 'Verification documents submitted successfully. Account pending admin review.',
-      redirectTo: '/provider/dashboard', // 🚀 Routes provider directly into their module/dashboard
+      redirectTo: '/provider/dashboard',
       provider,
     });
   } catch (error) {

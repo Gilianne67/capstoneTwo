@@ -18,6 +18,7 @@ import ParentConsentPage from './features/public-landing/pages/ParentConsentPage
 import VerifyHoldingPage from './features/public-landing/pages/VerifyHoldingPage';
 import VerifyEmailPage from './features/public-landing/pages/VerifyEmailPage';
 import OnboardingPage from './features/auth/OnboardingPage';
+import ResetPasswordPage from './features/public-landing/pages/ResetPasswordPage';
 
 // Student Module Pages
 import StudentDashboard from './features/student/pages/StudentDashboard';
@@ -59,7 +60,7 @@ function ProtectedRouteGuard({ allowedRoles, children }) {
     );
   }
 
-  // Allow immediate access to onboarding routes & consent verification right after sign-up even if session is pending
+  // Allow immediate access to onboarding routes & consent verification right after sign-up
   const isOnboardingRoute = 
     location.pathname === '/onboarding' || 
     location.pathname === '/provider/onboarding' ||
@@ -81,8 +82,6 @@ function ProtectedRouteGuard({ allowedRoles, children }) {
       return <Navigate to="/consent/verify" replace />;
     }
 
-    // Only apply verification gatekeeper if they are trying to access dashboard/restricted routes, 
-    // not while they are actively filling out onboarding forms.
     if (!isVerified && location.pathname.startsWith('/dashboard') && location.pathname !== holdingPath) {
       if (user.role === 'provider') {
         const targetPath = getRedirectPath(user);
@@ -204,15 +203,14 @@ export default function App() {
             {/* Verification Gatekeeper Public Routes */}
             <Route path="/verify-holding" element={<VerifyHoldingPage />} />
             <Route path="/verify-email/:token" element={<VerifyEmailPage />} />
+            <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
           </Route>
 
           {/* 2. STANDALONE ONBOARDING ROUTES */}
-          {/* Student Onboarding */}
           <Route element={<ProtectedRouteGuard allowedRoles={['student']} />}>
             <Route path="/onboarding" element={<OnboardingPage />} />
           </Route>
 
-          {/* Provider Onboarding & Verification Status */}
           <Route element={<ProtectedRouteGuard allowedRoles={['provider']} />}>
             <Route path="/provider/onboarding" element={<ProviderOnboarding />} />
             <Route path="/provider/pending-approval" element={<PendingApproval />} />
@@ -232,14 +230,8 @@ export default function App() {
                 <Route path="student/profile" element={<StudentProfile />} />
                 <Route path="student/saved" element={<SavedScholarships />} />
                 <Route path="student/notifications" element={<DeadlineAlerts />} />
-                <Route
-                  path="student/alerts"
-                  element={<Navigate to="/dashboard/student/profile" replace />}
-                />
-                <Route
-                  path="student/settings"
-                  element={<Navigate to="/dashboard/student/profile" replace />}
-                />
+                <Route path="student/alerts" element={<Navigate to="/dashboard/student/profile" replace />} />
+                <Route path="student/settings" element={<Navigate to="/dashboard/student/profile" replace />} />
                 <Route path="student/help" element={<HelpCenter />} />
               </Route>
             </Route>
@@ -249,20 +241,11 @@ export default function App() {
               <Route element={<OnboardingGuard />}>
                 <Route path="provider" element={<ProviderDashboard />} />
                 <Route path="provider/listings" element={<ScholarshipListings />} />
-                <Route
-                  path="provider/scholarships/:id"
-                  element={<ScholarshipDetails />}
-                />
+                <Route path="provider/scholarships/:id" element={<ScholarshipDetails />} />
                 <Route path="provider/create" element={<CreateListing />} />
                 <Route path="provider/analytics" element={<PerformanceAnalytics />} />
-                <Route
-                  path="provider/verification"
-                  element={<OrganizationVerification />}
-                />
-                <Route
-                  path="provider/settings"
-                  element={<Navigate to="/dashboard/provider" replace />}
-                />
+                <Route path="provider/verification" element={<OrganizationVerification />} />
+                <Route path="provider/settings" element={<Navigate to="/dashboard/provider" replace />} />
                 <Route path="provider/help" element={<HelpSupport />} />
               </Route>
             </Route>

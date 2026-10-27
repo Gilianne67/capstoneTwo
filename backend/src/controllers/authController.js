@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const dns = require('dns').promises;
 const User = require('../models/User');
 const Provider = require('../models/Provider');
@@ -8,7 +9,9 @@ const {
   blacklistToken,
   registerIssuedToken,
   forgetIssuedToken,
+  revokeUserSessions,
 } = require('../services/tokenService');
+const { MIN_PASSWORD_LENGTH } = require('../utils/passwordPolicy');
 const { recordAuditLog } = require('./auditController');
 const emailService = require('../utils/emailService');
 const {
@@ -27,6 +30,16 @@ const {
 
 // Generic authentication error message to prevent account enumeration
 const GENERIC_AUTH_ERROR = 'Invalid credentials or account temporarily locked. Please try again later.';
+
+// Helper: Safely map lowercase or raw roles to capitalized AuditLog enum values
+const formatAuditRole = (role) => {
+  if (!role) return 'Student';
+  const lower = String(role).toLowerCase();
+  if (lower.includes('admin')) return 'Admin';
+  if (lower.includes('provider')) return 'Provider';
+  if (lower.includes('system')) return 'System';
+  return 'Student';
+};
 
 // Helper: Calculate exponential backoff lockout duration (in milliseconds)
 const calculateLockoutDuration = (attempts) => {
@@ -59,13 +72,13 @@ const sendTokenResponse = async (user, statusCode, res, message, req) => {
   user.password = undefined;
 
   let verificationStatus = 'Approved';
-  let isFinalRejection = false;
+  let isFinalRejectionFlag = false;
   let representativeName = '';
   if (user.role === 'provider') {
     const providerDoc = await Provider.findOne({ userId: user._id });
     if (providerDoc) {
       verificationStatus = providerDoc.verificationStatus;
-      isFinalRejection = Boolean(providerDoc.isFinalRejection);
+      isFinalRejectionFlag = Boolean(providerDoc.isFinalRejection);
       representativeName = String(providerDoc.representative?.name || '').trim();
     }
   }
@@ -80,13 +93,13 @@ const sendTokenResponse = async (user, statusCode, res, message, req) => {
     isVerified: Boolean(user.isVerified),
     status: user.status || 'active',
     verificationStatus,
-    ...(user.role === 'provider' ? { isFinalRejection, representativeName } : {}),
+    ...(user.role === 'provider' ? { isFinalRejection: isFinalRejectionFlag, representativeName } : {}),
   };
 
   if (req) {
     await recordAuditLog({
       actor: user.name || user.email,
-      role: user.role === 'admin' ? 'Admin' : user.role === 'provider' ? 'Provider' : 'Student',
+      role: formatAuditRole(user.role),
       action: 'USER_LOGIN',
       details: `User (${user.email}) authenticated successfully as ${user.role}.`,
       ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
@@ -162,7 +175,11 @@ exports.register = asyncHandler(async (req, res, next) => {
     });
   }
 
-  // 4. Create User Record with isVerified = false & isOnboarded = false (NO Provider Document creation here yet!)
+  if (typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH) {
+    return next(new ErrorResponse(`Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`, 400));
+  }
+
+  // 4. Create User Record with isVerified = false & isOnboarded = false
   const user = await User.create({
     name,
     email: normalizedEmail,
@@ -177,14 +194,14 @@ exports.register = asyncHandler(async (req, res, next) => {
   // 📝 AUDIT LOG: Registration Event
   await recordAuditLog({
     actor: user.name || user.email,
-    role: user.role === 'provider' ? 'Provider' : 'Student',
+    role: formatAuditRole(user.role),
     action: 'USER_REGISTER',
     details: `New ${user.role} account registered (Pending Onboarding): ${user.email}`,
     ipAddress: req.ip || '127.0.0.1',
     severity: 'Info'
   });
 
-  // 🔑 Issue JWT token response immediately so OnboardingPage can authenticate successfully
+  // 🔑 Issue JWT token response immediately
   await sendTokenResponse(user, 201, res, 'Registration successful! Please complete your onboarding profile.', req);
 });
 
@@ -210,7 +227,7 @@ exports.verifyEmail = asyncHandler(async (req, res, next) => {
 
   await recordAuditLog({
     actor: user.email,
-    role: user.role === 'provider' ? 'Provider' : 'Student',
+    role: formatAuditRole(user.role),
     action: 'EMAIL_VERIFIED',
     details: `Email verified successfully for ${user.email}.`,
     ipAddress: req.ip || '127.0.0.1',
@@ -284,53 +301,109 @@ exports.resendVerification = asyncHandler(async (req, res, next) => {
   });
 });
 
-// @desc    Update Typo Email for Unverified Accounts
+// @desc    Update Typo Email for Unverified Accounts (Authenticated & Password-Protected)
 // @route   PUT /api/v1/auth/update-unverified-email
-// @access  Public
+// @access  Private or Semi-Public fallback for unverified holding page
 exports.updateUnverifiedEmail = asyncHandler(async (req, res, next) => {
-  const { oldEmail, newEmail } = req.body;
-  const normalizedOld = oldEmail?.toLowerCase().trim();
-  const normalizedNew = newEmail?.toLowerCase().trim();
-
-  if (!normalizedNew || !(await verifyRealEmailDomain(normalizedNew))) {
-    return next(new ErrorResponse('Please enter a valid, active email address.', 400));
-  }
-
-  const user = await User.findOne({ email: normalizedOld, isVerified: false });
-  if (!user) {
-    return next(new ErrorResponse('Account not found or already verified.', 400));
-  }
-
-  const previousToken = user.emailVerificationToken;
-  const previousExpire = user.emailVerificationExpire;
-  user.email = normalizedNew;
-  await user.save({ validateBeforeSave: false });
-
-  const claimed = await claimVerificationToken(user._id, { force: true });
-  if (!claimed.claimed) {
-    return next(new ErrorResponse('Unable to issue a verification link for this account.', 400));
-  }
-
   try {
-    if (typeof emailService.sendVerificationEmail !== 'function') {
-      throw new Error('Email service configuration error.');
-    }
-    await emailService.sendVerificationEmail(
-      user.email,
-      user.name,
-      buildVerificationUrl(claimed.rawToken)
-    );
-  } catch (err) {
-    console.error('⚠️ Verification email failed after address update:', err.message);
-    await restoreVerificationToken(user._id, claimed.rawToken, previousToken, previousExpire);
-    return next(new ErrorResponse('Email address was updated, but the verification email could not be sent. Please use resend.', 500));
-  }
+    const { password, newEmail, oldEmail } = req.body;
+    const normalizedNew = newEmail ? newEmail.toLowerCase().trim() : '';
 
-  res.status(200).json({
-    success: true,
-    email: user.email,
-    message: 'Email updated successfully and a new verification link has been dispatched.'
-  });
+    // 1. Strict Email Format Validation
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!normalizedNew || !emailRegex.test(normalizedNew)) {
+      return next(new ErrorResponse('Please enter a valid, active email address.', 400));
+    }
+
+    if (!password) {
+      return next(new ErrorResponse('Current password is required to change your email address.', 400));
+    }
+
+    // 2. Safely find user
+    let user = null;
+    if (req.user && req.user.id) {
+      user = await User.findById(req.user.id).select('+password');
+    } else if (oldEmail) {
+      user = await User.findOne({ email: oldEmail.toLowerCase().trim() }).select('+password');
+    }
+
+    if (!user) {
+      return next(new ErrorResponse('User session not found. Please log in again.', 401));
+    }
+
+    if (user.isVerified) {
+      return next(new ErrorResponse('Account is already verified. Email updates must be done through profile settings.', 400));
+    }
+
+    // 3. Check if new email is already taken by ANOTHER user
+    const emailConflict = await User.findOne({ email: normalizedNew });
+    if (emailConflict && emailConflict._id.toString() !== user._id.toString()) {
+      return next(new ErrorResponse('This email address is already registered to another account.', 400));
+    }
+
+    // 4. Re-verify Password Match to prevent hijacking
+    const isMatch = await user.matchPassword(password);
+    if (!isMatch) {
+      await recordAuditLog({
+        actor: user.email,
+        role: formatAuditRole(user.role),
+        action: 'SECURITY_ALERT',
+        details: `Failed email update attempt for ${user.email}: Invalid password provided.`,
+        ipAddress: req.ip || '127.0.0.1',
+        severity: 'Warning'
+      });
+      return next(new ErrorResponse('Incorrect password provided.', 401));
+    }
+
+    // 5. Update Email & Reset Verification State
+    const previousEmail = user.email;
+    const previousToken = user.emailVerificationToken;
+    const previousExpire = user.emailVerificationExpire;
+
+    user.email = normalizedNew;
+    user.isVerified = false;
+    await user.save({ validateBeforeSave: false });
+
+    const claimed = await claimVerificationToken(user._id, { force: true });
+    if (!claimed.claimed) {
+      return next(new ErrorResponse('Unable to issue a verification link for this account.', 400));
+    }
+
+    try {
+      if (typeof emailService.sendVerificationEmail !== 'function') {
+        throw new Error('Email service configuration error.');
+      }
+      await emailService.sendVerificationEmail(
+        user.email,
+        user.name,
+        buildVerificationUrl(claimed.rawToken)
+      );
+    } catch (err) {
+      console.error('⚠️ Verification email failed after address update:', err.message);
+      await restoreVerificationToken(user._id, claimed.rawToken, previousToken, previousExpire);
+      return next(new ErrorResponse('Email address was updated, but the verification email could not be sent. Please use resend.', 500));
+    }
+
+    // 📝 Audit Log
+    await recordAuditLog({
+      actor: user.email,
+      role: formatAuditRole(user.role),
+      action: 'EMAIL_UPDATED',
+      details: `Unverified account email changed from ${previousEmail} to ${user.email}.`,
+      ipAddress: req.ip || '127.0.0.1',
+      severity: 'Info'
+    });
+
+    return res.status(200).json({
+      success: true,
+      email: user.email,
+      message: 'Email updated successfully and a new verification link has been dispatched to your new inbox.'
+    });
+
+  } catch (err) {
+    console.error('🔥 CRITICAL ERROR IN UPDATE_UNVERIFIED_EMAIL:', err);
+    return next(new ErrorResponse(err.message || 'Server error updating email address.', 500));
+  }
 });
 
 // @desc    Login user & return JWT token (Blocks Unverified Accounts)
@@ -346,12 +419,14 @@ exports.login = asyncHandler(async (req, res, next) => {
 
   const normalizedEmail = email.toLowerCase().trim();
 
+  // Find user and select password
   const user = await User.findOne({ email: normalizedEmail }).select('+password');
 
+  // 1. Account Suspended Check
   if (user && user.status === 'suspended') {
     await recordAuditLog({
       actor: user.email,
-      role: user.role || 'System',
+      role: formatAuditRole(user.role),
       action: 'SECURITY_ALERT',
       details: `Suspended user (${user.email}) attempted to log in from IP ${clientIp}.`,
       ipAddress: clientIp,
@@ -361,10 +436,12 @@ exports.login = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse('Your account has been suspended due to security concerns. Please contact support.', 403));
   }
 
+  // 2. Soft/Hard Lockout Check
   if (user && user.lockUntil && user.lockUntil > Date.now()) {
     return next(new ErrorResponse(GENERIC_AUTH_ERROR, 429));
   }
 
+  // 3. Password Match Verification
   if (!user || !(await user.matchPassword(password))) {
     if (user) {
       user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
@@ -418,8 +495,18 @@ exports.login = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse(GENERIC_AUTH_ERROR, 401));
   }
 
-  // 🔒 VERIFICATION GATE: Block sign-in if email is unverified AND account status is not active
-  if (!user.isVerified && user.status !== 'active') {
+  // 🔒 STRICT VERIFICATION GATE
+  const isVerified = user.isVerified ?? user.is_verified ?? false;
+  if (!isVerified) {
+    await recordAuditLog({
+      actor: user.email,
+      role: formatAuditRole(user.role),
+      action: 'LOGIN_BLOCKED',
+      details: `Login blocked for ${user.email}: Email address is not verified. Redirecting to verification holding page.`,
+      ipAddress: clientIp,
+      severity: 'Info'
+    });
+
     return res.status(403).json({
       success: false,
       requiresVerification: true,
@@ -428,6 +515,7 @@ exports.login = asyncHandler(async (req, res, next) => {
     });
   }
 
+  // 4. Check Parental Consent Status (For Students)
   if (user.status === 'pending_consent') {
     await recordAuditLog({
       actor: user.email,
@@ -445,6 +533,7 @@ exports.login = asyncHandler(async (req, res, next) => {
     });
   }
 
+  // 5. Provider Status Check
   if (user.role === 'provider') {
     const providerDoc = await Provider.findOne({ userId: user._id });
     if (isFinalRejection(providerDoc)) {
@@ -456,6 +545,7 @@ exports.login = asyncHandler(async (req, res, next) => {
     }
   }
 
+  // Reset failed login counters on successful authentication
   if (user.failedLoginAttempts > 0 || user.lockUntil) {
     user.failedLoginAttempts = 0;
     user.lockUntil = undefined;
@@ -463,6 +553,7 @@ exports.login = asyncHandler(async (req, res, next) => {
     await user.save({ validateBeforeSave: false });
   }
 
+  // Issue Token Response
   await sendTokenResponse(user, 200, res, 'Login successful', req);
 });
 
@@ -477,13 +568,13 @@ exports.getMe = asyncHandler(async (req, res, next) => {
   }
 
   let verificationStatus = 'Approved';
-  let isFinalRejection = false;
+  let isFinalRejectionFlag = false;
   let representativeName = '';
   if (user.role === 'provider') {
     const providerDoc = await Provider.findOne({ userId: user._id });
     if (providerDoc) {
       verificationStatus = providerDoc.verificationStatus;
-      isFinalRejection = Boolean(providerDoc.isFinalRejection);
+      isFinalRejectionFlag = Boolean(providerDoc.isFinalRejection);
       representativeName = String(providerDoc.representative?.name || '').trim();
     }
   }
@@ -498,7 +589,7 @@ exports.getMe = asyncHandler(async (req, res, next) => {
     isVerified: Boolean(user.isVerified),
     status: user.status || 'active',
     verificationStatus,
-    ...(user.role === 'provider' ? { isFinalRejection, representativeName } : {}),
+    ...(user.role === 'provider' ? { isFinalRejection: isFinalRejectionFlag, representativeName } : {}),
   };
 
   res.status(200).json({
@@ -509,7 +600,7 @@ exports.getMe = asyncHandler(async (req, res, next) => {
 });
 
 // @desc    Logout user & clear cookie
-// @route   GET /api/v1/auth/logout
+// @route   POST /api/v1/auth/logout
 // @access  Private
 exports.logout = asyncHandler(async (req, res, next) => {
   if (req.token) {
@@ -530,7 +621,7 @@ exports.logout = asyncHandler(async (req, res, next) => {
   if (req.user) {
     await recordAuditLog({
       actor: req.user.name || req.user.email,
-      role: req.user.role === 'admin' ? 'Admin' : req.user.role === 'provider' ? 'Provider' : 'Student',
+      role: formatAuditRole(req.user.role),
       action: 'USER_LOGOUT',
       details: `User (${req.user.email}) logged out.`,
       ipAddress: req.ip || '127.0.0.1',
@@ -551,41 +642,136 @@ exports.logout = asyncHandler(async (req, res, next) => {
   });
 });
 
+// @desc    Change the signed-in user's password
+// @route   PUT /api/v1/auth/updatepassword
+// @access  Private
+exports.updatePassword = asyncHandler(async (req, res, next) => {
+  const { currentPassword, newPassword } = req.body || {};
+
+  if (typeof currentPassword !== 'string' || typeof newPassword !== 'string' || !currentPassword || !newPassword) {
+    return next(new ErrorResponse('Current password and new password are required.', 400));
+  }
+
+  if (newPassword.length < MIN_PASSWORD_LENGTH) {
+    return next(new ErrorResponse(`Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`, 400));
+  }
+
+  const userId = req.user && (req.user._id || req.user.id);
+  const user = await User.findById(userId).select('+password');
+
+  if (!user) {
+    return next(new ErrorResponse('User not found.', 404));
+  }
+
+  const matches = await user.matchPassword(currentPassword);
+  if (!matches) {
+    return next(new ErrorResponse('Current password is incorrect.', 401));
+  }
+
+  user.password = newPassword;
+  user.passwordChangedAt = new Date();
+  await user.save();
+
+  const revocation = await revokeUserSessions(user._id);
+  let token;
+  if (typeof user.getSignedJwtToken === 'function') {
+    token = user.getSignedJwtToken();
+    try {
+      await registerIssuedToken(user._id, token);
+    } catch (err) {
+      console.warn('Session index update skipped.');
+    }
+  }
+
+  await recordAuditLog({
+    actor: user.email,
+    role: formatAuditRole(user.role),
+    action: 'PASSWORD_CHANGED',
+    details: revocation.success
+      ? `Password changed for ${user.email}. Previously issued sessions were revoked.`
+      : `Password changed for ${user.email}. Older sessions are rejected from the account record, but Redis revocation was not confirmed (${revocation.reason || 'unknown'}).`,
+    ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+    severity: 'Info'
+  });
+
+  if (!revocation.success) {
+    return res.status(503).json({
+      success: false,
+      message: 'Password was updated. Older sessions are no longer accepted. Redis could not confirm the session blocklist.',
+      token,
+      revocation: {
+        success: false,
+        reason: revocation.reason || 'unknown',
+      },
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: 'Password updated successfully.',
+    token,
+  });
+});
+
 // @desc    Request Password Reset Link
 // @route   POST /api/v1/auth/forgotpassword
 // @access  Public
 exports.forgotPassword = asyncHandler(async (req, res, next) => {
   const { email } = req.body;
+  const normalizedEmail = email ? email.toLowerCase().trim() : '';
 
-  const user = await User.findOne({ email: email.toLowerCase() });
+  const user = await User.findOne({ email: normalizedEmail });
+
   if (!user) {
-    return next(new ErrorResponse('There is no user with that email', 404));
+    await bcrypt.compare('dummyPassword', '$2a$10$abcdefghijklmnopqrstuuu');
+    return res.status(200).json({
+      success: true,
+      message: 'If an account exists with that email, password reset instructions have been dispatched.'
+    });
   }
 
-  const resetToken = crypto.randomBytes(20).toString('hex');
+  const resetToken = crypto.randomBytes(32).toString('hex');
 
   user.resetPasswordToken = crypto
     .createHash('sha256')
     .update(resetToken)
     .digest('hex');
-  user.resetPasswordExpire = Date.now() + 10 * 60 * 1000;
+  user.resetPasswordExpire = Date.now() + 30 * 60 * 1000;
 
   await user.save({ validateBeforeSave: false });
 
+  const clientUrl = 
+    process.env.CLIENT_URL || 
+    (process.env.NODE_ENV === 'production' 
+      ? 'https://iskolarmatch.website' 
+      : 'http://localhost:5173');
+
   await recordAuditLog({
     actor: user.email,
-    role: user.role === 'admin' ? 'Admin' : user.role === 'provider' ? 'Provider' : 'Student',
+    role: formatAuditRole(user.role),
     action: 'PASSWORD_RESET_REQUEST',
     details: `Password reset link requested for ${user.email}`,
     ipAddress: req.ip || '127.0.0.1',
     severity: 'Info'
   });
 
-  console.log(`[PASSWORD RESET LINK]: ${process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password/${resetToken}`);
+  const resetUrl = `${clientUrl}/reset-password/${resetToken}`;
 
-  res.status(200).json({
+  try {
+    if (typeof emailService.sendResetPasswordEmail === 'function') {
+      await emailService.sendResetPasswordEmail(user.email, resetUrl);
+    }
+  } catch (err) {
+    console.error('❌ Password Reset Email Dispatch Failed:', err.message);
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpire = undefined;
+    await user.save({ validateBeforeSave: false });
+    return next(new ErrorResponse('Email could not be sent. Please try again later.', 500));
+  }
+
+  return res.status(200).json({
     success: true,
-    data: 'Email sent',
+    message: 'If an account exists with that email, password reset instructions have been dispatched.'
   });
 });
 
@@ -607,7 +793,13 @@ exports.resetPassword = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse('Invalid or expired password reset token.', 400));
   }
 
-  user.password = req.body.password;
+  const { password } = req.body;
+  if (!password || password.length < MIN_PASSWORD_LENGTH) {
+    return next(new ErrorResponse(`Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`, 400));
+  }
+
+  user.password = password;
+  user.passwordChangedAt = new Date();
   user.resetPasswordToken = undefined;
   user.resetPasswordExpire = undefined;
 
@@ -616,15 +808,38 @@ exports.resetPassword = asyncHandler(async (req, res, next) => {
   user.lastFailedIp = undefined;
 
   await user.save();
+  const revocation = await revokeUserSessions(user._id);
 
   await recordAuditLog({
     actor: user.email,
-    role: user.role === 'admin' ? 'Admin' : user.role === 'provider' ? 'Provider' : 'Student',
+    role: formatAuditRole(user.role),
     action: 'PASSWORD_RESET_COMPLETE',
-    details: `Account unlocked and password reset successfully for ${user.email}.`,
+    details: revocation.success
+      ? `Account unlocked and password reset successfully for ${user.email}. Previously issued sessions were revoked.`
+      : `Password reset for ${user.email}. Older sessions are rejected from the account record, but Redis revocation was not confirmed (${revocation.reason || 'unknown'}).`,
     ipAddress: req.ip || '127.0.0.1',
     severity: 'Info'
   });
+
+  if (!revocation.success) {
+    const token = typeof user.getSignedJwtToken === 'function' ? user.getSignedJwtToken() : undefined;
+    if (token) {
+      try {
+        await registerIssuedToken(user._id, token);
+      } catch (err) {
+        console.warn('Session index update skipped.');
+      }
+    }
+    return res.status(503).json({
+      success: false,
+      message: 'Password was reset. Older sessions are no longer accepted. Redis could not confirm the session blocklist. Sign in with your new password.',
+      token,
+      revocation: {
+        success: false,
+        reason: revocation.reason || 'unknown',
+      },
+    });
+  }
 
   await sendTokenResponse(user, 200, res, 'Password reset successful and account unlocked.', req);
 });

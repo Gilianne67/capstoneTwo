@@ -6,16 +6,16 @@ const {
   updateModerationReport,
 } = require('../controllers/moderationController');
 
-// Auth & Admin Middleware
-const { protect, authorize } = require('../middleware/auth'); 
+const { protect, authorize } = require('../middleware/auth');
 
-// Apply middleware
-router.use(protect);
-router.use(authorize('admin'));
+// Require authentication and admin privileges for all moderation routes
+router.use(protect, authorize('admin', 'super_admin', 'superadmin'));
 
+// GET /api/v1/admin/moderation/reports
 router.route('/reports')
   .get(getModerationReports);
 
+// PATCH /api/v1/admin/moderation/reports/:id
 router.route('/reports/:id')
   .patch(updateModerationReport);
 

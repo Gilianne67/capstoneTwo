@@ -138,7 +138,7 @@ const main = async () => {
     const ownerUser = await User.create({
       name: `${MARKER} Owner`,
       email: `qa.validation.owner.${Date.now()}@example.com`,
-      password: 'Secret1',
+      password: 'Secret1-password',
       role: 'provider',
       status: 'active',
       isOnboarded: true,
@@ -149,7 +149,7 @@ const main = async () => {
     const otherUser = await User.create({
       name: `${MARKER} Other`,
       email: `qa.validation.other.${Date.now()}@example.com`,
-      password: 'Secret1',
+      password: 'Secret1-password',
       role: 'provider',
       status: 'active',
       isOnboarded: true,

@@ -1,9 +1,11 @@
 import axios from 'axios';
 
+axios.defaults.withCredentials = true;
+
 /**
- * Detects environment dynamically based on hostname.
- * - Localhost uses local backend.
- * - Any other domain (Railway/Production) uses the backend Railway URL.
+ * Automatically detects environment based on hostname.
+ * - Localhost / 127.0.0.1 -> Uses local backend (http://localhost:5000)
+ * - Production (iskolarmatch.website) -> Uses production backend (https://api.iskolarmatch.website)
  */
 const isLocal = 
   typeof window !== 'undefined' && 
@@ -11,13 +13,14 @@ const isLocal =
 
 export const DEFAULT_API_BASE_URL = isLocal
   ? 'http://localhost:5000/api/v1'
-  : 'https://iskolarmatch-backend.up.railway.app/api/v1';
+  : 'https://api.iskolarmatch.website/api/v1';
 
 export function resolveApiBaseUrl(configured) {
   const raw = String(configured || DEFAULT_API_BASE_URL).trim();
   return raw.endsWith('/') ? raw.slice(0, -1) : raw;
 }
 
+// Allow manual override via VITE_API_URL environment variable if needed
 const configuredBase =
   typeof import.meta !== 'undefined' && import.meta.env
     ? import.meta.env.VITE_API_URL
@@ -34,6 +37,7 @@ export function apiUrl(path) {
 }
 
 /**
+ * HELPER: Formats any relative URL to point to the correct backend
  * HELPER: Formats any relative URL to point to the backend
  */
 function rewriteUrl(url) {

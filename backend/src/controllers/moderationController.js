@@ -2,6 +2,7 @@ const Report = require('../models/Report');
 const Scholarship = require('../models/Scholarship');
 const searchSync = require('../services/scholarshipSearchSync');
 const matchCache = require('../services/matchCache');
+const { recordAuditLog } = require('./auditController');
 
 const getModerationReports = async (req, res) => {
   try {
@@ -55,6 +56,22 @@ const updateModerationReport = async (req, res) => {
       });
     }
 
+    const followUpErrors = [];
+    const alreadyResolved = Boolean(report.resolvedAt)
+      || ['Resolved', 'Dismissed', 'Closed'].includes(report.status);
+
+    if (alreadyResolved) {
+      const sameStatus = !status || status === report.status;
+      const sameAction = !action || action === report.resolution;
+      if (!sameStatus || !sameAction) {
+        return res.status(409).json({
+          success: false,
+          message: 'This report already has a resolution and cannot be overwritten.',
+          data: report,
+        });
+      }
+    }
+
     if (action === 'REMOVE_LISTING' && report.listingId) {
       const scholarship = await Scholarship.findByIdAndUpdate(
         report.listingId,
@@ -66,22 +83,91 @@ const updateModerationReport = async (req, res) => {
       );
 
       if (scholarship) {
-        await searchSync.syncScholarshipSearch(scholarship);
-        await matchCache.invalidateMatchCache();
+        if (typeof searchSync?.syncScholarshipSearch === 'function') {
+          try {
+            const syncResult = await searchSync.syncScholarshipSearch(scholarship);
+            if (syncResult && syncResult.synchronized === false && syncResult.reason === 'failed') {
+              followUpErrors.push({
+                step: 'searchSync',
+                message: 'Scholarship search synchronization failed.',
+              });
+            }
+          } catch (syncError) {
+            console.error('Scholarship search sync failed during moderation:', syncError.message);
+            followUpErrors.push({
+              step: 'searchSync',
+              message: 'Scholarship search synchronization failed.',
+            });
+          }
+        }
+
+        try {
+          const cacheResult = await matchCache.invalidateMatchCache();
+          if (cacheResult && cacheResult.ok === false && cacheResult.reason === 'redis_write_failed') {
+            followUpErrors.push({
+              step: 'matchCache',
+              message: 'Match cache invalidation failed.',
+            });
+          }
+        } catch (cacheError) {
+          console.error('Match cache invalidation failed during moderation:', cacheError.message);
+          followUpErrors.push({
+            step: 'matchCache',
+            message: 'Match cache invalidation failed.',
+          });
+        }
       }
     }
 
-    report.status = status || 'Resolved';
-    report.resolution = action || report.resolution;
-    report.resolvedAt = new Date();
-    report.resolvedBy = req.user?._id;
-    if (notes) report.adminNotes = notes;
+    if (!alreadyResolved) {
+      report.status = status || 'Resolved';
+      report.resolution = action || report.resolution;
+      report.resolvedAt = new Date();
+      report.resolvedBy = req.user?._id;
+      if (notes) report.adminNotes = notes;
+      await report.save();
+    }
 
-    await report.save();
+    // 📝 AUDIT LOG: Moderation Action Recorded
+    try {
+      const adminActor = req.user 
+        ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
+        : 'Admin User';
+
+      await recordAuditLog({
+        actor: adminActor,
+        role: 'Admin',
+        action: alreadyResolved ? 'MODERATION_REPORT_RETRY' : 'MODERATION_REPORT_RESOLVED',
+        details: alreadyResolved
+          ? `Moderation report ${id} retry repeated action ${report.resolution || action || 'Resolved'} without changing the saved resolution.`
+          : `Moderation report ${id} resolved with action: ${action || 'Resolved'}.`,
+        ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+        severity: 'Info'
+      });
+    } catch (auditErr) {
+      console.error('Moderation audit logging failed:', auditErr.message);
+      followUpErrors.push({
+        step: 'audit',
+        message: 'The moderation audit record could not be saved.',
+      });
+    }
+
+    if (followUpErrors.length > 0) {
+      return res.status(500).json({
+        success: false,
+        message: alreadyResolved
+          ? 'The saved resolution was kept, but a follow-up step failed.'
+          : 'The report was updated, but a follow-up step failed.',
+        errors: followUpErrors,
+        data: report,
+      });
+    }
 
     return res.status(200).json({
       success: true,
-      message: 'Report updated successfully.',
+      message: alreadyResolved
+        ? 'The existing resolution was kept.'
+        : 'Report updated successfully.',
       data: report,
     });
   } catch (error) {
