@@ -36,6 +36,7 @@ import CreateListing from './features/provider/pages/CreateListing';
 import PerformanceAnalytics from './features/provider/pages/PerformanceAnalytics';
 import OrganizationVerification from './features/provider/pages/OrganizationVerification';
 import HelpSupport from './features/provider/pages/HelpSupport';
+import ProviderNotifications from './features/provider/pages/ProviderNotifications';
 import ScholarshipDetails from './features/provider/pages/ScholarshipDetails';
 
 // Admin Module Pages
@@ -248,12 +249,14 @@ export default function App() {
                 <Route path="provider/verification" element={<OrganizationVerification />} />
                 <Route path="provider/settings" element={<Navigate to="/dashboard/provider" replace />} />
                 <Route path="provider/help" element={<HelpSupport />} />
+                <Route path="provider/notifications" element={<ProviderNotifications />} />
               </Route>
             </Route>
 
             {/* ADMIN SECTION */}
             <Route element={<ProtectedRouteGuard allowedRoles={['admin', 'superadmin', 'super_admin']} />}>
               <Route path="admin" element={<AdminDashboard />} />
+              <Route path="admin/scholarships/:id" element={<ScholarshipDetails />} />
               <Route path="admin/verification" element={<VerificationQueue />} />
               <Route path="admin/eligibility-criteria" element={<EligibilityCriterionRequests />} />
               <Route path="admin/moderation" element={<ContentModeration />} />

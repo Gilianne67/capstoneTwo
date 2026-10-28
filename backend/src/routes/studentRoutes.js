@@ -18,6 +18,9 @@ const {
   markNotificationRead,
   markAllNotificationsRead
 } = require('../controllers/notificationController');
+const {
+  createScholarshipReport
+} = require('../controllers/scholarshipReportController');
 
 router.post('/profile', protect, authorize('student'), createProfile);
 router.get('/profile', protect, authorize('student'), getProfile);
@@ -71,6 +74,13 @@ router.patch(
   protect,
   authorize('student'),
   markNotificationRead
+);
+
+router.post(
+  '/scholarships/:scholarshipId/reports',
+  protect,
+  authorize('student'),
+  createScholarshipReport
 );
 
 module.exports = router;

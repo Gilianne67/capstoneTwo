@@ -30,6 +30,11 @@ const reportSchema = new mongoose.Schema(
     category: {
       type: String,
       enum: [
+        'Incorrect or misleading information',
+        'Expired or closed scholarship',
+        'Suspicious or potentially fraudulent listing',
+        'Incorrect eligibility requirements',
+        'Other concern',
         'Scam or Fraud',
         'Inaccurate Information',
         'Expired Listing',
@@ -48,6 +53,21 @@ const reportSchema = new mongoose.Schema(
       maxlength: [1000, 'Reason cannot exceed 1000 characters.'],
     },
 
+    // Optional note from the reporting student
+    details: {
+      type: String,
+      trim: true,
+      maxlength: [1000, 'Additional details cannot exceed 1000 characters.'],
+      default: '',
+    },
+
+    // Mandatory explanation recorded when an admin retains or removes the listing
+    decisionReason: {
+      type: String,
+      trim: true,
+      maxlength: [1000, 'Decision explanation cannot exceed 1000 characters.'],
+    },
+
     // Priority level for admin queue sorting
     severity: {
       type: String,
@@ -58,14 +78,28 @@ const reportSchema = new mongoose.Schema(
     // Moderation status lifecycle
     status: {
       type: String,
-      enum: ['Pending Review', 'Under Investigation', 'Resolved', 'Dismissed'],
+      enum: [
+        'Pending Review',
+        'Under Investigation',
+        'Resolved',
+        'Dismissed',
+        'Retained',
+        'Removed',
+      ],
       default: 'Pending Review',
     },
 
     // Action taken upon resolution
     resolution: {
       type: String,
-      enum: ['NONE', 'DISMISS_REPORT', 'REMOVE_LISTING', 'WARN_USER', 'BAN_USER'],
+      enum: [
+        'NONE',
+        'DISMISS_REPORT',
+        'REMOVE_LISTING',
+        'RETAIN_LISTING',
+        'WARN_USER',
+        'BAN_USER',
+      ],
       default: 'NONE',
     },
 
@@ -94,5 +128,14 @@ const reportSchema = new mongoose.Schema(
 reportSchema.index({ status: 1, createdAt: -1 });
 reportSchema.index({ listingId: 1 });
 reportSchema.index({ reportedBy: 1 });
+reportSchema.index(
+  { reportedBy: 1, listingId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      status: { $in: ['Pending Review', 'Under Investigation'] },
+    },
+  }
+);
 
 module.exports = mongoose.model('Report', reportSchema);

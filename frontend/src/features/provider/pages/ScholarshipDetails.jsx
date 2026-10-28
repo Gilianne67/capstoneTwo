@@ -18,6 +18,7 @@ import {
   Users,
   Scale
 } from 'lucide-react';
+import ReportScholarshipForm from '../../student/components/ReportScholarshipForm';
 
 const STANDARD_ELIGIBILITY_TAGS = [
   '4Ps Beneficiary',
@@ -35,11 +36,15 @@ export default function ScholarshipDetails() {
   const location = useLocation();
   const { user } = useAuth();
   const { id } = useParams();
+  const role = String(user?.role || '').toLowerCase();
+  const isAdminViewer = role === 'admin' || role === 'superadmin' || role === 'super_admin';
   const backPath =
     location.state?.backPath ||
-    (user?.role === 'student'
+    (role === 'student'
       ? '/dashboard/student/matches'
-      : '/dashboard/provider/listings');
+      : isAdminViewer
+        ? '/dashboard/admin/moderation'
+        : '/dashboard/provider/listings');
   const passedScholarship = location.state?.scholarship;
 
   const [scholarship, setScholarship] = useState(null);
@@ -259,6 +264,22 @@ export default function ScholarshipDetails() {
                 </span>
 
               </div>
+
+              {scholarship.adminRemovedAt && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+                  <p className="font-bold">Removed by an administrator</p>
+                  <p className="mt-1">
+                    This listing was removed on {new Date(scholarship.adminRemovedAt).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric'
+                    })}.
+                  </p>
+                  {scholarship.adminRemovalReason ? (
+                    <p className="mt-1">Admin explanation: {scholarship.adminRemovalReason}</p>
+                  ) : null}
+                </div>
+              )}
 
               <h1 className="text-2xl md:text-3xl font-bold text-slate-900">
                 {scholarship.name}
@@ -708,6 +729,13 @@ export default function ScholarshipDetails() {
         </div>
 
       </div>
+
+      {user?.role === 'student' && scholarship?.isArchived !== true && (
+        <ReportScholarshipForm
+          scholarshipId={scholarship._id}
+          scholarshipTitle={scholarship.name}
+        />
+      )}
 
       {/* ===================================== */}
       {/* FOOTER META */}

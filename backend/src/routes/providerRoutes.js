@@ -95,6 +95,12 @@ const {
   createEligibilityCriterionRequest,
 } = require('../controllers/eligibilityCriterionRequestController');
 
+const {
+  getProviderNotifications,
+  getProviderUnreadCount,
+  markProviderNotificationRead,
+} = require('../controllers/providerNotificationController');
+
 // Global Router Authentication Guard
 router.use(protect);
 
@@ -109,6 +115,9 @@ router.get('/profile', getProfile);
 router.put('/profile', updateProfile);
 router.get('/dashboard', getDashboard);
 router.get('/analytics', getAnalytics);
+router.get('/notifications', getProviderNotifications);
+router.get('/notifications/unread-count', getProviderUnreadCount);
+router.patch('/notifications/:id/read', markProviderNotificationRead);
 
 router.get(
   '/eligibility-criterion-requests',

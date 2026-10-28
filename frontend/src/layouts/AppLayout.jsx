@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Bell, LogOut, Loader2, User as UserIcon, WifiOff } from 'lucide-react';
 import Sidebar from '../components/navigation/SideBar';
 import { useAuth } from '../context/AuthContext';
@@ -8,6 +8,7 @@ import { resolveAccountMenuInitial, resolveAccountMenuName } from '../features/a
 
 export default function AppLayout() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const { user, token, loading, logout } = useAuth();
 
@@ -16,6 +17,7 @@ export default function AppLayout() {
 
   // Notifications State
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+  const [providerUnreadCount, setProviderUnreadCount] = useState(0);
 
   // User Menu State
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -24,32 +26,70 @@ export default function AppLayout() {
   const role = user?.role?.toLowerCase() || 'student';
   const isProviderRole = role === 'provider';
 
-  // 3. Notifications Check
+  const isStudentRole = role === 'student';
+
+  // Students share one unread count for the header bell and sidebar dot.
   useEffect(() => {
-    if (!user || !token || isProviderRole) return;
+    if (!user || !token || !isStudentRole) {
+      setUnreadNotificationsCount(0);
+      return undefined;
+    }
 
     let isMounted = true;
     const fetchNotificationBadge = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/notifications/unread-count`, {
+        const res = await fetch(`${API_BASE_URL}/students/notifications/unread-deadline-count`, {
           headers: { Authorization: `Bearer ${token}` },
         });
 
         if (res.ok) {
           const data = await res.json();
-          if (isMounted) setUnreadNotificationsCount(data.count ?? 0);
+          if (isMounted) setUnreadNotificationsCount(Number(data.count) || 0);
         }
       } catch (_err) {
-        // Retain default notification count on API error
+        if (isMounted) setUnreadNotificationsCount(0);
       }
     };
 
     fetchNotificationBadge();
+    window.addEventListener('student-notifications-updated', fetchNotificationBadge);
 
     return () => {
       isMounted = false;
+      window.removeEventListener('student-notifications-updated', fetchNotificationBadge);
     };
-  }, [user, token, isProviderRole]);
+  }, [user, token, isStudentRole, location.pathname]);
+
+  useEffect(() => {
+    if (!user || !token || !isProviderRole) {
+      setProviderUnreadCount(0);
+      return undefined;
+    }
+
+    let isMounted = true;
+    const fetchProviderBadge = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/provider/notifications/unread-count`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted) setProviderUnreadCount(Number(data.count) || 0);
+        }
+      } catch (_err) {
+        if (isMounted) setProviderUnreadCount(0);
+      }
+    };
+
+    fetchProviderBadge();
+    window.addEventListener('provider-notifications-updated', fetchProviderBadge);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('provider-notifications-updated', fetchProviderBadge);
+    };
+  }, [user, token, isProviderRole, location.pathname]);
 
   // 4. Unified Logout Handler
   const handleLogout = async () => {
@@ -68,9 +108,10 @@ export default function AppLayout() {
   const isAdminRole = role === 'admin' || role === 'superadmin' || role === 'super_admin';
   const notificationPath = isAdminRole
     ? '/dashboard/admin/notifications'
-    : role === 'student'
-      ? '/dashboard/student/notifications'
-      : '/dashboard/provider/help';
+    : isProviderRole
+      ? '/dashboard/provider/notifications'
+      : '/dashboard/student/notifications';
+  const activeUnreadCount = isProviderRole ? providerUnreadCount : unreadNotificationsCount;
   const settingsPath = isAdminRole
     ? '/dashboard/admin/settings'
     : role === 'student'
@@ -93,7 +134,7 @@ export default function AppLayout() {
         isCollapsed={isCollapsed}
         setIsCollapsed={setIsCollapsed}
         role={role}
-        session={user}
+        hasUnreadNotifications={isProviderRole ? providerUnreadCount > 0 : isStudentRole && unreadNotificationsCount > 0}
       />
 
       {/* Main Workspace Area */}
@@ -111,19 +152,17 @@ export default function AppLayout() {
 
           {/* Right Header Area - Notifications & User Profile */}
           <div className="flex items-center gap-4">
-            {!isProviderRole && (
-              <button
-                type="button"
-                onClick={() => navigate(notificationPath)}
-                aria-label="View notifications"
-                className="relative p-2 rounded-xl text-slate-500 hover:bg-slate-100 cursor-pointer transition-colors"
-              >
-                <Bell className="h-4 w-4" />
-                {unreadNotificationsCount > 0 && (
-                  <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
-                )}
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => navigate(notificationPath)}
+              aria-label="View notifications"
+              className="relative p-2 rounded-xl text-slate-500 hover:bg-slate-100 cursor-pointer transition-colors"
+            >
+              <Bell className="h-4 w-4" />
+              {activeUnreadCount > 0 && (
+                <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
+              )}
+            </button>
 
             {/* Profile Dropdown Menu */}
             <div className="relative border-l border-slate-200 pl-3">

@@ -32,6 +32,7 @@ const scholarship = (id, overrides = {}) => ({
   description: overrides.description || '',
   status: overrides.status || 'Open',
   isArchived: overrides.isArchived === true,
+  adminRemovedAt: overrides.adminRemovedAt || null,
   deadline: '2026-12-31',
   academicRequirements: [
     { gradingScale: '1.00-5.00', minimumGPA: 2.5 }
@@ -72,6 +73,11 @@ const records = [
   scholarship('archived-it', {
     name: 'Archived Information Technology Grant',
     isArchived: true
+  }),
+  scholarship('admin-removed-it', {
+    name: 'Removed Information Technology Grant',
+    isArchived: false,
+    adminRemovedAt: new Date('2026-10-01T00:00:00.000Z')
   })
 ];
 
@@ -81,6 +87,10 @@ const matchesFilter = (doc, filter) => {
   }
 
   if (filter.isArchived === false && doc.isArchived === true) {
+    return false;
+  }
+
+  if (filter.adminRemovedAt === null && doc.adminRemovedAt) {
     return false;
   }
 
@@ -141,6 +151,7 @@ const runServiceTests = async () => {
   assert.strictEqual(empty.filters.length, 1);
   assert.strictEqual(empty.filters[0].status, 'Open');
   assert.strictEqual(empty.filters[0].isArchived, false);
+  assert.strictEqual(empty.filters[0].adminRemovedAt, null);
   assert.strictEqual(empty.filters[0]._id, undefined);
   assert.deepStrictEqual(
     empty.matches.map((match) => String(match.scholarship._id)),
@@ -163,7 +174,7 @@ const runServiceTests = async () => {
   const keyword = await rankWith({
     query: ' Information Technology ',
     search: async () => ({
-      total: 4,
+      total: records.length,
       hits: records.map((doc) => ({ id: doc._id }))
     })
   });
@@ -172,10 +183,11 @@ const runServiceTests = async () => {
   assert.strictEqual(keyword.searches[0].size, 1000);
   assert.deepStrictEqual(
     keyword.filters[0]._id.$in.map(String),
-    ['eligible-it', 'ineligible-nursing', 'closed-it', 'archived-it']
+    ['eligible-it', 'ineligible-nursing', 'closed-it', 'archived-it', 'admin-removed-it']
   );
   assert.strictEqual(keyword.filters[0].status, 'Open');
   assert.strictEqual(keyword.filters[0].isArchived, false);
+  assert.strictEqual(keyword.filters[0].adminRemovedAt, null);
   assert.deepStrictEqual(
     keyword.matches.map((match) => String(match.scholarship._id)),
     ['eligible-it']

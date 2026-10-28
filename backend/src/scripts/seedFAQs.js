@@ -31,7 +31,7 @@ const initialFAQs = [
     targetRole: 'student',
     category: 'Saved Scholarships',
     question: 'How do deadline alerts work?',
-    answer: 'When you save a scholarship with a deadline, IskolarMatch can create deadline reminders as the due date approaches, including 7-day, 3-day, and 24-hour windows. Open Deadline Alerts to review those reminders and jump back to the listing.'
+    answer: 'When you save a scholarship with a deadline, IskolarMatch can create a reminder 7 days before the due date. Open Deadline Alerts to review that reminder and jump back to the listing.'
   },
   {
     targetRole: 'student',
