@@ -1954,13 +1954,13 @@ Create and edit cases require a **Verified** provider. Use the provider from VER
   1. Submit the custom request.
   2. Submit `Working Student` as if it were new.
   3. Create a scholarship and look for the custom name in its tags.
-- **Expected Result:** The custom request can be saved through `POST /api/v1/provider/eligibility-criterion-requests`. `Working Student` is rejected as already supported. The custom name does not appear as a selectable matching tag and does not change match results. The admin Taxonomy page does not approve it. Taxonomy is prototype-only.
+- **Expected Result:** The custom request can be saved through `POST /api/v1/provider/eligibility-criterion-requests` and starts as Pending. `Working Student` is rejected as already supported. The custom name does not appear as a selectable matching tag and does not change match results, including after an administrator approves the request. Review happens in the admin verification queue, not on the Taxonomy page. Taxonomy remains prototype-only.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** Medium
-- **Test Type:** Negative / Known limitation
+- **Test Type:** Negative / Security
 - **Regression Required?** Full regression
-- **Notes:** Do not expect an admin review screen for these requests. None is routed.
+- **Notes:** Approval does not add the criterion to matching. The requesting provider sees review status, fulfillment status after approval, and any rejection reason. Marking the request Done emails the provider's registered account address.
 
 ---
 

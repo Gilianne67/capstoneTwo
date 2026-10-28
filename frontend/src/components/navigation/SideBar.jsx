@@ -18,6 +18,7 @@ import {
   ChevronLeft, 
   ChevronRight,
   CheckSquare,
+  Tag,
   Tags,
   AlertTriangle,
   Layers,
@@ -168,6 +169,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
         menu: [
           { label: 'Operations Dashboard', path: '/dashboard/admin', icon: LayoutDashboard },
           { label: 'Verification Queue', path: '/dashboard/admin/verification', icon: CheckSquare, badge: 'Pending' },
+          { label: 'Eligibility Criteria', path: '/dashboard/admin/eligibility-criteria', icon: Tag },
           { label: 'Content Moderation', path: '/dashboard/admin/moderation', icon: AlertTriangle },
           { label: 'Taxonomy & Tags', path: '/dashboard/admin/taxonomy', icon: Tags },
           { label: 'Audit & Compliance', path: '/dashboard/admin/audit-log', icon: ShieldCheck },

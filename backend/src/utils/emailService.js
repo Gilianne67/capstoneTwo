@@ -455,6 +455,87 @@ const buildProviderRejectionEmail = ({
   };
 };
 
+const buildEligibilityCriterionCompletedEmail = ({
+  recipientName,
+  criterionName,
+  criterionType,
+  signInUrl,
+} = {}) => {
+  const safeName = escapeHtml(recipientName || 'Provider');
+  const safeCriterion = escapeHtml(criterionName || 'your requested criterion');
+  const safeType = escapeHtml(criterionType || 'eligibility criterion');
+  const safeUrl = escapeHtml(signInUrl || resolveSignInUrl());
+
+  return {
+    subject: 'Your Eligibility Criterion Request Is Complete',
+    text: [
+      `Dear ${recipientName || 'Provider'},`,
+      '',
+      `An administrator marked your eligibility criterion request as done.`,
+      `Criterion: ${criterionName || 'your requested criterion'}`,
+      `Classification: ${criterionType || 'eligibility criterion'}`,
+      '',
+      'Sign in to your provider account to view the request status.',
+      signInUrl || resolveSignInUrl(),
+    ].join('\n'),
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+        <h2 style="color: #064e3b; margin-top: 0;">Your Eligibility Criterion Request Is Complete</h2>
+        <p style="color: #334155; font-size: 14px;">Dear ${safeName},</p>
+        <p style="color: #475569; font-size: 14px; line-height: 1.6;">
+          An administrator marked your eligibility criterion request as done.
+        </p>
+        <p style="color: #475569; font-size: 14px; line-height: 1.6;">
+          <strong>Criterion:</strong> ${safeCriterion}<br />
+          <strong>Classification:</strong> ${safeType}
+        </p>
+        <p style="color: #475569; font-size: 14px; line-height: 1.6;">
+          Sign in to your provider account to view the request status.
+        </p>
+        <div style="text-align: center; margin: 24px 0;">
+          <a href="${safeUrl}" style="background-color: #064e3b; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; font-size: 14px;">Sign In to IskolarMatch</a>
+        </div>
+        <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 24px 0;" />
+        <p style="color: #94a3b8; font-size: 12px; text-align: center;">&copy; ${new Date().getFullYear()} IskolarMatch. All rights reserved.</p>
+      </div>
+    `,
+  };
+};
+
+const sendEligibilityCriterionCompletedEmail = async ({
+  email,
+  recipientName,
+  criterionName,
+  criterionType,
+} = {}) => {
+  try {
+    if (!email) {
+      throw new Error('A registered recipient email is required.');
+    }
+
+    const resend = getResendClient();
+    const message = buildEligibilityCriterionCompletedEmail({
+      recipientName,
+      criterionName,
+      criterionType,
+      signInUrl: resolveSignInUrl(),
+    });
+
+    const response = await resend.emails.send({
+      from: resolveFromAddress('IskolarMatch Support'),
+      to: [email],
+      subject: message.subject,
+      text: message.text,
+      html: message.html,
+    });
+
+    return handleResendResponse(response, 'Eligibility Criterion Completed', email);
+  } catch (error) {
+    console.error('❌ Error sending eligibility criterion completion email:', error.message);
+    throw new Error(`Email delivery failed: ${error.message}`);
+  }
+};
+
 const sendProviderApprovalEmail = async ({ email, recipientName, organizationName } = {}) => {
   try {
     if (!email) {
@@ -525,6 +606,7 @@ module.exports = {
   buildVerificationEmail,
   buildProviderApprovalEmail,
   buildProviderRejectionEmail,
+  buildEligibilityCriterionCompletedEmail,
   sendParentConsentEmail,
   sendVerificationEmail,
   sendAccountLockoutEmail,
@@ -534,4 +616,5 @@ module.exports = {
   sendResetPasswordEmail,
   sendProviderApprovalEmail,
   sendProviderRejectionEmail,
+  sendEligibilityCriterionCompletedEmail,
 };

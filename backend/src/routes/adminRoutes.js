@@ -15,6 +15,11 @@ const {
   updateSystemConfig,
   inviteAdmin,
 } = require('../controllers/adminController');
+const {
+  getEligibilityCriterionRequests,
+  reviewEligibilityCriterionRequest,
+  updateEligibilityCriterionFulfillment,
+} = require('../controllers/eligibilityCriterionRequestController');
 
 // Import auth middleware functions safely
 const authMiddleware = require('../middleware/auth');
@@ -51,6 +56,16 @@ router.get('/verification-queue', getVerifications); // Alias
 
 router.patch('/verifications/:id/status', updateVerificationQueueStatus);
 router.patch('/providers/:id/verification', updateProviderVerification);
+
+router.get('/eligibility-criterion-requests', getEligibilityCriterionRequests);
+router.patch(
+  '/eligibility-criterion-requests/:id/decision',
+  reviewEligibilityCriterionRequest
+);
+router.patch(
+  '/eligibility-criterion-requests/:id/fulfillment',
+  updateEligibilityCriterionFulfillment
+);
 router.patch('/scholarships/:id/status', updateScholarshipStatus);
 router.patch('/parental-consent/:id/status', updateConsentStatus);
 
