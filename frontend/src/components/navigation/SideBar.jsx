@@ -45,6 +45,9 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
   // Mobile drawer state
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
+  const [logoutError, setLogoutError] = useState('');
+  const sessionKey = session?.id || session?._id || '';
+  const refreshUnread = location.pathname.includes('/notifications');
 
   // Close mobile drawer when route changes
   useEffect(() => {
@@ -92,7 +95,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
     return () => {
       isMounted = false;
     };
-  }, [role, session, location.pathname]);
+  }, [role, sessionKey, refreshUnread]);
 
   // Lock body scroll when mobile drawer is open
   useEffect(() => {
@@ -196,8 +199,13 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
   const { menu, general } = getNavSections();
 
   const handleLogout = async () => {
+    setLogoutError('');
+    const result = await logout();
+    if (!result || result.ok === false) {
+      setLogoutError(result?.message || 'Logout could not revoke this session. Please try again.');
+      return;
+    }
     setIsMobileOpen(false);
-    await logout();
     navigate('/auth?mode=signin', { replace: true });
   };
 
@@ -362,6 +370,11 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
             <LogOut className="h-4 w-4 shrink-0" />
             <span className={isCollapsed ? 'md:hidden' : 'block'}>Logout</span>
           </button>
+          {logoutError && (
+            <p className="mt-2 px-1 text-[11px] leading-4 font-semibold text-rose-700" role="alert">
+              {logoutError}
+            </p>
+          )}
         </div>
       </aside>
     </>

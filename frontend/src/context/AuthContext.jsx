@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { resolveRedirectPath } from './redirectPath';
 import { API_BASE_URL } from '../config/api';
+import { interpretLogoutResult } from './logoutResult';
 
 const AuthContext = createContext(null);
 
@@ -52,15 +53,15 @@ export function AuthProvider({ children }) {
         if (res.ok && data.success !== false) {
           setUser(data.data || data.user);
           setToken(activeToken);
-        } else {
-          // Token invalid/expired -> clear state
+        } else if (res.status === 401 || res.status === 403) {
           setUser(null);
           setToken(null);
           localStorage.removeItem('token');
+        } else if (res.status === 429) {
+          console.warn('Session check was rate limited. The saved session was kept.');
         }
       } catch (err) {
         console.error('Session initialization error:', err);
-        setUser(null);
       } finally {
         setLoading(false);
       }
@@ -166,21 +167,34 @@ const resetPassword = async (email) => {
 
   const logout = async () => {
     const activeToken = getCleanToken();
+    let response;
 
     try {
-      await fetch(`${API_BASE_URL}/auth/logout`, {
+      response = await fetch(`${API_BASE_URL}/auth/logout`, {
         method: 'GET',
         headers: activeToken ? { Authorization: `Bearer ${activeToken}` } : {},
         credentials: 'include',
       });
     } catch (err) {
       console.warn('Logout API unreachable.', err);
-    } finally {
-      localStorage.removeItem('token');
-      localStorage.removeItem('iskolar_session');
-      setUser(null);
-      setToken(null);
+      return interpretLogoutResult({ networkError: true });
     }
+
+    let data = {};
+    try {
+      data = await response.json();
+    } catch (err) {
+      data = {};
+    }
+
+    const result = interpretLogoutResult({ ok: response.ok, data });
+    if (!result.clearSession) return result;
+
+    localStorage.removeItem('token');
+    localStorage.removeItem('iskolar_session');
+    setUser(null);
+    setToken(null);
+    return result;
   };
 
   return (

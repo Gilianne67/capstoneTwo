@@ -14,7 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
 import ConfirmModal from '../../../components/common/ConfirmModal';
 import { isProfileComplete } from '../profileCompletion';
-import { API_BASE_URL } from '../../../config/api';
+import { API_BASE_URL, apiErrorText } from '../../../config/api';
 
 const PROFILE_ROUTE = '/dashboard/student/profile';
 const ONBOARDING_ROUTE = '/onboarding';
@@ -151,8 +151,14 @@ export default function MatchFeed() {
         }
 
         if (!response.ok) {
+          let message = 'Unable to load scholarship matches right now.';
+          try {
+            message = apiErrorText(await response.json(), message);
+          } catch {
+            // Keep the fallback when the error body is not JSON.
+          }
           setFeedState('error');
-          setLoadError('Unable to load scholarship matches right now.');
+          setLoadError(message);
           return;
         }
 

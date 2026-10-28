@@ -25,7 +25,7 @@ import BroadcastBanner from '../../../components/common/BroadcastBanner';
 // Create / Edit Listing View Component
 import CreateListing from './CreateListing';
 import { formatDeadlineDate } from '../../../utils/deadline';
-import { API_BASE_URL } from '../../../config/api';
+import { API_BASE_URL, apiErrorText } from '../../../config/api';
 
 export default function ProviderDashboard() {
   const navigate = useNavigate();
@@ -93,13 +93,13 @@ export default function ProviderDashboard() {
 
       if (!dashboardRes.ok) {
         throw new Error(
-          dashboardData.message || 'Failed to load provider dashboard.'
+          apiErrorText(dashboardData, 'Failed to load provider dashboard.')
         );
       }
 
       if (!listingsRes.ok) {
         throw new Error(
-          listingsData.message || 'Failed to load scholarship listings.'
+          apiErrorText(listingsData, 'Failed to load scholarship listings.')
         );
       }
 
@@ -153,7 +153,7 @@ export default function ProviderDashboard() {
 
       if (!res.ok) {
         throw new Error(
-          data.message || 'Status update failed on server.'
+          apiErrorText(data, 'Status update failed on server.')
         );
       }
 
@@ -202,7 +202,15 @@ export default function ProviderDashboard() {
         }
       );
 
-      if (!res.ok) throw new Error('Delete operation failed on server');
+      if (!res.ok) {
+        let message = 'Delete operation failed on server';
+        try {
+          message = apiErrorText(await res.json(), message);
+        } catch {
+          // Keep the fallback when the error body is not JSON.
+        }
+        throw new Error(message);
+      }
       showToast(`"${title}" has been deleted.`, 'success');
       fetchDashboardData();
     } catch (error) {

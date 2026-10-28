@@ -8,6 +8,12 @@ const read = (relativePath) =>
 
 const main = async () => {
   const apiPath = path.resolve(__dirname, '../../../frontend/src/config/api.js');
+  const apiSource = read('../../../frontend/src/config/api.js');
+
+  // The module chooses localhost only when a browser location is localhost.
+  // Node has no window, so the test supplies that location before the import.
+  globalThis.window = { location: { hostname: 'localhost' } };
+
   const api = await import(pathToFileURL(apiPath).href);
 
   assert.strictEqual(api.API_BASE_URL, 'http://localhost:5000/api/v1');
@@ -58,6 +64,9 @@ const main = async () => {
     assert.doesNotMatch(source, /api\.iskolarmatch/);
     assert.doesNotMatch(source, /import\.meta\.env\.VITE_API_URL/);
   });
+
+  assert.match(apiSource, /http:\/\/localhost:5000\/api\/v1/);
+  assert.match(apiSource, /https:\/\/api\.iskolarmatch\.website\/api\/v1/);
 
   console.log('api base url tests passed');
 };

@@ -10,7 +10,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const mongoose = require('mongoose');
 const cookieParser = require('cookie-parser');
-const rateLimit = require('express-rate-limit');
+const { configureTrustProxy, mountRateLimiters } = require('./middleware/rateLimit');
 
 // Load Environment Variables
 dotenv.config({ path: path.join(__dirname, '../.env') });
@@ -18,9 +18,7 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 // Initialize Express Application
 const app = express();
 
-// Enable proxy trust for Railway reverse proxies
-// (Fixes express-rate-limit ERR_ERL_UNEXPECTED_X_FORWARDED_FOR error)
-app.set('trust proxy', 1);
+configureTrustProxy(app);
 
 // Route & Middleware Imports
 const authRoutes = require('./routes/authRoutes');
@@ -37,6 +35,7 @@ const moderationRoutes = require('./routes/moderationRoutes');
 const taxonomyRoutes = require('./routes/taxonomyRoutes');
 const auditRoutes = require('./routes/auditRoutes');
 const { protect } = require('./middleware/auth');
+const { rehydrateRevocations } = require('./services/tokenService');
 const broadcastRoutes = require('./routes/broadcastRoutes');
 const { getActiveUserBroadcasts } = require('./controllers/broadcastController');
 const faqRoutes = require('./routes/faqRoutes');
@@ -52,6 +51,7 @@ const allowedOrigins = [
   process.env.CLIENT_URL,
   process.env.FRONTEND_URL,
   'http://localhost:5173',          // Local Vite dev
+  'http://localhost:5174',          // Vite fallback when 5173 is already in use
   'http://localhost:3000',          // Alternative local port
   'https://iskolarmatch.website',     // Production frontend
   'https://www.iskolarmatch.website'  // Production www alias
@@ -86,13 +86,10 @@ if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
-// Global API Rate Limiter
-const limiter = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 100,
-  message: { success: false, error: 'Too many requests from this IP, please try again later.' },
-});
-app.use('/api/v1', limiter);
+// General traffic is limited per signed-in session, and per IP when anonymous.
+// Login, registration, password changes, and email-sending auth routes also
+// pass through stricter per-IP limiters mounted inside mountRateLimiters.
+mountRateLimiters(app);
 
 // Root Endpoint
 app.get('/', (req, res) => {
@@ -171,8 +168,13 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 
 mongoose
   .connect(MONGO_URI)
-  .then(() => {
+  .then(async () => {
     console.log('✅ Connected to MongoDB successfully.');
+    try {
+      await rehydrateRevocations();
+    } catch (err) {
+      console.error('Revocation cache rehydrate failed.');
+    }
     httpServer = app.listen(PORT, () => {
       console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
     });

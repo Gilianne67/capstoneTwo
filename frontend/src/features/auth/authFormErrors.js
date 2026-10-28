@@ -4,6 +4,10 @@ export function getApiErrorMessage(data, fallback = INVALID_CREDENTIALS_MESSAGE)
   return data?.message || data?.error || fallback;
 }
 
+export function isRateLimitError(error) {
+  return /too many (requests|attempts|email requests)/i.test(String(error?.message || ''));
+}
+
 export function isPendingConsentError(error) {
   const message = String(error?.message || '').toLowerCase();
   return Boolean(
@@ -24,6 +28,13 @@ export function isVerificationDeclinedError(error) {
 }
 
 export function resolveLoginFormMessage(error) {
+  if (isRateLimitError(error)) {
+    return {
+      kind: 'rate-limit',
+      message: error.message,
+    };
+  }
+
   if (isPendingConsentError(error)) {
     return {
       kind: 'consent',

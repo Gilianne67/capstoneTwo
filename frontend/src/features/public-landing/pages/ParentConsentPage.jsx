@@ -21,6 +21,7 @@ export default function ParentConsentPage() {
   
   // Real-time tracking state for View 1 when waiting on status change
   const [isConsentApprovedRealtime, setIsConsentApprovedRealtime] = useState(false);
+  const [pollNotice, setPollNotice] = useState('');
 
   // 1. If token is present, verify it for the Parent Approval Form (View 2)
   useEffect(() => {
@@ -42,31 +43,68 @@ export default function ParentConsentPage() {
       .finally(() => setLoading(false));
   }, [token]);
 
-  // 2. Real-time Polling for View 1: Automatically detect if consent gets approved
+  // 2. Poll the student waiting screen until consent is approved.
+  // A 4-second interval burned the shared API limit by itself (about 150 calls in 10 minutes).
   useEffect(() => {
-    if (token) return; // Only poll on the student waiting screen (no token)
+    if (token) return undefined;
 
-    const checkConsentStatus = async () => {
-      try {
-        const activeToken = localStorage.getItem('token')?.replace(/^"|"$/g, '').trim();
-        if (!activeToken) return;
+    const FIRST_POLL_MS = 3000;
+    const CONSENT_POLL_MS = 15000;
+    let cancelled = false;
+    let timerId;
 
-        const res = await fetch(`${API_BASE_URL}/auth/me`, {
-          headers: { 'Authorization': `Bearer ${activeToken}` }
-        });
-        const data = await res.json();
-
-        if (res.ok && (data.data?.status === 'active' || data.user?.status === 'active')) {
-          setIsConsentApprovedRealtime(true);
-        }
-      } catch (err) {
-        // Silent catch for background poll network flickers
-      }
+    const schedule = (delay) => {
+      timerId = window.setTimeout(run, delay);
     };
 
-    // Poll every 4 seconds
-    const interval = setInterval(checkConsentStatus, 4000);
-    return () => clearInterval(interval);
+    const run = async () => {
+      if (cancelled) return;
+      if (typeof document !== 'undefined' && document.hidden) {
+        schedule(CONSENT_POLL_MS);
+        return;
+      }
+
+      const activeToken = localStorage.getItem('token')?.replace(/^"|"$/g, '').trim();
+      if (!activeToken) {
+        schedule(CONSENT_POLL_MS);
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/auth/me`, {
+          headers: { Authorization: `Bearer ${activeToken}` }
+        });
+
+        if (cancelled) return;
+
+        if (res.status === 429) {
+          const retryAfter = Number(res.headers.get('Retry-After'));
+          const pauseMs = Number.isFinite(retryAfter) && retryAfter > 0
+            ? Math.min(retryAfter * 1000, 15 * 60 * 1000)
+            : 60 * 1000;
+          setPollNotice('Consent status checks are paused because the server asked us to slow down. This page will try again automatically.');
+          schedule(pauseMs);
+          return;
+        }
+
+        const data = await res.json();
+        if (res.ok && (data.data?.status === 'active' || data.user?.status === 'active')) {
+          setPollNotice('');
+          setIsConsentApprovedRealtime(true);
+          return;
+        }
+      } catch {
+        // A brief network flicker should not look like a failed approval.
+      }
+
+      if (!cancelled) schedule(CONSENT_POLL_MS);
+    };
+
+    schedule(FIRST_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timerId);
+    };
   }, [token]);
 
   const handleApprove = async () => {
@@ -152,8 +190,11 @@ export default function ParentConsentPage() {
                   <span>Status: Pending Parental Consent</span>
                 </div>
                 <p className="text-[11px] text-text-muted leading-relaxed">
-                  Once your parent/guardian clicks &quot;Approve Consent&quot; in the email, this screen will update automatically in real time!
+                  Once your parent/guardian clicks &quot;Approve Consent&quot; in the email, this screen will update automatically.
                 </p>
+                {pollNotice && (
+                  <p className="text-[11px] text-amber-800 leading-relaxed">{pollNotice}</p>
+                )}
               </div>
 
               <button

@@ -7,6 +7,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const ErrorResponse = require('../utils/errorResponse');
 const {
   blacklistToken,
+  isTokenBlacklisted,
   registerIssuedToken,
   forgetIssuedToken,
   revokeUserSessions,
@@ -31,7 +32,19 @@ const {
 // Generic authentication error message to prevent account enumeration
 const GENERIC_AUTH_ERROR = 'Invalid credentials or account temporarily locked. Please try again later.';
 
-// Helper: Safely map lowercase or raw roles to capitalized AuditLog enum values
+const unconfirmedSessionMessage = (revocation, lead) => {
+  const reason = revocation && revocation.reason;
+  if (reason === 'redis_unavailable' || reason === 'redis_read_failed' || reason === 'redis_unsupported') {
+    return `${lead} Older sessions are rejected from the account record. The Redis session index could not be read, so sessions stored only in Redis were not confirmed blocklisted.`;
+  }
+  if (reason === 'revocation_store_unavailable') {
+    return `${lead} The durable session record could not be updated, so not every session was confirmed revoked.`;
+  }
+  if (reason === 'partial_failure') {
+    return `${lead} Only some sessions were revoked.`;
+  }
+  return `${lead} Session revocation was not confirmed (${reason || 'unknown'}).`;
+};
 const formatAuditRole = (role) => {
   if (!role) return 'Student';
   const lower = String(role).toLowerCase();
@@ -54,10 +67,18 @@ const calculateLockoutDuration = (attempts) => {
 const sendTokenResponse = async (user, statusCode, res, message, req) => {
   const token = user.getSignedJwtToken ? user.getSignedJwtToken() : user.generateToken?.();
   if (token && user && user._id) {
+    let indexed = { ok: false, reason: 'missing_token', durableRequired: false };
     try {
-      await registerIssuedToken(user._id, token);
+      indexed = await registerIssuedToken(user._id, token);
     } catch (err) {
       console.warn('Session index update skipped.');
+      indexed = { ok: false, reason: 'revocation_store_unavailable', durableRequired: false };
+    }
+    if (indexed && indexed.ok === false && indexed.durableRequired) {
+      return res.status(503).json({
+        success: false,
+        message: 'Sign-in could not record this session for later revocation. Please try again.',
+      });
     }
   }
   const cookieExpireDays = parseInt(process.env.JWT_COOKIE_EXPIRE, 10) || 30;
@@ -603,18 +624,33 @@ exports.getMe = asyncHandler(async (req, res, next) => {
 // @route   POST /api/v1/auth/logout
 // @access  Private
 exports.logout = asyncHandler(async (req, res, next) => {
+  let revocationFailed = false;
+
   if (req.token) {
+    let alreadyRevoked = false;
+    let failureReason = 'revocation_store_unavailable';
     try {
       const revoked = await blacklistToken(req.token);
-      if (revoked && revoked.ok === false && revoked.reason !== 'already_expired') {
-        console.warn('Redis token revocation skipped:', revoked.reason || 'unknown');
+      alreadyRevoked = Boolean(revoked && revoked.ok === true);
+      if (!alreadyRevoked) {
+        failureReason = (revoked && revoked.reason) || failureReason;
+        alreadyRevoked = await isTokenBlacklisted(req.token);
       }
     } catch (err) {
-      console.warn('Redis token revocation skipped:', err.message);
+      failureReason = err.message;
+      try {
+        alreadyRevoked = await isTokenBlacklisted(req.token);
+      } catch (lookupErr) {
+        alreadyRevoked = false;
+      }
+    }
+    if (!alreadyRevoked) {
+      revocationFailed = true;
+      console.warn('Token revocation was not stored:', failureReason);
     }
   }
 
-  if (req.token && req.user) {
+  if (!revocationFailed && req.token && req.user) {
     await forgetIssuedToken(req.user.id || req.user._id, req.token);
   }
 
@@ -623,9 +659,11 @@ exports.logout = asyncHandler(async (req, res, next) => {
       actor: req.user.name || req.user.email,
       role: formatAuditRole(req.user.role),
       action: 'USER_LOGOUT',
-      details: `User (${req.user.email}) logged out.`,
+      details: revocationFailed
+        ? `User (${req.user.email}) logged out, but the session revocation was not stored.`
+        : `User (${req.user.email}) logged out.`,
       ipAddress: req.ip || '127.0.0.1',
-      severity: 'Info'
+      severity: revocationFailed ? 'Warning' : 'Info'
     });
   }
 
@@ -634,6 +672,13 @@ exports.logout = asyncHandler(async (req, res, next) => {
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
   });
+
+  if (revocationFailed) {
+    return res.status(503).json({
+      success: false,
+      message: 'Logout could not revoke this session. Please try again.',
+    });
+  }
 
   res.status(200).json({
     success: true,
@@ -674,34 +719,41 @@ exports.updatePassword = asyncHandler(async (req, res, next) => {
 
   const revocation = await revokeUserSessions(user._id);
   let token;
+  let indexed = { ok: true, durableRequired: false };
   if (typeof user.getSignedJwtToken === 'function') {
     token = user.getSignedJwtToken();
     try {
-      await registerIssuedToken(user._id, token);
+      indexed = await registerIssuedToken(user._id, token);
     } catch (err) {
       console.warn('Session index update skipped.');
+      indexed = { ok: false, reason: 'revocation_store_unavailable', durableRequired: false };
     }
   }
+
+  const issuedUntracked = Boolean(indexed && indexed.ok === false && indexed.durableRequired);
 
   await recordAuditLog({
     actor: user.email,
     role: formatAuditRole(user.role),
     action: 'PASSWORD_CHANGED',
-    details: revocation.success
+    details: revocation.success && !issuedUntracked
       ? `Password changed for ${user.email}. Previously issued sessions were revoked.`
-      : `Password changed for ${user.email}. Older sessions are rejected from the account record, but Redis revocation was not confirmed (${revocation.reason || 'unknown'}).`,
+      : `Password changed for ${user.email}. Older sessions are rejected from the account record. Session revocation was not confirmed (${issuedUntracked ? 'revocation_store_unavailable' : (revocation.reason || 'unknown')}).`,
     ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
     severity: 'Info'
   });
 
-  if (!revocation.success) {
+  if (!revocation.success || issuedUntracked) {
     return res.status(503).json({
       success: false,
-      message: 'Password was updated. Older sessions are no longer accepted. Redis could not confirm the session blocklist.',
-      token,
+      message: unconfirmedSessionMessage(
+        issuedUntracked ? { reason: 'revocation_store_unavailable' } : revocation,
+        'Password was updated.'
+      ),
+      ...(issuedUntracked ? {} : { token }),
       revocation: {
         success: false,
-        reason: revocation.reason || 'unknown',
+        reason: issuedUntracked ? 'revocation_store_unavailable' : (revocation.reason || 'unknown'),
       },
     });
   }
@@ -809,34 +861,41 @@ exports.resetPassword = asyncHandler(async (req, res, next) => {
 
   await user.save();
   const revocation = await revokeUserSessions(user._id);
+  let replacementToken;
+  let indexed = { ok: true, durableRequired: false };
+  if (!revocation.success && typeof user.getSignedJwtToken === 'function') {
+    replacementToken = user.getSignedJwtToken();
+    try {
+      indexed = await registerIssuedToken(user._id, replacementToken);
+    } catch (err) {
+      console.warn('Session index update skipped.');
+      indexed = { ok: false, reason: 'revocation_store_unavailable', durableRequired: false };
+    }
+  }
+  const issuedUntracked = Boolean(indexed && indexed.ok === false && indexed.durableRequired);
 
   await recordAuditLog({
     actor: user.email,
     role: formatAuditRole(user.role),
     action: 'PASSWORD_RESET_COMPLETE',
-    details: revocation.success
+    details: revocation.success && !issuedUntracked
       ? `Account unlocked and password reset successfully for ${user.email}. Previously issued sessions were revoked.`
-      : `Password reset for ${user.email}. Older sessions are rejected from the account record, but Redis revocation was not confirmed (${revocation.reason || 'unknown'}).`,
+      : `Password reset for ${user.email}. Older sessions are rejected from the account record. Session revocation was not confirmed (${issuedUntracked ? 'revocation_store_unavailable' : (revocation.reason || 'unknown')}).`,
     ipAddress: req.ip || '127.0.0.1',
     severity: 'Info'
   });
 
-  if (!revocation.success) {
-    const token = typeof user.getSignedJwtToken === 'function' ? user.getSignedJwtToken() : undefined;
-    if (token) {
-      try {
-        await registerIssuedToken(user._id, token);
-      } catch (err) {
-        console.warn('Session index update skipped.');
-      }
-    }
+  if (!revocation.success || issuedUntracked) {
     return res.status(503).json({
       success: false,
-      message: 'Password was reset. Older sessions are no longer accepted. Redis could not confirm the session blocklist. Sign in with your new password.',
-      token,
+      message: unconfirmedSessionMessage(
+        issuedUntracked ? { reason: 'revocation_store_unavailable' } : revocation,
+        'Password was reset.'
+      ),
+      ...(issuedUntracked ? {} : { token: replacementToken }),
       revocation: {
         success: false,
-        reason: revocation.reason || 'unknown',
+        reason: issuedUntracked ? 'revocation_store_unavailable' : (revocation.reason || 'unknown'),
       },
     });
   }

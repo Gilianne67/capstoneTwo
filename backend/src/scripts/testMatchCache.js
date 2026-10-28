@@ -1161,7 +1161,9 @@ const runControllerTests = async (redis) => {
       {
         params: { id: 'report-1' },
         body: { action: 'NOTE', status: 'Resolved' },
-        user: { _id: 'admin-1' }
+        user: { _id: 'admin-1' },
+        ip: '127.0.0.1',
+        headers: {}
       },
       noteRes
     );
@@ -1173,12 +1175,21 @@ const runControllerTests = async (redis) => {
       moderated.isArchived = true;
       return moderated;
     };
+    const removalReport = {
+      listingId: 'moderated-grant',
+      async save() {
+        return this;
+      }
+    };
+    Report.findById = async () => removalReport;
     const removeRes = mockRes();
     await updateModerationReport(
       {
         params: { id: 'report-1' },
         body: { action: 'REMOVE_LISTING', status: 'Resolved' },
-        user: { _id: 'admin-1' }
+        user: { _id: 'admin-1' },
+        ip: '127.0.0.1',
+        headers: {}
       },
       removeRes
     );

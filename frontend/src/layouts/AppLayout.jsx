@@ -19,6 +19,7 @@ export default function AppLayout() {
 
   // User Menu State
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [logoutError, setLogoutError] = useState('');
 
   // 3. Notifications Check
   useEffect(() => {
@@ -49,7 +50,14 @@ export default function AppLayout() {
 
   // 4. Unified Logout Handler
   const handleLogout = async () => {
-    await logout();
+    setLogoutError('');
+    const result = await logout();
+    if (!result || result.ok === false) {
+      setIsUserMenuOpen(true);
+      setLogoutError(result?.message || 'Logout could not revoke this session. Please try again.');
+      return;
+    }
+    setIsUserMenuOpen(false);
     navigate('/auth?mode=signin', { replace: true });
   };
 
@@ -154,6 +162,11 @@ export default function AppLayout() {
                   >
                     <LogOut className="w-3.5 h-3.5 text-rose-500" /> Sign Out
                   </button>
+                  {logoutError && (
+                    <p className="px-4 py-2 text-[11px] leading-4 font-semibold text-rose-700" role="alert">
+                      {logoutError}
+                    </p>
+                  )}
                 </div>
               )}
             </div>

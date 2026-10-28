@@ -141,7 +141,7 @@ const updateModerationReport = async (req, res) => {
         details: alreadyResolved
           ? `Moderation report ${id} retry repeated action ${report.resolution || action || 'Resolved'} without changing the saved resolution.`
           : `Moderation report ${id} resolved with action: ${action || 'Resolved'}.`,
-        ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+        ipAddress: req.ip || req.headers?.['x-forwarded-for'] || '127.0.0.1',
         severity: 'Info'
       });
     } catch (auditErr) {

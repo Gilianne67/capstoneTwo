@@ -5,9 +5,14 @@ import { useAuth } from '../../../context/AuthContext';
 import { REGIONS, PROVINCES, MUNICIPALITIES } from '../../../data/locationData';
 import {
   EMPTY_ONBOARDING_FORM,
-  mapOnboardingForm,
-  requiresNewVerificationDocument
+  mapOnboardingForm
 } from '../../provider/organizationProfile';
+import {
+  documentErrorAfterSavedDocuments,
+  hasValidSavedVerificationDocuments,
+  planProviderOnboardingDocuments,
+  verificationDocumentFileError
+} from '../../provider/onboardingDocumentValidation';
 import {
   GraduationCap,
   Building2,
@@ -39,6 +44,7 @@ const ProviderOnboarding = () => {
   const [profileLoading, setProfileLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [documentError, setDocumentError] = useState('');
 
   const availableProvinces = useMemo(() => {
     if (!formData.region) return [];
@@ -82,6 +88,7 @@ const ProviderOnboarding = () => {
         });
         setDocType(mapped.documentType);
         setExistingDocuments(mapped.documents);
+        setDocumentError((current) => documentErrorAfterSavedDocuments(current, mapped.documents));
         setRejectionReason(mapped.rejectionReason);
         setIsFinal(mapped.isFinalRejection);
         setIsResubmission(mapped.verificationStatus === 'Rejected' && !mapped.isFinalRejection);
@@ -118,10 +125,11 @@ const ProviderOnboarding = () => {
   };
 
   const handleFileChange = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
     if (error) setError('');
-    if (e.target.files && e.target.files[0]) {
-      setDocumentFile(e.target.files[0]);
-    }
+    setDocumentFile(file);
+    setDocumentError(verificationDocumentFileError(file));
   };
 
   const handleSubmit = async (e) => {
@@ -130,18 +138,24 @@ const ProviderOnboarding = () => {
       setError('Your organization verification was declined and this decision is final.');
       return;
     }
-    if (requiresNewVerificationDocument(existingDocuments, documentFile)) {
-      setError('Please upload a verification document (SEC/DTI/CHED permit or Auth Letter).');
+
+    const documentDecision = planProviderOnboardingDocuments({
+      existingDocuments,
+      file: documentFile,
+    });
+    if (!documentDecision.sendRequest) {
+      setDocumentError(documentDecision.error);
       return;
     }
 
     setLoading(true);
     setError('');
+    setDocumentError('');
 
     const payload = new FormData();
     Object.keys(formData).forEach((key) => payload.append(key, formData[key]));
     payload.append('documentType', docType);
-    if (documentFile) {
+    if (documentDecision.attachFile && documentFile) {
       payload.append('verificationDoc', documentFile);
     }
 
@@ -171,6 +185,8 @@ const ProviderOnboarding = () => {
       setLoading(false);
     }
   };
+
+  const savedDocumentsSatisfyRequirement = hasValidSavedVerificationDocuments(existingDocuments);
 
   return (
     <div className="min-h-screen bg-app-bg text-app-text flex flex-col justify-between relative overflow-hidden pt-20">
@@ -533,7 +549,7 @@ const ProviderOnboarding = () => {
 
                     <div>
                       <label className="block text-xs font-bold text-app-text mb-1.5">
-                        {existingDocuments.length > 0
+                        {savedDocumentsSatisfyRequirement
                           ? 'Replace File (optional, .pdf, .jpg, .png)'
                           : 'Upload File (.pdf, .jpg, .png)'}
                       </label>
@@ -543,17 +559,20 @@ const ProviderOnboarding = () => {
                           id="verificationDoc"
                           accept=".pdf,.png,.jpg,.jpeg"
                           onChange={handleFileChange}
-                          required={existingDocuments.length === 0}
+                          aria-invalid={Boolean(documentError)}
+                          aria-describedby={documentError ? 'verification-doc-error' : undefined}
                           className="hidden"
                         />
                         <label
                           htmlFor="verificationDoc"
-                          className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-app-bg border border-app-text/10 text-xs text-text-muted hover:border-emerald-800 cursor-pointer transition-colors"
+                          className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-app-bg border text-xs text-text-muted hover:border-emerald-800 cursor-pointer transition-colors ${
+                            documentError ? 'border-rose-500' : 'border-app-text/10'
+                          }`}
                         >
                           <span className="truncate pr-2">
                             {documentFile
                               ? documentFile.name
-                              : existingDocuments.length > 0
+                              : savedDocumentsSatisfyRequirement
                                 ? 'Keep current file or choose a replacement...'
                                 : 'Choose official file...'}
                           </span>
@@ -562,6 +581,17 @@ const ProviderOnboarding = () => {
                       </div>
                     </div>
                   </div>
+
+                  {documentError && (
+                    <div
+                      id="verification-doc-error"
+                      role="alert"
+                      className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-center gap-2.5 text-xs text-rose-600"
+                    >
+                      <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+                      <span>{documentError}</span>
+                    </div>
+                  )}
                 </fieldset>
 
                 {/* Submit Action */}
