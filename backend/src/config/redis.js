@@ -59,7 +59,7 @@ redisClient.on('connect', () => {
     }
   } catch (err) {
     if (err?.code === 'ECONNREFUSED') {
-      console.warn('⚠️ Local Redis not detected. Running backend in fail-open mode.');
+      console.warn('⚠️ Local Redis not detected. Match cache and the session index are unavailable. Token revocation uses the database when it is connected.');
     }
   }
 })();

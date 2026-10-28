@@ -1954,13 +1954,13 @@ Create and edit cases require a **Verified** provider. Use the provider from VER
   1. Submit the custom request.
   2. Submit `Working Student` as if it were new.
   3. Create a scholarship and look for the custom name in its tags.
-- **Expected Result:** The custom request can be saved through `POST /api/v1/provider/eligibility-criterion-requests`. `Working Student` is rejected as already supported. The custom name does not appear as a selectable matching tag and does not change match results. The admin Taxonomy page does not approve it. Taxonomy is prototype-only.
+- **Expected Result:** The custom request can be saved through `POST /api/v1/provider/eligibility-criterion-requests` and starts as Pending. `Working Student` is rejected as already supported. The custom name does not appear as a selectable matching tag and does not change match results, including after an administrator approves the request. Review happens in the admin verification queue, not on the Taxonomy page. Taxonomy remains prototype-only.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** Medium
-- **Test Type:** Negative / Known limitation
+- **Test Type:** Negative / Security
 - **Regression Required?** Full regression
-- **Notes:** Do not expect an admin review screen for these requests. None is routed.
+- **Notes:** Approval does not add the criterion to matching. The requesting provider sees review status, fulfillment status after approval, and any rejection reason. Marking the request Done emails the provider's registered account address.
 
 ---
 
@@ -3978,16 +3978,16 @@ These cases are API-focused. UI redirects for the same rules are in Authenticati
 - **Feature:** Rate limit
 - **Test Scenario:** The API limit responds after too many calls.
 - **Preconditions:** A tester is allowed to generate traffic against the local API. Do not run this against a shared staging server during a demo.
-- **Test Data:** More than 100 requests to `/api/v1/health` within 10 minutes from one IP.
+- **Test Data:** More anonymous `GET /api/v1/health` requests than the general limit in 15 minutes from one IP. Development allows 1500. Production allows 600. `RATE_LIMIT_MAX` overrides either default.
 - **Steps:**
-  1. Send 101 `GET /api/v1/health` requests quickly.
-- **Expected Result:** A later request returns `429` or the limiter JSON `Too many requests from this IP, please try again later.` Earlier requests still return `200`.
+  1. Send one more than that limit of `GET /api/v1/health` requests quickly, with no auth token.
+- **Expected Result:** A later request returns `429`, `Retry-After`, and JSON `Too many requests, please try again later.` Earlier requests still return `200`. Login and forgot-password stay on their own stricter per-IP limits.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** Low
 - **Test Type:** Security
 - **Regression Required?** Module-only
-- **Notes:** Skip on shared staging if it would lock the team out for 10 minutes. The limit is 100 requests per 10 minutes for `/api/v1`.
+- **Notes:** Skip on shared staging. Anonymous `/api/v1` traffic is limited per IP. Signed-in traffic is limited per session. Login/registration/password routes allow 100 requests per 15 minutes per IP in production. Forgot-password and resend-verification allow 10. Development defaults are higher. See `backend/src/middleware/rateLimit.js`.
 
 ### SEC-011
 

@@ -225,7 +225,7 @@ exports.updateProviderVerification = asyncHandler(async (req, res, next) => {
   const recipientEmail = await resolveRegisteredAccountEmail(
     provider.userId,
     (userId) => User.findById(userId)
-  ) || provider.representative?.workEmail || provider.contactEmail;
+  );
 
   const recipientName = getUserField(provider.userId, 'name')
     || (provider.representative && provider.representative.name)
@@ -486,7 +486,16 @@ const publicRevocation = (revocation) => ({
 
 const suspensionMessage = (revocation) => {
   if (!revocation.success) {
-    return 'Account status was updated to suspended, but one or more session revocations failed.';
+    if (revocation.reason === 'redis_unavailable' || revocation.reason === 'redis_read_failed' || revocation.reason === 'redis_unsupported') {
+      return 'Account status was updated to suspended. Active sessions are rejected while the account stays suspended. The Redis session index could not be read, so sessions stored only in Redis were not blocklisted.';
+    }
+    if (revocation.reason === 'revocation_store_unavailable') {
+      return 'Account status was updated to suspended. The durable session record could not be updated, so revocation of every session was not confirmed.';
+    }
+    if (revocation.reason === 'partial_failure') {
+      return 'Account status was updated to suspended, but only some sessions were revoked.';
+    }
+    return 'Account status was updated to suspended, but session revocation was not confirmed.';
   }
   if (revocation.reason === 'no_tracked_sessions') {
     return 'Account status updated to suspended. No tracked sessions were found to revoke.';

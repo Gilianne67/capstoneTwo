@@ -91,6 +91,7 @@ const {
 
 const {
   getMyEligibilityCriterionRequests,
+  getMyEligibilityCriterionRequest,
   createEligibilityCriterionRequest,
 } = require('../controllers/eligibilityCriterionRequestController');
 
@@ -121,6 +122,13 @@ router.post(
   protect,
   authorize('provider'),
   createEligibilityCriterionRequest
+);
+
+router.get(
+  '/eligibility-criterion-requests/:id',
+  protect,
+  authorize('provider'),
+  getMyEligibilityCriterionRequest
 );
 
 module.exports = router;

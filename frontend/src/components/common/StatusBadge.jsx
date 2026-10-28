@@ -8,6 +8,8 @@ const STATUS_VARIANTS = {
   
   pending: 'bg-amber-50 text-amber-700 border-amber-200',
   pending_review: 'bg-amber-50 text-amber-700 border-amber-200',
+  in_progress: 'bg-sky-50 text-sky-700 border-sky-200',
+  done: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   under_review: 'bg-amber-50 text-amber-700 border-amber-200',
   submitted: 'bg-amber-50 text-amber-700 border-amber-200',
   

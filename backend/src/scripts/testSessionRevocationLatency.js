@@ -3,6 +3,7 @@
  * Uses a real Redis database 15 on localhost. Does not flush Redis.
  */
 const { execFile } = require('child_process');
+const crypto = require('crypto');
 const Module = require('module');
 const jwt = require('jsonwebtoken');
 const { createClient } = require('redis');
@@ -11,6 +12,7 @@ const secret = process.env.JWT_SECRET || 'session-revocation-latency-secret';
 process.env.JWT_SECRET = secret;
 const TRIALS = 10;
 const LIMIT_MS = 500;
+const blockKey = (token) => `bl_${crypto.createHash('sha256').update(token).digest('hex')}`;
 const keysToDelete = new Set();
 
 const exec = (command, args) =>
@@ -157,7 +159,9 @@ const main = async () => {
   const auditController = require('../controllers/auditController');
   const { updateUserAccountStatus } = require('../controllers/adminController');
   const { registerIssuedToken, isTokenBlacklisted } = require('../services/tokenService');
+  const { installMemoryRevocationStore } = require('./revocationStoreStub');
   const { protect } = require('../middleware/auth');
+  installMemoryRevocationStore();
 
   const users = new Map();
   User.findById = (id) => {
@@ -207,8 +211,8 @@ const main = async () => {
         { expiresIn: '10m', jwtid: `${id}-b` }
       );
       keysToDelete.add(`auth:sessions:${id}`);
-      keysToDelete.add(`bl_${tokenA}`);
-      keysToDelete.add(`bl_${tokenB}`);
+      keysToDelete.add(blockKey(tokenA));
+      keysToDelete.add(blockKey(tokenB));
 
       const registeredA = await registerIssuedToken(id, tokenA);
       const registeredB = await registerIssuedToken(id, tokenB);
@@ -257,8 +261,8 @@ const main = async () => {
       const proxyMs = user.statusChangedAt && acks.length
         ? Number(acks[acks.length - 1] - user.statusChangedAt) / 1e6
         : null;
-      const confirmedA = (await client.get(`bl_${tokenA}`)) === 'true';
-      const confirmedB = (await client.get(`bl_${tokenB}`)) === 'true';
+      const confirmedA = (await client.get(blockKey(tokenA))) === 'true';
+      const confirmedB = (await client.get(blockKey(tokenB))) === 'true';
       const measurementAgrees = typeof handlerMs === 'number'
         && typeof proxyMs === 'number'
         && Math.abs(handlerMs - proxyMs) <= 50;
@@ -319,7 +323,7 @@ const main = async () => {
       { expiresIn: '10m', jwtid: `${otherId}-keep` }
     );
     keysToDelete.add(`auth:sessions:${otherId}`);
-    keysToDelete.add(`bl_${otherToken}`);
+    keysToDelete.add(blockKey(otherToken));
     await registerIssuedToken(otherId, otherToken);
     const otherAccess = await run(protect, {
       method: 'GET',

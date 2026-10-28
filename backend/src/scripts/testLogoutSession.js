@@ -30,6 +30,9 @@ const { logout } = require('../controllers/authController');
 const { isTokenBlacklisted } = require('../services/tokenService');
 const { protect } = require('../middleware/auth');
 const authRoutes = require('../routes/authRoutes');
+const { installMemoryRevocationStore } = require('./revocationStoreStub');
+
+installMemoryRevocationStore();
 
 const secret = process.env.JWT_SECRET || 'fallback_secret';
 
@@ -163,18 +166,28 @@ const main = async () => {
   const read = (relativePath) =>
     fs.readFileSync(path.resolve(__dirname, relativePath), 'utf8');
   const authContext = read('../../../frontend/src/context/AuthContext.jsx');
+  const logoutResult = read('../../../frontend/src/context/logoutResult.js');
   const sidebar = read('../../../frontend/src/components/navigation/SideBar.jsx');
   const layout = read('../../../frontend/src/layouts/AppLayout.jsx');
   const app = read('../../../frontend/src/App.jsx');
 
   assert.match(authContext, /method:\s*'GET'/);
   assert.match(authContext, /\/auth\/logout/);
+  assert.match(authContext, /interpretLogoutResult/);
+  assert.match(authContext, /if \(!result\.clearSession\) return result;/);
+  assert.match(logoutResult, /clearSession: false/);
+  assert.match(logoutResult, /Logout could not revoke this session/);
+  assert.match(logoutResult, /You are still signed in/);
   assert.match(authContext, /setUser\(null\)/);
   assert.match(authContext, /setToken\(null\)/);
   assert.match(authContext, /localStorage\.removeItem\('token'\)/);
   assert.match(sidebar, /await logout\(\)/);
+  assert.match(sidebar, /result\.ok === false/);
+  assert.match(sidebar, /role="alert"/);
   assert.doesNotMatch(sidebar, /localStorage\.removeItem\('token'\)/);
   assert.match(layout, /await logout\(\)/);
+  assert.match(layout, /result\.ok === false/);
+  assert.match(layout, /role="alert"/);
   assert.doesNotMatch(layout, /\/api\/v1\/auth\/logout/);
   assert.match(layout, /\/auth\?mode=signin/);
   assert.match(app, /if \(!user\)/);

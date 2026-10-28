@@ -41,6 +41,7 @@ import ScholarshipDetails from './features/provider/pages/ScholarshipDetails';
 // Admin Module Pages
 import AdminDashboard from './features/admin/pages/AdminDashboard';
 import VerificationQueue from './features/admin/pages/VerificationQueue';
+import EligibilityCriterionRequests from './features/admin/pages/EligibilityCriterionRequests';
 import ContentModeration from './features/admin/pages/ContentModeration';
 import TaxonomyTags from './features/admin/pages/TaxonomyTags';
 import AuditCompliance from './features/admin/pages/AuditCompliance';
@@ -254,6 +255,7 @@ export default function App() {
             <Route element={<ProtectedRouteGuard allowedRoles={['admin', 'superadmin', 'super_admin']} />}>
               <Route path="admin" element={<AdminDashboard />} />
               <Route path="admin/verification" element={<VerificationQueue />} />
+              <Route path="admin/eligibility-criteria" element={<EligibilityCriterionRequests />} />
               <Route path="admin/moderation" element={<ContentModeration />} />
               <Route path="admin/taxonomy" element={<TaxonomyTags />} />
               <Route path="admin/audit-log" element={<AuditCompliance />} />

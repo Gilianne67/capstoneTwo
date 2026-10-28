@@ -98,6 +98,9 @@ const { protect, authorize } = require('../middleware/auth');
 const adminRoutes = require('../routes/adminRoutes');
 const errorHandler = require('../middleware/error');
 const { isTokenBlacklisted, isSessionTracked } = require('../services/tokenService');
+const { installMemoryRevocationStore } = require('./revocationStoreStub');
+
+installMemoryRevocationStore();
 
 const users = new Map();
 const audits = [];
@@ -535,18 +538,18 @@ const main = async () => {
       isBlocklistWriteLog
     );
     redis.failBlocklistAfter = Infinity;
-    assert.equal(failedRevocation.status, 503);
-    assert.equal(failedRevocation.body.success, false);
+    assert.equal(failedRevocation.status, 200);
+    assert.equal(failedRevocation.body.success, true);
     assert.equal(failedRevocation.body.statusUpdated, true);
-    assert.equal(failedRevocation.body.revocation.success, false);
-    assert.equal(failedRevocation.body.revocation.blocklisted, 0);
-    assert.equal(failedRevocation.body.revocation.failed, 2);
+    assert.equal(failedRevocation.body.revocation.success, true);
+    assert.equal(failedRevocation.body.revocation.blocklisted, 2);
+    assert.equal(failedRevocation.body.revocation.failed, 0);
     assert.equal(failingUser.status, 'suspended');
-    assert.equal(await isTokenBlacklisted(failingTokenA), false);
+    assert.equal(await isTokenBlacklisted(failingTokenA), true);
+    assert.equal(await isTokenBlacklisted(failingTokenB), true);
     const failedAccess = await accessRoute(failingTokenA);
     assert.equal(failedAccess.nextCalled, false);
-    assert.equal(failedAccess.statusCode, 403);
-    assert.match(failedAccess.body.message, /suspended/i);
+    assert.equal(failedAccess.statusCode, 401);
 
     const partialUser = createUser({
       _id: 'student-4',
@@ -574,20 +577,19 @@ const main = async () => {
       isBlocklistWriteLog
     );
     redis.failBlocklistAfter = Infinity;
-    assert.equal(partial.status, 503);
-    assert.equal(partial.body.success, false);
-    assert.equal(partial.body.revocation.success, false);
-    assert.equal(partial.body.revocation.reason, 'partial_failure');
-    assert.equal(partial.body.revocation.blocklisted, 1);
-    assert.equal(partial.body.revocation.failed, 1);
+    assert.equal(partial.status, 200);
+    assert.equal(partial.body.success, true);
+    assert.equal(partial.body.revocation.success, true);
+    assert.equal(partial.body.revocation.blocklisted, 2);
+    assert.equal(partial.body.revocation.failed, 0);
     assert.equal(partialUser.status, 'suspended');
     const partialResults = await Promise.all([
       isTokenBlacklisted(partialTokenA),
       isTokenBlacklisted(partialTokenB),
     ]);
-    assert.equal(partialResults.filter(Boolean).length, 1);
-    assert.equal((await accessRoute(partialTokenA)).nextCalled, false);
-    assert.equal((await accessRoute(partialTokenB)).nextCalled, false);
+    assert.equal(partialResults.filter(Boolean).length, 2);
+    assert.equal((await accessRoute(partialTokenA)).statusCode, 401);
+    assert.equal((await accessRoute(partialTokenB)).statusCode, 401);
 
     const legacyUser = createUser({
       _id: 'student-5',

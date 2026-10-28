@@ -22,7 +22,7 @@ import { useAuth } from '../../../context/AuthContext';
 import ConfirmModal from '../../../components/common/ConfirmModal';
 import BroadcastBanner from '../../../components/common/BroadcastBanner';
 
-import { API_BASE_URL } from '../../../config/api';
+import { API_BASE_URL, apiErrorText } from '../../../config/api';
 
 const getCleanToken = (contextToken) => {
   const rawToken = contextToken || localStorage.getItem('token');
@@ -208,9 +208,18 @@ export default function StudentDashboard() {
           setMatchesError('Unable to load scholarship matches right now.');
         }
       } else {
+        let message = 'Unable to load scholarship matches right now.';
+        if (matchesResult.status === 'fulfilled') {
+          try {
+            const data = await matchesResult.value.json();
+            message = apiErrorText(data, message);
+          } catch {
+            // Keep the fallback when the error body is not JSON.
+          }
+        }
         setWeightedMatches([]);
         setMatchCount(0);
-        setMatchesError('Unable to load scholarship matches right now.');
+        setMatchesError(message);
       }
 
       if (

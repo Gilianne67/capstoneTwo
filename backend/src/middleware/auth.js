@@ -34,7 +34,11 @@ const protect = async (req, res, next) => {
       .json({ success: false, message: 'Please log in to continue.' });
   }
 
-  // Safe check for token revocation (Redis / Blacklist)
+  // Revocation is a cache lookup plus the durable token hash. A failed
+  // lookup must not be treated as "not revoked", but account-status checks
+  // below still run so a known suspended or password-changed session is
+  // rejected for that reason.
+  let revocationVerified = true;
   try {
     const isBlacklistedFn =
       typeof tokenService === 'function'
@@ -43,7 +47,7 @@ const protect = async (req, res, next) => {
 
     if (typeof isBlacklistedFn === 'function') {
       const blacklisted = await isBlacklistedFn(token);
-      if (blacklisted) {
+      if (blacklisted && !isLogoutRequest(req)) {
         return res.status(401).json({
           success: false,
           message: 'Your session has been revoked. Please log in again.',
@@ -51,7 +55,8 @@ const protect = async (req, res, next) => {
       }
     }
   } catch (err) {
-    console.warn('Blacklist check skipped:', err.message);
+    revocationVerified = false;
+    console.warn('Token revocation could not be verified.');
   }
 
   try {
@@ -71,8 +76,7 @@ const protect = async (req, res, next) => {
 
     // passwordChangedAt is stored in milliseconds. JWT iat only has second
     // precision, so a token from the same UTC second is accepted only when it
-    // carries this exact cutoff. Redis revocation stays fail-open above.
-    // Logout stays available.
+    // carries this exact cutoff. Logout stays available.
     if (req.user.passwordChangedAt && !isLogoutRequest(req)) {
       const changedAtMs = new Date(req.user.passwordChangedAt).getTime();
       const tokenChangedAt = Number(decoded.passwordChangedAt);
@@ -86,8 +90,7 @@ const protect = async (req, res, next) => {
 
     // Suspension is read from the persisted account, not the JWT claim and
     // not Redis. Logout stays available so the presented token can still be
-    // blocklisted. The blocklist check above remains fail-open when Redis is
-    // down; this status check is fail-closed for suspended accounts.
+    // recorded as revoked.
     if (req.user.status === 'suspended' && !isLogoutRequest(req)) {
       return res.status(403).json({
         success: false,
@@ -106,6 +109,13 @@ const protect = async (req, res, next) => {
           message: declinedProviderLoginMessage(provider),
         });
       }
+    }
+
+    if (!revocationVerified && !isLogoutRequest(req)) {
+      return res.status(503).json({
+        success: false,
+        message: 'Session revocation could not be verified. Please try again shortly.',
+      });
     }
 
     req.token = token;

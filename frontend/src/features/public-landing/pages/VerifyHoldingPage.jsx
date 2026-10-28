@@ -48,7 +48,7 @@ export default function VerifyHoldingPage() {
       setMessage(response.data?.message || 'A verification link has been dispatched to your email.');
       setResendCooldown(60); // 60s cooldown
     } catch (err) {
-      setError(err?.response?.data?.message || 'Failed to dispatch verification link. Please try again.');
+      setError(err?.response?.data?.message || err?.response?.data?.error || 'Failed to dispatch verification link. Please try again.');
     } finally {
       setIsLoading(false);
     }

@@ -388,7 +388,9 @@ const runControllerTests = async () => {
     {
       params: { id: 'report-1' },
       body: { action: 'REMOVE_LISTING', status: 'Resolved' },
-      user: { _id: 'admin-1' }
+      user: { _id: 'admin-1' },
+      ip: '127.0.0.1',
+      headers: {}
     },
     moderationRes
   );

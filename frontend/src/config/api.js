@@ -31,6 +31,11 @@ export const API_BASE_URL = resolveApiBaseUrl(configuredBase);
 /** Host for paths that already include /api/v1, such as stored document URLs. */
 export const API_ORIGIN = API_BASE_URL.replace(/\/api\/v1$/, '');
 
+export function apiErrorText(data, fallback) {
+  const message = data?.message || data?.error;
+  return message ? String(message) : fallback;
+}
+
 export function apiUrl(path) {
   const normalized = String(path || '').replace(/^\//, '');
   return `${API_BASE_URL}/${normalized}`;

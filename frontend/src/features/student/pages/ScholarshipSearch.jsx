@@ -26,7 +26,7 @@ import {
 import { useAuth } from '../../../context/AuthContext';
 import ConfirmModal from '../../../components/common/ConfirmModal';
 import { isProfileComplete } from '../profileCompletion';
-import { API_BASE_URL } from '../../../config/api';
+import { API_BASE_URL, apiErrorText } from '../../../config/api';
 
 const PROFILE_ROUTE = '/dashboard/student/profile';
 const ONBOARDING_ROUTE = '/onboarding';
@@ -346,7 +346,7 @@ export default function ScholarshipSearch() {
             try {
               const data = await matchesRes.value.json();
               if (data?.code === 'SEARCH_UNAVAILABLE') unavailable = true;
-              if (data?.message) message = data.message;
+              message = apiErrorText(data, message);
             } catch {
               // Keep the default message when the error body is not JSON.
             }

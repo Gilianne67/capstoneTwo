@@ -66,7 +66,7 @@ export default function CreateListing({ onBack, onSuccess, initialData = null })
   const [criterionRequests, setCriterionRequests] = useState([]);
   const [criterionRequestForm, setCriterionRequestForm] = useState({
     criterionName: '',
-    criterionType: 'Required Eligibility',
+    criterionType: 'Preferred Tag',
     description: ''
   });
   const [criterionRequestError, setCriterionRequestError] = useState(null);
@@ -366,7 +366,7 @@ useEffect(() => {
   const openCriterionRequestModal = () => {
     setCriterionRequestForm({
       criterionName: '',
-      criterionType: 'Required Eligibility',
+      criterionType: 'Preferred Tag',
       description: ''
     });
     setCriterionRequestError(null);
@@ -1365,7 +1365,7 @@ const handleSuccessClose = () => {
           Don't see the eligibility criterion you need?
         </p>
         <p className="text-[11px] text-slate-500 mt-0.5">
-          Request a new criterion for administrator review. Requests stay pending until reviewed and are not used for matching.
+          Request a Preferred, Exclusive, or Hard Eligibility tag. The request starts as Pending, stays visible on this account, and is not used for matching.
         </p>
       </div>
       <button
@@ -1382,25 +1382,52 @@ const handleSuccessClose = () => {
         {criterionRequests.map((request) => (
           <div
             key={request._id}
-            className="flex items-center justify-between gap-3 rounded-lg bg-white border border-slate-200 px-3 py-2"
+            className="rounded-lg bg-white border border-slate-200 px-3 py-2 space-y-1.5"
           >
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-slate-800 truncate">
-                {request.criterionName}
-              </p>
-              <p className="text-[10px] text-slate-500">{request.criterionType}</p>
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-slate-800 truncate">
+                  {request.criterionName}
+                </p>
+                <p className="text-[10px] text-slate-500">
+                  {request.criterionType}
+                  {request.createdAt
+                    ? ` · Submitted ${new Date(request.createdAt).toLocaleDateString()}`
+                    : ''}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <span
+                  className={`px-2 py-0.5 rounded-lg border text-[10px] font-bold ${
+                    request.status === 'Approved'
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : request.status === 'Rejected'
+                        ? 'bg-rose-50 text-rose-700 border-rose-200'
+                        : 'bg-amber-50 text-amber-700 border-amber-200'
+                  }`}
+                >
+                  {request.status === 'Pending' ? 'Pending review' : request.status}
+                </span>
+                {request.status === 'Approved' && (
+                  <span
+                    className={`px-2 py-0.5 rounded-lg border text-[10px] font-bold ${
+                      request.fulfillmentStatus === 'Done'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : request.fulfillmentStatus === 'In Progress'
+                          ? 'bg-sky-50 text-sky-700 border-sky-200'
+                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                    }`}
+                  >
+                    {request.fulfillmentStatus || 'Pending'}
+                  </span>
+                )}
+              </div>
             </div>
-            <span
-              className={`shrink-0 px-2 py-0.5 rounded-lg border text-[10px] font-bold ${
-                request.status === 'Approved'
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                  : request.status === 'Rejected'
-                    ? 'bg-rose-50 text-rose-700 border-rose-200'
-                    : 'bg-amber-50 text-amber-700 border-amber-200'
-              }`}
-            >
-              {request.status}
-            </span>
+            {request.status === 'Rejected' && request.rejectionReason && (
+              <p className="text-[11px] text-rose-700 bg-rose-50 border border-rose-100 rounded-lg px-2.5 py-1.5">
+                Admin feedback: {request.rejectionReason}
+              </p>
+            )}
           </div>
         ))}
       </div>
@@ -1780,7 +1807,7 @@ const handleSuccessClose = () => {
 
                 <div className="text-xs font-semibold">
                   <label htmlFor="criterionType" className="block text-slate-700 mb-1">
-                    Criterion Type
+                    Classification
                   </label>
                   <select
                     id="criterionType"
@@ -1794,10 +1821,13 @@ const handleSuccessClose = () => {
                     }
                     className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 focus:outline-hidden focus:border-indigo-500 cursor-pointer"
                   >
-                    <option value="Required Eligibility">Required Eligibility</option>
-                    <option value="Preferred Eligibility">Preferred Eligibility</option>
-                    <option value="Hard Requirement">Hard Requirement</option>
+                    <option value="Preferred Tag">Preferred Tag</option>
+                    <option value="Exclusive Tag">Exclusive Tag</option>
+                    <option value="Hard Eligibility Tag">Hard Eligibility Tag</option>
                   </select>
+                  <p className="mt-1 text-[11px] font-medium text-slate-500">
+                    Preferred tags affect ranking. Exclusive and Hard Eligibility tags describe requirements a student must meet. Submitting a request does not add it to matching.
+                  </p>
                 </div>
 
                 <div className="text-xs font-semibold">

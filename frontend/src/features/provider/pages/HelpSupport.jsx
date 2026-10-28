@@ -30,7 +30,7 @@ const PROVIDER_FAQS = [
   {
     id: 'request-criterion',
     q: 'What if I need an eligibility criterion that is not available?',
-    a: 'Providers can use Request New Criterion in the scholarship listing form. The request is submitted for administrator review and is not used by the matching engine until it is officially implemented.'
+    a: 'Providers can request a Preferred Tag, Exclusive Tag, or Hard Eligibility Tag from the scholarship listing form. The request starts as Pending and appears in the admin verification queue. Approval does not add it to matching. After approval, an administrator can mark it In Progress and then Done. The status and any rejection reason stay visible on the requesting provider account. Marking it Done emails that provider’s registered account address.'
   },
   {
     id: 'verification',

@@ -3,6 +3,7 @@ import {
   INVALID_CREDENTIALS_MESSAGE,
   getApiErrorMessage,
   isPendingConsentError,
+  isRateLimitError,
   isVerificationDeclinedError,
   resolveLoginFormMessage,
   resolveRegistrationFormOutcome,
@@ -29,6 +30,14 @@ check('login shows the declined verification message instead of Invalid email', 
   assert.match(declined.message, /organization verification was declined/i);
   assert.doesNotMatch(declined.message, /invalid email/i);
   assert.ok(isVerificationDeclinedError(declined));
+});
+
+check('login shows a rate-limit response instead of an invalid-password error', () => {
+  const limited = resolveLoginFormMessage(new Error('Too many attempts from this IP, please try again later.'));
+  assert.equal(limited.kind, 'rate-limit');
+  assert.match(limited.message, /too many attempts/i);
+  assert.equal(isRateLimitError(limited), true);
+  assert.doesNotMatch(limited.message, /invalid email/i);
 });
 
 check('login still uses a generic credential message for ordinary failures', () => {
@@ -71,4 +80,4 @@ check('other registration failures still use the privacy-safe inbox confirmation
   assert.equal(outcome.kind, 'inbox');
 });
 
-console.log('\n7 auth form error checks passed');
+console.log('\n8 auth form error checks passed');
