@@ -1,5 +1,7 @@
 const SavedMatch = require('../models/SavedMatch');
 const Notification = require('../models/Notification');
+const ProviderNotification = require('../models/ProviderNotification');
+const StudentProfile = require('../models/StudentProfile');
 const {
   isDeadlineOpen,
   manilaDeadlineEnd
@@ -40,14 +42,6 @@ const WINDOW_COPY = {
   '7d': {
     title: 'Scholarship deadline in 7 days',
     lead: 'closes within 7 days'
-  },
-  '3d': {
-    title: 'Scholarship deadline in 3 days',
-    lead: 'closes within 3 days'
-  },
-  '24h': {
-    title: 'Scholarship deadline in 24 hours',
-    lead: 'closes within 24 hours'
   }
 };
 
@@ -74,9 +68,8 @@ const currentAlertWindow = (deadline, now = new Date()) => {
 
   const remaining = end - now.getTime();
 
+  // Deadlines inside the old 3-day and 24-hour windows use the 7-day reminder.
   if (remaining <= 0) return null;
-  if (remaining <= DAY_MS) return '24h';
-  if (remaining <= 3 * DAY_MS) return '3d';
   if (remaining <= 7 * DAY_MS) return '7d';
 
   return null;
@@ -236,6 +229,19 @@ const countUnreadDeadlineAlerts = async (studentProfileId) => {
   });
 };
 
+const countUnreadAlertNotifications = async (studentProfileId) => {
+  const [deadlineCount, decisionCount] = await Promise.all([
+    countUnreadDeadlineAlerts(studentProfileId),
+    Notification.countDocuments({
+      studentProfileId,
+      type: 'report_decision',
+      isRead: false
+    })
+  ]);
+
+  return deadlineCount + decisionCount;
+};
+
 const safeSyncDeadlineNotifications = async (studentProfileId, savedItems) => {
   try {
     await syncDeadlineNotifications(studentProfileId, savedItems);
@@ -252,11 +258,118 @@ const safeNotifyProfileChange = async (before, after) => {
   }
 };
 
+const notifyScholarshipReportDecision = async ({
+  studentUserId,
+  reportId,
+  scholarshipId,
+  scholarshipTitle,
+  decision,
+  explanation
+}) => {
+  const profile = await StudentProfile.findOne({ userId: studentUserId }).select('_id');
+
+  if (!profile) {
+    const error = new Error('Reporting student profile was not found.');
+    error.code = 'STUDENT_PROFILE_MISSING';
+    throw error;
+  }
+
+  const titleName = String(scholarshipTitle || 'Scholarship').trim() || 'Scholarship';
+  const decisionLabel = String(decision || '').trim();
+  const adminExplanation = String(explanation || '').trim();
+
+  await createOnce({
+    studentProfileId: profile._id,
+    type: 'report_decision',
+    title: `${titleName}: ${decisionLabel}`,
+    message: `${titleName} was ${decisionLabel.toLowerCase()}. Admin explanation: ${adminExplanation}`,
+    scholarshipId: scholarshipId || null,
+    dedupeKey: `report-decision:${reportId}`,
+    isRead: false
+  });
+};
+
+const notifyScholarshipListingRemoved = async ({
+  studentUserId,
+  scholarshipId,
+  scholarshipTitle,
+  explanation
+}) => {
+  const profile = await StudentProfile.findOne({ userId: studentUserId }).select('_id');
+
+  if (!profile) {
+    const error = new Error('Reporting student profile was not found.');
+    error.code = 'STUDENT_PROFILE_MISSING';
+    throw error;
+  }
+
+  const titleName = String(scholarshipTitle || 'Scholarship').trim() || 'Scholarship';
+  const adminExplanation = String(explanation || '').trim();
+
+  await createOnce({
+    studentProfileId: profile._id,
+    type: 'report_decision',
+    title: `${titleName}: listing removed`,
+    message: `${titleName} was removed from scholarship listings for every student. This notice is about the shared scholarship listing, not a decision on your own report. Admin explanation: ${adminExplanation}`,
+    scholarshipId: scholarshipId || null,
+    dedupeKey: `listing-removed:${scholarshipId}`,
+    isRead: false
+  });
+};
+
+const notifyProviderListingRemoved = async ({
+  providerId,
+  scholarshipId,
+  scholarshipTitle,
+  explanation,
+  removedAt
+}) => {
+  if (!providerId || !scholarshipId) {
+    const error = new Error('The scholarship provider could not be identified.');
+    error.code = 'PROVIDER_MISSING';
+    throw error;
+  }
+
+  const titleName = String(scholarshipTitle || 'Scholarship').trim() || 'Scholarship';
+  const adminExplanation = String(explanation || '').trim();
+  const removalDate = removedAt instanceof Date && !Number.isNaN(removedAt.getTime())
+    ? removedAt
+    : new Date();
+  const dedupeKey = `provider-listing-removed:${scholarshipId}`;
+  const existing = await ProviderNotification.findOne({
+    providerId,
+    type: 'listing_removed',
+    dedupeKey
+  }).select('_id');
+
+  if (existing) return;
+
+  try {
+    await ProviderNotification.create({
+      providerId,
+      type: 'listing_removed',
+      title: `${titleName} was removed`,
+      message: `${titleName} was removed by an administrator on ${removalDate.toISOString()}. Admin explanation: ${adminExplanation}`,
+      scholarshipId,
+      removedAt: removalDate,
+      dedupeKey,
+      isRead: false
+    });
+  } catch (error) {
+    if (isDuplicateKeyError(error)) return;
+    throw error;
+  }
+};
+
 module.exports = {
   currentAlertWindow,
   syncDeadlineNotifications,
   countUnreadDeadlineAlerts,
+  countUnreadAlertNotifications,
   notifyProfileChange,
+  notifyScholarshipReportDecision,
+  notifyScholarshipListingRemoved,
+  notifyProviderListingRemoved,
   safeSyncDeadlineNotifications,
   safeNotifyProfileChange
 };

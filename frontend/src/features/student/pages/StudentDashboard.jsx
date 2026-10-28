@@ -182,13 +182,8 @@ export default function StudentDashboard() {
       ) {
         try {
           const data = await matchesResult.value.json();
-          const list = Array.isArray(data.matches)
-            ? [...data.matches].sort(
-                (left, right) =>
-                  (Number(right.totalScore) || 0) -
-                  (Number(left.totalScore) || 0)
-              )
-            : [];
+          const rankedMatches = Array.isArray(data.matches) ? data.matches : [];
+          const list = rankedMatches.length > 0 ? [rankedMatches[0]] : [];
 
           setWeightedMatches(
             list.map((match) => {
@@ -370,7 +365,17 @@ export default function StudentDashboard() {
               {getGreeting()}, {userProfile.name}!
             </h1>
             <p className="text-xs md:text-sm text-white/90 max-w-xl font-medium leading-relaxed">
-              We found <strong className="text-accent font-black">{matchCount} scholarship matches</strong> for you based on your profile.
+              {matchCount > 0 ? (
+                <>
+                  Your highest-scoring eligible scholarship is shown below.
+                  {' '}
+                  <strong className="text-accent font-black">{matchCount}</strong>
+                  {' '}
+                  eligible {matchCount === 1 ? 'match is' : 'matches are'} available in Explore All Grants.
+                </>
+              ) : (
+                'No eligible scholarship matches yet.'
+              )}
             </p>
           </div>
 
@@ -422,9 +427,9 @@ export default function StudentDashboard() {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-base font-extrabold text-app-text flex items-center gap-2">
-                <span>Top Matches For You</span>
+                <span>Your top scholarship match</span>
               </h2>
-              <p className="text-xs text-text-muted font-medium">Ranked directly by your GWA, residence, and income class.</p>
+              <p className="text-xs text-text-muted font-medium">The highest-scoring scholarship you are eligible for.</p>
             </div>
 
             <button 
@@ -439,15 +444,14 @@ export default function StudentDashboard() {
           {weightedMatches.length === 0 ? (
             <div className="bg-card-bg border border-app-text/10 rounded-2xl p-8 text-center space-y-3">
               <Inbox className="h-10 w-10 text-text-muted mx-auto" />
-              <p className="text-sm font-bold text-app-text">No matches available right now</p>
+              <p className="text-sm font-bold text-app-text">No eligible scholarship match right now</p>
               <p className="text-xs text-text-muted">
-                {matchesError || 'Update your academic profile to unlock fresh recommendations.'}
+                {matchesError || 'Update your academic profile to unlock a recommendation.'}
               </p>
             </div>
           ) : (
             <div className="space-y-4">
-              {/* 🟩 ALL MATCH CARDS (Square Grid) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 max-w-xl gap-4">
                 {weightedMatches.map((item) => {
                   const isExpanded = expandedMatchId === item._id;
                   const matchScore = item.weightedScore ?? item.matchScore ?? 0;
@@ -466,7 +470,7 @@ export default function StudentDashboard() {
                           openScholarshipDetails(item);
                         }
                       }}
-                      className={`bg-card-bg border border-app-text/10 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-primary/40 transition-all duration-300 relative flex flex-col justify-between aspect-square group ${
+                      className={`bg-card-bg border border-app-text/10 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-primary/40 transition-all duration-300 relative flex flex-col justify-between group ${
                         canOpenDetails ? 'cursor-pointer' : ''
                       }`}
                     >

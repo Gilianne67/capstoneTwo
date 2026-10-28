@@ -1,5 +1,6 @@
 const Provider = require('../models/Provider');
 const Scholarship = require('../models/Scholarship');
+const { isAdminRole } = require('../middleware/auth');
 const {
   closeExpiredScholarships
 } = require('../services/scholarshipExpirationService');
@@ -46,6 +47,18 @@ const clientValidationMessage = (error) => {
   }
 
   return '';
+};
+
+const isAdministrativelyRemoved = (scholarship) => Boolean(scholarship?.adminRemovedAt);
+
+const rejectAdministrativelyRemoved = (res, scholarship) => {
+  if (!isAdministrativelyRemoved(scholarship)) return false;
+
+  res.status(403).json({
+    success: false,
+    message: 'This scholarship was removed by an administrator and cannot be changed.',
+  });
+  return true;
 };
 
 const rejectInvalidScholarship = (res, input, options) => {
@@ -172,10 +185,10 @@ exports.getMyScholarships = async (req, res) => {
 };
 
 // Get a specific scholarship belonging to the logged-in provider,
-// or any scholarship when the viewer is a student.
+// or any scholarship when the viewer is a student or an admin.
 exports.getScholarshipById = async (req, res) => {
   try {
-    if (req.user.role === 'student') {
+    if (req.user.role === 'student' || isAdminRole(req.user.role)) {
       const scholarship = await Scholarship.findById(req.params.id);
 
       if (!scholarship) {
@@ -255,6 +268,10 @@ exports.updateScholarship = async (req, res) => {
       });
     }
 
+    if (rejectAdministrativelyRemoved(res, scholarship)) {
+      return;
+    }
+
     if (rejectInvalidScholarship(res, req.body, { required: false })) {
       return;
     }
@@ -327,6 +344,10 @@ exports.updateScholarshipStatus = async (req, res) => {
       });
     }
 
+    if (rejectAdministrativelyRemoved(res, scholarship)) {
+      return;
+    }
+
     const { status } = req.body;
 
     // Only allow valid scholarship statuses
@@ -383,6 +404,10 @@ exports.archiveScholarship = async (req, res) => {
         success: false,
         message: 'Scholarship not found',
       });
+    }
+
+    if (rejectAdministrativelyRemoved(res, scholarship)) {
+      return;
     }
 
     // Prevent archiving an already archived scholarship

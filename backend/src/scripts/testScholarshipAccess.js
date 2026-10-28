@@ -308,6 +308,55 @@ const runRouteGuardTests = async () => {
     { user: student }
   );
   assert.equal(studentBlockedFromProvider.statusCode, 403);
+
+  const viewLayer = scholarshipRoutes.stack.find(
+    (entry) =>
+      entry.route &&
+      entry.route.path === '/:id' &&
+      entry.route.methods.get
+  );
+  const viewAuthorize = viewLayer.route.stack[1].handle;
+  const admin = { role: 'admin', status: 'active' };
+  const superadmin = { role: 'super_admin', status: 'active' };
+
+  assert.equal((await runHandlers([viewAuthorize], { user: admin })).nextCalled, true);
+  assert.equal((await runHandlers([viewAuthorize], { user: superadmin })).nextCalled, true);
+  assert.equal((await runHandlers([viewAuthorize], { user: owner })).nextCalled, true);
+  assert.equal((await runHandlers([viewAuthorize], { user: student })).nextCalled, true);
+  assert.equal(
+    (await runHandlers([viewAuthorize], { user: { role: 'guest', status: 'active' } })).statusCode,
+    403
+  );
+
+  const reportedListing = {
+    _id: 'sch-reported',
+    name: 'Reported listing',
+    status: 'Closed',
+    isArchived: true
+  };
+  const originalFindById = Scholarship.findById;
+  Scholarship.findById = async (id) => (
+    String(id) === reportedListing._id ? reportedListing : null
+  );
+
+  try {
+    const adminView = mockRes();
+    await scholarshipController.getScholarshipById(
+      { user: { id: 'admin-1', role: 'admin' }, params: { id: reportedListing._id } },
+      adminView
+    );
+    assert.equal(adminView.statusCode, 200);
+    assert.equal(adminView.body.scholarship._id, reportedListing._id);
+
+    const missingView = mockRes();
+    await scholarshipController.getScholarshipById(
+      { user: { id: 'admin-1', role: 'superadmin' }, params: { id: 'missing' } },
+      missingView
+    );
+    assert.equal(missingView.statusCode, 404);
+  } finally {
+    Scholarship.findById = originalFindById;
+  }
 };
 
 const runOwnershipTests = async () => {
@@ -525,10 +574,134 @@ const runUnexpectedErrorTests = async () => {
   }
 };
 
+const runAdminRemovalLockTests = async () => {
+  mockUser(owner);
+  mockProvider([owner]);
+  mockOwnedScholarship();
+  searchSync.syncScholarshipSearch = async () => ({ synchronized: true });
+
+  ownedListing.description = 'Owned by provider-owner';
+  ownedListing.status = 'Closed';
+  ownedListing.isArchived = true;
+  ownedListing.adminRemovedAt = new Date('2026-10-28T04:00:00.000Z');
+  ownedListing.adminRemovalReason = 'The listing requests payment before review.';
+  let saveCount = 0;
+  ownedListing.save = async function save() {
+    saveCount += 1;
+    return this;
+  };
+
+  const statusAttempt = mockRes();
+  await scholarshipController.updateScholarshipStatus(
+    {
+      user: { id: owner.id, role: 'provider' },
+      params: { id: ownedListing._id },
+      body: { status: 'Open', isArchived: false }
+    },
+    statusAttempt
+  );
+  assert.equal(statusAttempt.statusCode, 403);
+  assert.equal(ownedListing.status, 'Closed');
+  assert.equal(ownedListing.isArchived, true);
+
+  const editAttempt = mockRes();
+  await scholarshipController.updateScholarship(
+    {
+      user: { id: owner.id, role: 'provider' },
+      params: { id: ownedListing._id },
+      body: {
+        description: 'Provider rewrite',
+        status: 'Open',
+        isArchived: false
+      }
+    },
+    editAttempt
+  );
+  assert.equal(editAttempt.statusCode, 403);
+  assert.equal(ownedListing.description, 'Owned by provider-owner');
+
+  const archiveAttempt = mockRes();
+  await scholarshipController.archiveScholarship(
+    {
+      user: { id: owner.id, role: 'provider' },
+      params: { id: ownedListing._id }
+    },
+    archiveAttempt
+  );
+  assert.equal(archiveAttempt.statusCode, 403);
+  assert.equal(saveCount, 0);
+
+  const viewAttempt = mockRes();
+  await scholarshipController.getScholarshipById(
+    {
+      user: { id: owner.id, role: 'provider' },
+      params: { id: ownedListing._id }
+    },
+    viewAttempt
+  );
+  assert.equal(viewAttempt.statusCode, 200);
+  assert.equal(
+    viewAttempt.body.scholarship.adminRemovalReason,
+    'The listing requests payment before review.'
+  );
+
+  ownedListing.adminRemovedAt = null;
+  ownedListing.adminRemovalReason = '';
+  ownedListing.isArchived = false;
+  ownedListing.status = 'Closed';
+  ownedListing.description = 'Owned by provider-owner';
+  const ordinaryStatus = mockRes();
+  await scholarshipController.updateScholarshipStatus(
+    {
+      user: { id: owner.id, role: 'provider' },
+      params: { id: ownedListing._id },
+      body: { status: 'Open' }
+    },
+    ordinaryStatus
+  );
+  assert.equal(ordinaryStatus.statusCode, 200);
+  assert.equal(ownedListing.status, 'Open');
+  assert.equal(ownedListing.isArchived, false);
+
+  const ordinaryEdit = mockRes();
+  await scholarshipController.updateScholarship(
+    {
+      user: { id: owner.id, role: 'provider' },
+      params: { id: ownedListing._id },
+      body: { description: 'Provider can still edit this listing.' }
+    },
+    ordinaryEdit
+  );
+  assert.equal(ordinaryEdit.statusCode, 200);
+  assert.equal(ownedListing.description, 'Provider can still edit this listing.');
+
+  const ordinaryArchive = mockRes();
+  await scholarshipController.archiveScholarship(
+    {
+      user: { id: owner.id, role: 'provider' },
+      params: { id: ownedListing._id }
+    },
+    ordinaryArchive
+  );
+  assert.equal(ordinaryArchive.statusCode, 200);
+  assert.equal(ownedListing.isArchived, true);
+  assert.equal(ownedListing.adminRemovedAt, null);
+
+  ownedListing.isArchived = false;
+  ownedListing.status = 'Open';
+  ownedListing.description = 'Owned by provider-owner';
+  ownedListing.adminRemovedAt = null;
+  ownedListing.adminRemovalReason = '';
+  ownedListing.save = async function save() {
+    return this;
+  };
+};
+
 const main = async () => {
   try {
     await runRouteGuardTests();
     await runOwnershipTests();
+    await runAdminRemovalLockTests();
     await runVerificationPolicyTests();
     await runUnexpectedErrorTests();
     assert.equal(typeof manilaCalendarDate(new Date()), 'string');

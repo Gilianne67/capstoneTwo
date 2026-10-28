@@ -3,7 +3,7 @@ const StudentProfile = require('../models/StudentProfile');
 const Notification = require('../models/Notification');
 const {
   safeSyncDeadlineNotifications,
-  countUnreadDeadlineAlerts
+  countUnreadAlertNotifications
 } = require('../services/notificationService');
 
 const isValidObjectId = (value) =>
@@ -94,7 +94,7 @@ exports.getUnreadDeadlineCount = async (req, res) => {
 
     await safeSyncDeadlineNotifications(studentProfile._id);
 
-    const count = await countUnreadDeadlineAlerts(studentProfile._id);
+    const count = await countUnreadAlertNotifications(studentProfile._id);
 
     return res.status(200).json({
       success: true,

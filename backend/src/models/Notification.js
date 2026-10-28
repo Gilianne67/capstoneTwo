@@ -11,7 +11,7 @@ const notificationSchema = new mongoose.Schema(
 
     type: {
       type: String,
-      enum: ['deadline', 'profile_update', 'profile_completion'],
+      enum: ['deadline', 'profile_update', 'profile_completion', 'report_decision'],
       required: true
     },
 
@@ -35,6 +35,8 @@ const notificationSchema = new mongoose.Schema(
 
     alertWindow: {
       type: String,
+      // 3d and 24h remain valid so previously saved reminders still load.
+      // New deadline reminders are created only for 7d.
       enum: ['7d', '3d', '24h'],
       default: null
     },

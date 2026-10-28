@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { 
   AlertTriangle, 
   CheckCircle2, 
@@ -11,17 +12,24 @@ import {
 
 import PageHeader from '../../../components/common/PageHeader';
 import StatusBadge from '../../../components/common/StatusBadge';
-import ConfirmModal from '../../../components/common/ConfirmModal';
+import {
+  buildModerationDecision,
+  canStartReportDecision,
+  commitReportDecision
+} from '../scholarshipReportQueue';
 
 export default function ContentModeration() {
   const [reports, setReports] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [processingId, setProcessingId] = useState(null);
+  const [processingAction, setProcessingAction] = useState(null);
   const [error, setError] = useState(null);
   const [statusFilter, setStatusFilter] = useState('Pending Review');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedAction, setSelectedAction] = useState(null); // { id, type: 'dismiss' | 'remove' }
-  const [actionError, setActionError] = useState(null);
+  const [explanations, setExplanations] = useState({});
+  const [feedback, setFeedback] = useState(null);
+  const [cardError, setCardError] = useState(null);
+  const inFlightRef = useRef(false);
 
   // Fetch Moderation Reports on Mount
   useEffect(() => {
@@ -64,15 +72,21 @@ export default function ContentModeration() {
     };
   }, []);
 
-  // Handle Action Resolution
-  const handleConfirmAction = async () => {
-    if (!selectedAction) return;
+  const handleDecision = async (report, type) => {
+    if (!canStartReportDecision(inFlightRef.current)) return;
 
-    setIsProcessing(true);
-    setActionError(null);
-    const { id, type } = selectedAction;
-    const newStatus = 'Resolved';
-    const resolutionAction = type === 'remove' ? 'REMOVE_LISTING' : 'DISMISS_REPORT';
+    const decision = buildModerationDecision(type, explanations[report._id]);
+    if (!decision.ok) {
+      setFeedback({ type: 'error', message: decision.error });
+      setCardError({ id: report._id, message: decision.error });
+      return;
+    }
+
+    inFlightRef.current = true;
+    setProcessingId(report._id);
+    setProcessingAction(type);
+    setFeedback(null);
+    setCardError(null);
 
     try {
       const token = localStorage.getItem('token');
@@ -81,28 +95,38 @@ export default function ContentModeration() {
         ...(token && { Authorization: `Bearer ${token}` })
       };
 
-      const res = await fetch(`/api/v1/admin/moderation/reports/${id}`, {
+      const res = await fetch(`/api/v1/admin/moderation/reports/${report._id}`, {
         method: 'PATCH',
         headers,
-        body: JSON.stringify({ 
-          status: newStatus, 
-          action: resolutionAction,
-          resolvedAt: new Date().toISOString()
-        })
+        body: JSON.stringify(decision.body)
       });
+      const payload = await res.json().catch(() => ({}));
+      const response = { ok: res.ok, body: payload };
+      const outcome = commitReportDecision(reports, report._id, decision, response);
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.message || errData.error || 'Failed to resolve report.');
+      setReports((current) => commitReportDecision(current, report._id, decision, response).reports);
+      setFeedback(outcome.feedback);
+      setCardError(outcome.feedback.type === 'error'
+        ? { id: report._id, message: outcome.feedback.message }
+        : null);
+
+      if (outcome.persisted) {
+        setExplanations((current) => {
+          if (!current[report._id]) return current;
+          const next = { ...current };
+          delete next[report._id];
+          return next;
+        });
       }
-
-      setReports(prev => prev.map(r => r._id === id ? { ...r, status: newStatus, resolution: resolutionAction } : r));
-      setSelectedAction(null);
     } catch (err) {
       console.error('Moderation resolution error:', err);
-      setActionError(err.message || 'Failed to execute action. Please try again.');
+      const message = err.message || 'Failed to execute action. Please try again.';
+      setFeedback({ type: 'error', message });
+      setCardError({ id: report._id, message });
     } finally {
-      setIsProcessing(false);
+      inFlightRef.current = false;
+      setProcessingId(null);
+      setProcessingAction(null);
     }
   };
 
@@ -150,11 +174,29 @@ export default function ContentModeration() {
         </div>
       )}
 
+      {feedback && (
+        <div
+          role="status"
+          className={`p-3.5 rounded-xl flex items-center gap-2 text-xs font-medium ${
+            feedback.type === 'error'
+              ? 'bg-rose-500/10 border border-rose-500/20 text-rose-800'
+              : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-800'
+          }`}
+        >
+          {feedback.type === 'error' ? (
+            <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
+          ) : (
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+          )}
+          <span>{feedback.message}</span>
+        </div>
+      )}
+
       <div className="bg-white border border-slate-200/80 rounded-2xl p-5 space-y-4 shadow-xs">
         {/* Controls Bar */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div className="flex items-center gap-2">
-            {['Pending Review', 'Resolved', 'All'].map((status) => (
+            {['Pending Review', 'Retained', 'Removed', 'Resolved', 'All'].map((status) => (
               <button
                 key={status}
                 type="button"
@@ -188,11 +230,22 @@ export default function ContentModeration() {
             <p className="text-xs text-slate-500 py-8 text-center">No content moderation flags found.</p>
           ) : (
             filteredReports.map((report) => {
-              const itemTitle = report.listingTitle || report.postTitle || report.listingId?.title || 'Flagged Content';
-              const authorName = report.providerName || report.authorName || report.postedBy?.name || 'Unknown User';
-              const reporterName = report.reporterName || report.reportedBy?.name || report.studentId?.name || report.reporterRole || 'Student';
-              const flaggedDate = report.flaggedAt || (report.createdAt ? new Date(report.createdAt).toLocaleDateString() : 'N/A');
-              const targetId = report.listingId?._id || report.listingId || report.postId;
+              const itemTitle = report.listingTitle || report.listingId?.name || report.postTitle || 'Flagged Content';
+              const authorName = report.providerName
+                || report.listingId?.providerId?.institutionName
+                || report.authorName
+                || 'Unknown provider';
+              const reporterName = report.reportedBy?.name || report.reporterName || 'Student';
+              const flaggedDate = report.createdAt ? new Date(report.createdAt).toLocaleDateString() : 'N/A';
+              const listingRef = report.listingId;
+              const targetId = listingRef && typeof listingRef === 'object'
+                ? listingRef._id
+                : listingRef;
+              const listingId = targetId ? String(targetId) : '';
+              const reasonCategory = report.category || 'Other concern';
+              const extraDetails = report.details
+                || (report.reason && report.reason !== report.category ? report.reason : '');
+              const canReview = report.status === 'Pending Review' || report.status === 'Under Investigation';
 
               return (
                 <div key={report._id} className="border border-slate-200/80 rounded-xl p-4 space-y-3 bg-slate-50/50">
@@ -210,20 +263,18 @@ export default function ContentModeration() {
                         )}
                       </div>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        Posted by: <strong className="text-slate-700">{authorName}</strong>
+                        Provider: <strong className="text-slate-700">{authorName}</strong>
                       </p>
                     </div>
 
                     <div className="flex items-center gap-3">
-                      {targetId && (
-                        <a 
-                          href={`/scholarships/${targetId}`} 
-                          target="_blank" 
-                          rel="noreferrer"
+                      {listingId && (
+                        <Link
+                          to={`/dashboard/admin/scholarships/${listingId}`}
                           className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 hover:text-emerald-700"
                         >
                           <Eye className="w-3.5 h-3.5" /> View Listing
-                        </a>
+                        </Link>
                       )}
                       <span className="text-[11px] text-slate-400 font-medium">Flagged: {flaggedDate}</span>
                     </div>
@@ -233,34 +284,63 @@ export default function ContentModeration() {
                   <div className="bg-rose-50/60 border border-rose-200/60 rounded-xl p-3 text-xs text-rose-900 flex items-start gap-2">
                     <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                     <div>
-                      <p className="font-bold">Reported Reason (by {reporterName}):</p>
-                      <p className="mt-0.5 text-slate-700">{report.reason || 'No description provided.'}</p>
+                      <p className="font-bold">Reason: {reasonCategory}</p>
+                      <p className="mt-0.5 text-slate-600">Reported by {reporterName}</p>
+                      {extraDetails ? (
+                        <p className="mt-1 text-slate-700">{extraDetails}</p>
+                      ) : (
+                        <p className="mt-1 text-slate-500">No additional details.</p>
+                      )}
+                      {report.decisionReason ? (
+                        <p className="mt-2 text-slate-700">
+                          <span className="font-bold">Decision explanation: </span>
+                          {report.decisionReason}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
 
                   {/* Action Buttons */}
-                  {report.status === 'Pending Review' && (
-                    <div className="flex justify-end gap-2 pt-2 border-t border-slate-200/40">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActionError(null);
-                          setSelectedAction({ id: report._id, type: 'dismiss' });
-                        }}
-                        className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5 text-slate-500" /> Dismiss Report
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActionError(null);
-                          setSelectedAction({ id: report._id, type: 'remove' });
-                        }}
-                        className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs flex items-center gap-1"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" /> Remove Listing
-                      </button>
+                  {canReview && (
+                    <div className="space-y-3 pt-2 border-t border-slate-200/40">
+                      <label className="block text-xs font-bold text-slate-700">
+                        Decision explanation
+                        <textarea
+                          required
+                          rows={3}
+                          value={explanations[report._id] || ''}
+                          disabled={Boolean(processingId)}
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            setExplanations((current) => ({ ...current, [report._id]: value }));
+                            if (cardError?.id === report._id) setCardError(null);
+                          }}
+                          className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800 disabled:opacity-60"
+                        />
+                      </label>
+                      {cardError?.id === report._id ? (
+                        <p className="text-xs font-medium text-rose-700">{cardError.message}</p>
+                      ) : null}
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleDecision(report, 'retain')}
+                          disabled={!canStartReportDecision(processingId)}
+                          className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 text-slate-500" />
+                          {processingId === report._id && processingAction === 'retain' ? 'Saving...' : 'Retain'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDecision(report, 'remove')}
+                          disabled={!canStartReportDecision(processingId)}
+                          className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          {processingId === report._id && processingAction === 'remove' ? 'Saving...' : 'Remove'}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -269,23 +349,6 @@ export default function ContentModeration() {
           )}
         </div>
       </div>
-
-      {/* Confirmation Modal */}
-      <ConfirmModal
-        isOpen={Boolean(selectedAction)}
-        onClose={() => {
-          setSelectedAction(null);
-          setActionError(null);
-        }}
-        onConfirm={handleConfirmAction}
-        isLoading={isProcessing}
-        title={selectedAction?.type === 'remove' ? 'Remove Flagged Listing' : 'Dismiss Flag Report'}
-        message={
-          actionError 
-            ? `Server Error: ${actionError}`
-            : `Are you sure you want to ${selectedAction?.type === 'remove' ? 'take down this scholarship listing from the public feed' : 'dismiss this report'}?`
-        }
-      />
     </div>
   );
 }

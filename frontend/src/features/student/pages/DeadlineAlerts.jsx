@@ -45,6 +45,7 @@ export function DeadlineAlerts() {
   const navigate = useNavigate();
   const { token: contextToken } = useAuth();
   const [alerts, setAlerts] = useState([]);
+  const [reportDecisions, setReportDecisions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [urgencyFilter, setUrgencyFilter] = useState('All');
@@ -75,6 +76,15 @@ export function DeadlineAlerts() {
         const notifications = Array.isArray(notificationsData?.notifications)
           ? notificationsData.notifications
           : [];
+        const decisions = notifications
+          .filter((item) => item?.type === 'report_decision')
+          .map((item) => ({
+            notificationId: item._id,
+            scholarshipId: item.scholarshipId || null,
+            isRead: Boolean(item.isRead),
+            title: item.title || 'Scholarship report',
+            message: item.message || '',
+          }));
         const savedScholarships = Array.isArray(savedData?.savedScholarships)
           ? savedData.savedScholarships
           : [];
@@ -107,11 +117,13 @@ export function DeadlineAlerts() {
 
         if (isMounted) {
           setAlerts(list);
+          setReportDecisions(decisions);
         }
       } catch (err) {
         if (isMounted) {
           console.error('Failed to load deadline alerts', err);
           setAlerts([]);
+          setReportDecisions([]);
         }
       } finally {
         if (isMounted) setIsLoading(false);
@@ -163,9 +175,40 @@ export function DeadlineAlerts() {
     });
   }, [alerts, searchQuery, urgencyFilter]);
 
+  const signalNotificationsUpdated = () => {
+    window.dispatchEvent(new Event('student-notifications-updated'));
+  };
+
   const formatDate = (dateString) => {
     const d = new Date(dateString);
     return d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
+  };
+
+  const markDecisionRead = async (decision) => {
+    const notificationId = decision?.notificationId;
+    if (!notificationId || decision.isRead) return;
+
+    try {
+      const token = getCleanToken(contextToken);
+      const response = await fetch(
+        `${API_BASE_URL}/students/notifications/${notificationId}/read`,
+        {
+          method: 'PATCH',
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        }
+      );
+
+      if (response.ok) {
+        setReportDecisions((prev) => prev.map((item) => (
+          item.notificationId === notificationId
+            ? { ...item, isRead: true }
+            : item
+        )));
+        signalNotificationsUpdated();
+      }
+    } catch (err) {
+      console.error('Failed to mark report decision read', err);
+    }
   };
 
   const openScholarshipDetails = async (alert) => {
@@ -189,6 +232,7 @@ export function DeadlineAlerts() {
               ? { ...item, isRead: true, status: 'Read' }
               : item
           )));
+          signalNotificationsUpdated();
         }
       } catch (err) {
         console.error('Failed to mark notification read', err);
@@ -221,7 +265,7 @@ export function DeadlineAlerts() {
           <div>
             <h1 className="text-lg font-black text-app-text">Deadline Alerts</h1>
             <p className="text-xs text-text-muted font-medium">
-              Track critical due dates for your saved and ongoing scholarship applications.
+              Deadline reminders and decisions on scholarships you reported.
             </p>
           </div>
         </div>
@@ -231,6 +275,39 @@ export function DeadlineAlerts() {
         
         {/* Main Alerts List */}
         <div className="lg:col-span-2 space-y-4">
+          <div className="space-y-3">
+            <h2 className="text-sm font-extrabold text-app-text">Scholarship report decisions</h2>
+            {reportDecisions.length === 0 ? (
+              <div className="bg-card-bg rounded-2xl border border-app-text/10 p-4 text-xs text-text-muted">
+                Decisions on scholarships you report will appear here.
+              </div>
+            ) : (
+              reportDecisions.map((decision) => (
+                <article
+                  key={decision.notificationId}
+                  className="bg-card-bg rounded-2xl border border-app-text/10 p-4 space-y-2"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-extrabold text-app-text">{decision.title}</h3>
+                    <span className="text-[10px] font-bold text-text-muted">
+                      {decision.isRead ? 'Read' : 'Unread'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-text-muted leading-relaxed">{decision.message}</p>
+                  {!decision.isRead && decision.notificationId ? (
+                    <button
+                      type="button"
+                      onClick={() => markDecisionRead(decision)}
+                      className="text-[11px] font-bold text-primary hover:underline"
+                    >
+                      Mark as read
+                    </button>
+                  ) : null}
+                </article>
+              ))
+            )}
+          </div>
+
           <div className="bg-card-bg rounded-2xl border border-app-text/10 p-4 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
             <div className="relative w-full sm:w-72">
               <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted" />
@@ -355,8 +432,6 @@ export function DeadlineAlerts() {
             <div className="space-y-3">
               <p className="text-xs font-bold text-app-text">Remind Me Before Deadline:</p>
               <p className="text-xs font-medium text-text-muted">7 Days Before</p>
-              <p className="text-xs font-medium text-text-muted">3 Days Before</p>
-              <p className="text-xs font-medium text-text-muted">24 Hours Before (Urgent)</p>
               <p className="text-[11px] text-text-muted font-medium leading-relaxed">
                 Deadline reminders are automatically generated for scholarships you have saved.
               </p>

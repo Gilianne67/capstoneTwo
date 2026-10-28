@@ -208,6 +208,18 @@ const scholarshipSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
       index: true
+    },
+
+    // Set only when an admin removes the listing. A provider archive leaves this empty.
+    adminRemovedAt: {
+      type: Date,
+      default: null
+    },
+
+    adminRemovalReason: {
+      type: String,
+      default: '',
+      trim: true
     }
   },
   {

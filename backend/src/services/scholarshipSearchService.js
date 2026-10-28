@@ -369,7 +369,7 @@ const INDEX_MAPPINGS = {
 const responseBody = (value) => (value && value.body ? value.body : value);
 
 const isSearchableScholarship = (scholarship) => {
-  if (!scholarship || scholarship.isArchived === true) {
+  if (!scholarship || scholarship.isArchived === true || scholarship.adminRemovedAt) {
     return false;
   }
 

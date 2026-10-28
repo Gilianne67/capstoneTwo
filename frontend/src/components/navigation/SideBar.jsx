@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { API_BASE_URL } from '../../config/api';
 import { 
   GraduationCap, 
   LayoutDashboard, 
@@ -27,76 +26,24 @@ import {
   BarChart3
 } from 'lucide-react';
 
-const getCleanToken = () => {
-  const rawToken = localStorage.getItem('token');
-
-  if (!rawToken) return null;
-
-  return String(rawToken)
-    .replace(/^"|"$/g, '')
-    .replace(/^Bearer\s+/i, '')
-    .trim();
-};
-
-export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) {
+export default function Sidebar({
+  isCollapsed,
+  setIsCollapsed,
+  role,
+  hasUnreadNotifications = false
+}) {
   const navigate = useNavigate();
   const location = useLocation();
   const { logout } = useAuth();
 
   // Mobile drawer state
   const [isMobileOpen, setIsMobileOpen] = useState(false);
-  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
   const [logoutError, setLogoutError] = useState('');
-  const sessionKey = session?.id || session?._id || '';
-  const refreshUnread = location.pathname.includes('/notifications');
 
   // Close mobile drawer when route changes
   useEffect(() => {
     setIsMobileOpen(false);
   }, [location.pathname]);
-
-  useEffect(() => {
-    if (role !== 'student') return undefined;
-
-    let isMounted = true;
-
-    const fetchUnreadCount = async () => {
-      const token = getCleanToken();
-
-      if (!token) {
-        if (isMounted) setHasUnreadNotifications(false);
-        return;
-      }
-
-      try {
-        const response = await fetch(`${API_BASE_URL}/students/notifications/unread-deadline-count`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to load unread deadline notification count');
-        }
-
-        const data = await response.json();
-        const count = Number(data?.count ?? 0);
-
-        if (isMounted) {
-          setHasUnreadNotifications(Number.isFinite(count) && count > 0);
-        }
-      } catch (err) {
-        if (isMounted) {
-          console.error('Failed to load unread deadline notification count', err);
-          setHasUnreadNotifications(false);
-        }
-      }
-    };
-
-    fetchUnreadCount();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [role, sessionKey, refreshUnread]);
 
   // Lock body scroll when mobile drawer is open
   useEffect(() => {
@@ -159,6 +106,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, role, session }) 
           { label: 'Organization Verification', path: '/dashboard/provider/verification', icon: Building2 },
         ],
         general: [
+          { label: 'Notifications', path: '/dashboard/provider/notifications', icon: Bell, hasUnread: role === 'provider' && hasUnreadNotifications },
           { label: 'Help & Support', path: '/dashboard/provider/help', icon: HelpCircle },
         ]
       };

@@ -26,6 +26,7 @@ import {
 import { useAuth } from '../../../context/AuthContext';
 import ConfirmModal from '../../../components/common/ConfirmModal';
 import { isProfileComplete } from '../profileCompletion';
+import { applyScholarshipSearch, SCHOLARSHIP_SEARCH_REGIONS } from '../scholarshipSearchFilters';
 import { API_BASE_URL, apiErrorText } from '../../../config/api';
 
 const PROFILE_ROUTE = '/dashboard/student/profile';
@@ -52,36 +53,6 @@ const FLAG_OPTIONS = [
   { key: 'isWorkingStudent', label: 'Working Student' },
   { key: 'is4PsBeneficiary', label: '4Ps Beneficiary' },
 ];
-
-// Existing filter labels compared with the location names stored on scholarships.
-const REGION_FILTER_TARGETS = {
-  'Region V (Bicol Region)': ['bicol region', 'region v', 'region v (bicol region)'],
-  NCR: ['national capital region', 'ncr'],
-  'Region IV-A': ['calabarzon', 'region iv-a', 'region iv-a (calabarzon)']
-};
-
-// Existing degree labels compared with hardFilters.academicLevel values.
-const DEGREE_FILTER_LEVELS = {
-  Undergraduate: ['undergraduate', 'college'],
-  'Senior High School': ['senior high school'],
-  Postgraduate: ['postgraduate', 'graduate studies']
-};
-
-// Checkbox keys compared with scholarship.specialTags.tagName values.
-const FLAG_TAG_NAMES = {
-  isIP: ['indigenous peoples (ip)', 'ip', 'indigenous peoples'],
-  isPWD: ['person with disability (pwd)', 'pwd', 'pwd status'],
-  isSoloParentDependent: ['solo parent dependent', 'solo parent child'],
-  isOrphan: ['orphan status', 'orphan'],
-  isFarmerFisherfolkChild: [
-    'child of farmer / fisherfolk',
-    'farmer / fisherfolk child',
-    'farmer/fisherfolk child'
-  ],
-  isDisasterAffected: ['disaster-affected family', 'disaster affected'],
-  isWorkingStudent: ['working student'],
-  is4PsBeneficiary: ['4ps beneficiary', '4ps']
-};
 
 const formatCurrency = (amount, currency = 'PHP') => {
   if (typeof amount !== 'number' || isNaN(amount)) return '₱0';
@@ -119,55 +90,6 @@ const formatGeographicLocation = (location) => {
   }
 
   return places.join(', ');
-};
-
-const parseGrantAmount = (value) => {
-  if (typeof value === 'number' && !Number.isNaN(value)) return value;
-  const match = String(value || '').replace(/,/g, '').match(/\d+(?:\.\d+)?/);
-  return match ? Number(match[0]) : 0;
-};
-
-const locationMatchesRegion = (geographicLocation, selectedRegion) => {
-  if (selectedRegion === 'All') return true;
-  if (!geographicLocation) return false;
-
-  if (typeof geographicLocation === 'string') {
-    const normalized = geographicLocation.trim().toLowerCase();
-    if (normalized === 'nationwide' || normalized === 'national') return true;
-    const targets = REGION_FILTER_TARGETS[selectedRegion] || [selectedRegion.toLowerCase()];
-    return targets.some((target) => normalized === target || normalized.includes(target));
-  }
-
-  if (geographicLocation.scope === 'Nationwide') return true;
-
-  const places = [
-    ...(geographicLocation.regions || []),
-    ...(geographicLocation.provinces || []),
-    ...(geographicLocation.municipalities || [])
-  ].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean);
-
-  const targets = REGION_FILTER_TARGETS[selectedRegion] || [selectedRegion.toLowerCase()];
-  return places.some((place) => targets.some((target) => place === target || place.includes(target)));
-};
-
-const levelMatchesDegree = (academicLevel, selectedDegree) => {
-  if (selectedDegree === 'All') return true;
-  const normalized = String(academicLevel || '').trim().toLowerCase();
-  const accepted = DEGREE_FILTER_LEVELS[selectedDegree] || [selectedDegree.toLowerCase()];
-  return accepted.includes(normalized);
-};
-
-const scholarshipMatchesFlags = (specialTags, selectedFlags) => {
-  if (selectedFlags.length === 0) return true;
-
-  const tagNames = (specialTags || [])
-    .map((tag) => String(tag?.tagName || '').trim().toLowerCase())
-    .filter(Boolean);
-
-  return selectedFlags.some((flag) => {
-    const names = FLAG_TAG_NAMES[flag] || [String(flag).toLowerCase()];
-    return tagNames.some((tagName) => names.includes(tagName));
-  });
 };
 
 const mapMatchFromApi = (match) => {
@@ -235,7 +157,6 @@ export default function ScholarshipSearch() {
 
   // Data & Dynamic State
   const [scholarships, setScholarships] = useState([]);
-  const [matchCount, setMatchCount] = useState(0);
   const [bookmarkedIds, setBookmarkedIds] = useState([]);
   const [expandedMatchId, setExpandedMatchId] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -275,7 +196,6 @@ export default function ScholarshipSearch() {
       }
       setLoadError('');
       setScholarships([]);
-      setMatchCount(0);
 
       try {
         const token = getCleanToken(contextToken);
@@ -336,7 +256,6 @@ export default function ScholarshipSearch() {
             ? data.matches.map(mapMatchFromApi)
             : [];
           setScholarships(list);
-          setMatchCount(typeof data.count === 'number' ? data.count : list.length);
           setSearchState('ready');
         } else {
           let message = 'Unable to load scholarship matches right now.';
@@ -352,7 +271,6 @@ export default function ScholarshipSearch() {
             }
           }
           setScholarships([]);
-          setMatchCount(0);
           setLoadError(message);
           setSearchState(unavailable ? 'search-unavailable' : 'error');
         }
@@ -372,7 +290,6 @@ export default function ScholarshipSearch() {
         if (isMounted) {
           console.warn('Matching API request failed:', err);
           setScholarships([]);
-          setMatchCount(0);
           setLoadError('Unable to load scholarship matches right now.');
           setSearchState('error');
         }
@@ -448,31 +365,16 @@ export default function ScholarshipSearch() {
   const keywordPending = searchQuery.trim() !== appliedQuery;
 
   // 3. Computed Filter & Sort Pipeline
-  const filteredScholarships = useMemo(() => {
-    return scholarships
-      .filter(item => {
-        const matchesRegion = locationMatchesRegion(item.geographicLocation, selectedRegion);
-        const matchesDegree = levelMatchesDegree(item.degreeLevel, selectedDegree);
-        const score = Number(item.totalScore ?? item.matchScore ?? 0);
-        const matchesScore = score >= minMatchScore;
-        const matchesFlags = scholarshipMatchesFlags(item.specialTags, selectedFlags);
-
-        return matchesRegion && matchesDegree && matchesScore && matchesFlags;
-      })
-      .sort((a, b) => {
-        const scoreA = Number(a.totalScore ?? a.matchScore ?? 0);
-        const scoreB = Number(b.totalScore ?? b.matchScore ?? 0);
-
-        if (sortBy === 'match') return scoreB - scoreA;
-        if (sortBy === 'amount') return parseGrantAmount(b.amount) - parseGrantAmount(a.amount);
-        if (sortBy === 'deadline') {
-          const timeA = new Date(a.deadline).getTime();
-          const timeB = new Date(b.deadline).getTime();
-          return (Number.isNaN(timeA) ? Infinity : timeA) - (Number.isNaN(timeB) ? Infinity : timeB);
-        }
-        return 0;
-      });
-  }, [scholarships, selectedRegion, selectedDegree, selectedFlags, minMatchScore, sortBy]);
+  const filteredScholarships = useMemo(
+    () => applyScholarshipSearch(scholarships, {
+      selectedRegion,
+      selectedDegree,
+      selectedFlags,
+      minMatchScore,
+      sortBy
+    }),
+    [scholarships, selectedRegion, selectedDegree, selectedFlags, minMatchScore, sortBy]
+  );
 
   // Dashboard Information Metrics Computed Live
   const dashboardStats = useMemo(() => {
@@ -597,7 +499,7 @@ export default function ScholarshipSearch() {
             </div>
             <div>
               <p className="text-[10px] font-bold text-text-muted uppercase">Matched Grants</p>
-              <p className="text-xs font-black text-app-text">{matchCount} Opportunities</p>
+              <p className="text-xs font-black text-app-text">{filteredScholarships.length} Opportunities</p>
             </div>
           </div>
 
@@ -678,9 +580,9 @@ export default function ScholarshipSearch() {
                 className="w-full px-3 py-2 rounded-xl border border-app-text/10 text-xs font-semibold bg-card-bg text-app-text cursor-pointer"
               >
                 <option value="All">All Regions / Nationwide</option>
-                <option value="Region V (Bicol Region)">Region V (Bicol Region)</option>
-                <option value="NCR">National Capital Region (NCR)</option>
-                <option value="Region IV-A">Region IV-A (CALABARZON)</option>
+                {SCHOLARSHIP_SEARCH_REGIONS.map((region) => (
+                  <option key={region.value} value={region.value}>{region.label}</option>
+                ))}
               </select>
             </div>
 

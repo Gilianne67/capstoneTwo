@@ -23,15 +23,18 @@ const isRankingOptions = (value) =>
 
 const findOpenScholarships = (filter) => Scholarship.find(filter).lean();
 
+const publishedScholarshipFilter = () => ({
+  status: 'Open',
+  isArchived: false,
+  adminRemovedAt: null
+});
+
 const loadOpenScholarships = async (ids, findScholarships) => {
   if (Array.isArray(ids) && ids.length === 0) {
     return [];
   }
 
-  const filter = {
-    status: 'Open',
-    isArchived: false
-  };
+  const filter = publishedScholarshipFilter();
 
   if (Array.isArray(ids)) {
     filter._id = { $in: ids };
@@ -69,10 +72,7 @@ const getEligibleScholarships = async (
   now = new Date()
 ) => {
   const [scholarships, aliasIndex] = await Promise.all([
-    Scholarship.find({
-      status: 'Open',
-      isArchived: false
-    }).lean(),
+    Scholarship.find(publishedScholarshipFilter()).lean(),
     loadAliasIndex()
   ]);
 
