@@ -64,6 +64,7 @@ export default function CreateListing({ onBack, onSuccess, initialData = null })
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showCriterionRequestModal, setShowCriterionRequestModal] = useState(false);
   const [criterionRequests, setCriterionRequests] = useState([]);
+  const [isLoadingCriterionRequests, setIsLoadingCriterionRequests] = useState(true);
   const [criterionRequestForm, setCriterionRequestForm] = useState({
     criterionName: '',
     criterionType: 'Preferred Tag',
@@ -296,11 +297,16 @@ useEffect(() => {
 
   useEffect(() => {
     let ignore = false;
+    setIsLoadingCriterionRequests(true);
 
-    fetchCriterionRequests().then((requests) => {
-      if (ignore || !requests) return;
-      setCriterionRequests(requests);
-    });
+    fetchCriterionRequests()
+      .then((requests) => {
+        if (ignore) return;
+        if (requests) setCriterionRequests(requests);
+      })
+      .finally(() => {
+        if (!ignore) setIsLoadingCriterionRequests(false);
+      });
 
     return () => {
       ignore = true;
@@ -1377,7 +1383,17 @@ const handleSuccessClose = () => {
       </button>
     </div>
 
-    {criterionRequests.length > 0 && (
+    {isLoadingCriterionRequests && (
+      <div
+        className="flex items-center gap-2 rounded-lg bg-white border border-slate-200 px-3 py-2 min-h-11"
+        aria-live="polite"
+      >
+        <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400 shrink-0" />
+        <p className="text-[11px] text-slate-500">Loading your criterion requests...</p>
+      </div>
+    )}
+
+    {!isLoadingCriterionRequests && criterionRequests.length > 0 && (
       <div className="space-y-1.5">
         {criterionRequests.map((request) => (
           <div
