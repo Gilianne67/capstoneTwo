@@ -21,9 +21,12 @@ export default function AppLayout() {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [logoutError, setLogoutError] = useState('');
 
+  const role = user?.role?.toLowerCase() || 'student';
+  const isProviderRole = role === 'provider';
+
   // 3. Notifications Check
   useEffect(() => {
-    if (!user || !token) return;
+    if (!user || !token || isProviderRole) return;
 
     let isMounted = true;
     const fetchNotificationBadge = async () => {
@@ -46,7 +49,7 @@ export default function AppLayout() {
     return () => {
       isMounted = false;
     };
-  }, [user, token]);
+  }, [user, token, isProviderRole]);
 
   // 4. Unified Logout Handler
   const handleLogout = async () => {
@@ -61,8 +64,6 @@ export default function AppLayout() {
     navigate('/auth?mode=signin', { replace: true });
   };
 
-  // Extract role dynamically from AuthContext user object
-  const role = user?.role?.toLowerCase() || 'student';
   const accountMenuName = resolveAccountMenuName(user);
   const isAdminRole = role === 'admin' || role === 'superadmin' || role === 'super_admin';
   const notificationPath = isAdminRole
@@ -110,18 +111,19 @@ export default function AppLayout() {
 
           {/* Right Header Area - Notifications & User Profile */}
           <div className="flex items-center gap-4">
-            {/* Notification Bell */}
-            <button
-              type="button"
-              onClick={() => navigate(notificationPath)}
-              aria-label="View notifications"
-              className="relative p-2 rounded-xl text-slate-500 hover:bg-slate-100 cursor-pointer transition-colors"
-            >
-              <Bell className="h-4 w-4" />
-              {unreadNotificationsCount > 0 && (
-                <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
-              )}
-            </button>
+            {!isProviderRole && (
+              <button
+                type="button"
+                onClick={() => navigate(notificationPath)}
+                aria-label="View notifications"
+                className="relative p-2 rounded-xl text-slate-500 hover:bg-slate-100 cursor-pointer transition-colors"
+              >
+                <Bell className="h-4 w-4" />
+                {unreadNotificationsCount > 0 && (
+                  <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
+                )}
+              </button>
+            )}
 
             {/* Profile Dropdown Menu */}
             <div className="relative border-l border-slate-200 pl-3">
