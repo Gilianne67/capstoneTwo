@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { HelpCircle, ChevronDown, GraduationCap, Building2 } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronDown, GraduationCap, Building2 } from 'lucide-react';
 
 export default function FAQSection() {
   const [activeTab, setActiveTab] = useState('students');
@@ -16,15 +16,15 @@ export default function FAQSection() {
     },
     {
       question: 'How does the scholarship matching system work?',
-      answer: 'When you create your profile (grades, location, field of study, and household income), our algorithm uses transparent mathematical weighted scoring to calculate match percentage scores and rank scholarships you qualify for.',
+      answer: 'After you create an account and complete your student profile, matching first checks hard requirements such as academic level, course, location, citizenship, GWA, income, and required eligibility tags. Scholarships that pass are ranked using academic performance, household income, and preferred eligibility tags. Unless a provider sets other approved weights, the default is 40% academic, 40% income, and 20% preferred tags.',
     },
     {
       question: 'Do I submit my application directly on IskolarMatch?',
       answer: 'No, IskolarMatch is a discovery and directory portal. Once you find a matched scholarship, we provide direct links, submission guidelines, and clear details on where and how to submit your official application to the provider.',
     },
     {
-      question: 'Can I view scholarships without creating an account?',
-      answer: 'You can browse featured listings, but creating a free account allows our weighted scoring system to automatically evaluate your specific qualifications and rank grants tailored to your profile.',
+      question: 'Can I access scholarships without creating an account?',
+      answer: 'No. You must create an account and complete your student profile to access scholarship listings and receive scholarship recommendations tailored to your qualifications.',
     },
   ];
 
@@ -50,7 +50,7 @@ export default function FAQSection() {
   const currentFaqs = activeTab === 'students' ? studentFaqs : providerFaqs;
 
   return (
-    <section id="faq" className="py-20 bg-app-bg border-t border-slate-200/80">
+    <section id="faq" className="py-20 bg-app-bg border-t border-slate-200/80 scroll-mt-24">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         
         {/* Section Header */}

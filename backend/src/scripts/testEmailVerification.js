@@ -213,9 +213,121 @@ const main = async () => {
     },
     ip: '127.0.0.1',
   });
-  assert.strictEqual(duplicateSignup.statusCode, 200);
+  assert.strictEqual(duplicateSignup.statusCode, 409);
+  assert.strictEqual(duplicateSignup.body.success, false);
+  assert.strictEqual(duplicateSignup.body.emailTaken, true);
+  assert.match(duplicateSignup.body.message, /already registered/i);
+  assert.ok(!duplicateSignup.body.token);
+  assert.ok(!duplicateSignup.body.user);
   assert.strictEqual(users.size, 1);
   assert.strictEqual(verificationEmails().length, 0);
+
+  const duplicateCase = await invoke(register, {
+    body: {
+      name: 'Ava Santos',
+      email: 'AVA@EXAMPLE.COM',
+      password: 'password-12345678',
+      role: 'student',
+    },
+    ip: '127.0.0.1',
+  });
+  assert.strictEqual(duplicateCase.statusCode, 409);
+  assert.strictEqual(duplicateCase.body.emailTaken, true);
+  assert.strictEqual(users.size, 1);
+
+  const duplicateSpacing = await invoke(register, {
+    body: {
+      name: 'Ava Santos',
+      email: '  ava@example.com  ',
+      password: 'password-12345678',
+      role: 'student',
+    },
+    ip: '127.0.0.1',
+  });
+  assert.strictEqual(duplicateSpacing.statusCode, 409);
+  assert.strictEqual(duplicateSpacing.body.emailTaken, true);
+  assert.strictEqual(users.size, 1);
+
+  const originalCreate = User.create;
+  try {
+    let arrived = 0;
+    let releaseBoth;
+    const bothArrived = new Promise((resolve) => {
+      releaseBoth = resolve;
+    });
+    let claimed = false;
+    User.create = async (data) => {
+      arrived += 1;
+      if (arrived >= 2) releaseBoth();
+      await bothArrived;
+      if (claimed) {
+        const error = new Error('E11000 duplicate key error collection: users index: email_1');
+        error.code = 11000;
+        throw error;
+      }
+      claimed = true;
+      return originalCreate(data);
+    };
+
+    const [raceOne, raceTwo] = await Promise.all([
+      invoke(register, {
+        body: {
+          name: 'Race One',
+          email: 'race@example.com',
+          password: 'password-12345678',
+          role: 'student',
+        },
+        ip: '127.0.0.1',
+      }),
+      invoke(register, {
+        body: {
+          name: 'Race Two',
+          email: '  RACE@example.com  ',
+          password: 'password-12345678',
+          role: 'student',
+        },
+        ip: '127.0.0.1',
+      }),
+    ]);
+    const raceStatuses = [raceOne.statusCode, raceTwo.statusCode].sort((left, right) => left - right);
+    assert.deepStrictEqual(raceStatuses, [201, 409]);
+    const raceAccounts = [...users.values()].filter((user) => user.email === 'race@example.com');
+    assert.strictEqual(raceAccounts.length, 1);
+    const rejectedRace = raceOne.statusCode === 409 ? raceOne : raceTwo;
+    assert.strictEqual(rejectedRace.body.success, false);
+    assert.strictEqual(rejectedRace.body.emailTaken, true);
+    assert.match(rejectedRace.body.message, /already registered/i);
+    assert.ok(!rejectedRace.body.token);
+    for (const user of raceAccounts) users.delete(String(user._id));
+
+    User.create = async () => {
+      const error = new Error('E11000 duplicate key');
+      error.code = 11000;
+      throw error;
+    };
+    const beforeDuplicateKey = users.size;
+    const duplicateKey = await invoke(register, {
+      body: {
+        name: 'Duplicate Key',
+        email: 'duplicate.key@example.com',
+        password: 'password-12345678',
+        role: 'student',
+      },
+      ip: '127.0.0.1',
+    });
+    assert.strictEqual(duplicateKey.statusCode, 409);
+    assert.strictEqual(duplicateKey.body.success, false);
+    assert.strictEqual(duplicateKey.body.emailTaken, true);
+    assert.match(duplicateKey.body.message, /already registered/i);
+    assert.ok(!duplicateKey.body.token);
+    assert.strictEqual(users.size, beforeDuplicateKey);
+    assert.strictEqual(
+      [...users.values()].some((user) => user.email === 'duplicate.key@example.com'),
+      false
+    );
+  } finally {
+    User.create = originalCreate;
+  }
 
   const loginBeforeVerification = await invoke(login, {
     body: { email: 'ava@example.com', password: 'password-12345678' },
@@ -262,9 +374,22 @@ const main = async () => {
     ip: '127.0.0.1',
   });
   assert.strictEqual(immediateResend.statusCode, 200);
-  assert.match(immediateResend.body.message, /just sent/i);
+  assert.match(immediateResend.body.message, /unverified account exists/i);
   assert.strictEqual(verificationEmails().length, 1);
   assert.strictEqual(student.emailVerificationToken, hashToken(firstToken));
+
+  const emailsBeforeUnknown = verificationEmails().length;
+  const unknownResend = await invoke(resendVerification, {
+    body: { email: 'nobody@example.com' },
+    ip: '127.0.0.1',
+  });
+  assert.strictEqual(unknownResend.statusCode, 200);
+  assert.strictEqual(unknownResend.body.message, immediateResend.body.message);
+  assert.strictEqual(storedUser('nobody@example.com'), null);
+  assert.strictEqual(student.email, 'ava@example.com');
+  assert.strictEqual(student.isVerified, false);
+  assert.strictEqual(student.emailVerificationToken, hashToken(firstToken));
+  assert.strictEqual(verificationEmails().length, emailsBeforeUnknown);
 
   const verified = await invoke(verifyEmail, {
     params: { token: firstToken },
@@ -290,6 +415,18 @@ const main = async () => {
   });
   assert.strictEqual(loginAfterVerification.statusCode, 200);
   assert.strictEqual(loginAfterVerification.body.user.isVerified, true);
+
+  const emailsBeforeVerifiedResend = verificationEmails().length;
+  const verifiedResend = await invoke(resendVerification, {
+    body: { email: 'Ava@Example.com' },
+    ip: '127.0.0.1',
+  });
+  assert.strictEqual(verifiedResend.statusCode, 200);
+  assert.match(verifiedResend.body.message, /unverified account exists/i);
+  assert.strictEqual(student.isVerified, true);
+  assert.strictEqual(student.email, 'ava@example.com');
+  assert.strictEqual(student.emailVerificationToken, undefined);
+  assert.strictEqual(verificationEmails().length, emailsBeforeVerifiedResend);
 
   const secondSignup = await invoke(register, {
     body: {
@@ -490,12 +627,17 @@ const main = async () => {
     'utf8'
   );
   assert.ok(appSource.includes('path="/verify-email/:token"'));
+  assert.ok(appSource.includes('path="/verify-holding"'));
+  assert.ok(!appSource.includes('verify-holding?email='));
 
   const holdingSource = fs.readFileSync(
     path.resolve(__dirname, '../../../frontend/src/features/public-landing/pages/VerifyHoldingPage.jsx'),
     'utf8'
   );
   assert.ok(holdingSource.includes("'/api/v1/auth/resend-verification'"));
+  assert.ok(holdingSource.includes('verificationHoldingEmail'));
+  assert.ok(!holdingSource.includes("searchParams.get('email')"));
+  assert.ok(!holdingSource.includes('searchParams.get("email")'));
   assert.strictEqual((holdingSource.match(/handleResend\(/g) || []).length, 0);
 
   console.log('email verification tests passed');

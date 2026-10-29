@@ -18,6 +18,11 @@ assert.equal(endedSessionReason(401, {
   message: 'Your session has been revoked. Please log in again.',
 }), 'SESSION_REVOKED');
 
+assert.equal(endedSessionReason(401, {
+  code: 'SESSION_REVOKED',
+  message: 'Your session has expired or is invalid. Please log in again.',
+}), 'SESSION_REVOKED');
+
 assert.equal(endedSessionReason(403, {
   error: 'Your account has been suspended due to security concerns. Please contact support.',
 }), 'ACCOUNT_SUSPENDED');
@@ -64,9 +69,12 @@ assert.equal(isPublicAuthPath('/reset-password/abc'), true);
 assert.equal(isPublicAuthPath('/verify-email/abc'), true);
 assert.equal(isPublicAuthPath('/verify-holding'), true);
 assert.equal(isPublicAuthPath('/consent/verify'), true);
+assert.equal(isPublicAuthPath('/onboarding'), false);
 assert.equal(isPublicAuthPath('/'), true);
 assert.equal(isPublicAuthPath('/dashboard/student'), false);
 
+assert.equal(signInPathAfterSessionEnd('/onboarding'), '/auth?mode=signin');
+assert.equal(signInPathAfterSessionEnd('/consent/verify'), null);
 assert.equal(signInPathAfterSessionEnd('/dashboard/student'), '/auth?mode=signin');
 assert.equal(signInPathAfterSessionEnd('/dashboard/provider'), '/auth?mode=signin');
 assert.equal(signInPathAfterSessionEnd('/auth'), null);

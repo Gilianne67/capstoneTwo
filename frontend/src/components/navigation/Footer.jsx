@@ -1,4 +1,3 @@
-import React from 'react';
 import { Link } from 'react-router-dom';
 import { GraduationCap, Heart } from 'lucide-react';
 
@@ -32,7 +31,7 @@ export default function Footer() {
             </Link>
 
             <p className="text-sm text-blue-100 max-w-md leading-relaxed">
-              Connecting Filipino students with life-changing scholarship opportunities using smart vector matching.
+              Connecting Filipino students with scholarship opportunities after they create an account and complete their profile.
             </p>
           </div>
 

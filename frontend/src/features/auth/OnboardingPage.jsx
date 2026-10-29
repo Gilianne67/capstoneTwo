@@ -7,11 +7,12 @@ import { API_BASE_URL } from '../../config/api';
 export function OnboardingPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { token: contextToken, updateUser } = useAuth();
+  const { token: contextToken, updateUser, user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Capture registered email passed from AuthPage navigation state
-  const registeredEmail = location.state?.registeredEmail || '';
+  // Registration passes the email in navigation state. A later sign-in uses
+  // the authenticated account so the guardian-email check still has it.
+  const registeredEmail = location.state?.registeredEmail || user?.email || '';
 
   const handleOnboardingSubmit = async (formData) => {
     setIsSubmitting(true);
@@ -26,7 +27,9 @@ export function OnboardingPage() {
     const cleanToken = token ? token.replace(/^"|"$/g, '').replace('Bearer ', '').trim() : null;
 
     if (!cleanToken) {
-      console.warn("⚠️ No authentication token found in storage or context. Request will proceed unauthenticated.");
+      navigate('/auth?mode=signin', { replace: true, state: { from: location } });
+      setIsSubmitting(false);
+      return;
     }
 
     try {
@@ -66,9 +69,12 @@ export function OnboardingPage() {
       if (isMinorAccount) {
         navigate(`/consent/verify?email=${encodeURIComponent(finalEmail)}`, { replace: true });
       } else {
-        navigate(`/verify-holding?email=${encodeURIComponent(finalEmail)}`, {
+        navigate('/verify-holding', {
           replace: true,
-          state: data.emailSent === false ? { emailNotice: data.message } : undefined,
+          state: {
+            email: finalEmail,
+            ...(data.emailSent === false ? { emailNotice: data.message } : {}),
+          },
         });
       }
     } catch (err) {

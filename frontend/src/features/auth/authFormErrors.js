@@ -57,6 +57,14 @@ export function resolveLoginFormMessage(error) {
   };
 }
 
+export const DUPLICATE_EMAIL_MESSAGE =
+  'An account with this email address is already registered. Please sign in or use a different email.';
+
+export function isDuplicateEmailError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return Boolean(error?.emailTaken || message.includes('already registered'));
+}
+
 export function resolveRegistrationFormOutcome(error) {
   const message = String(error?.message || '').toLowerCase();
   if (error?.canResubmit || message.includes('sign in to update your documents')) {
@@ -70,6 +78,13 @@ export function resolveRegistrationFormOutcome(error) {
     return {
       kind: 'declined',
       message: error?.message || 'Your organization verification was declined. You cannot register again with this email.',
+    };
+  }
+
+  if (isDuplicateEmailError(error)) {
+    return {
+      kind: 'duplicate',
+      message: error?.message || DUPLICATE_EMAIL_MESSAGE,
     };
   }
 

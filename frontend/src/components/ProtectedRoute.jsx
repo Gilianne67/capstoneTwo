@@ -37,7 +37,7 @@ export default function ProtectedRoute({
     if (location.pathname !== holdingPath) {
       return (
         <Navigate 
-          to={`${holdingPath}?email=${encodeURIComponent(user.email || '')}`} 
+          to={holdingPath} 
           state={{ from: location }} 
           replace 
         />

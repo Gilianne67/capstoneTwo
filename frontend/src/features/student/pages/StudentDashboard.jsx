@@ -15,13 +15,20 @@ import {
   CheckCircle2,
   ArrowRight,
   Award,
-  Lightbulb
+  Lightbulb,
+  UserRound
 } from 'lucide-react';
 
 import { useAuth } from '../../../context/AuthContext';
 import ConfirmModal from '../../../components/common/ConfirmModal';
 
 import { API_BASE_URL, apiErrorText } from '../../../config/api';
+import {
+  EMPTY_MATCH_TITLE,
+  INCOMPLETE_PROFILE_MESSAGE,
+  INCOMPLETE_PROFILE_TITLE,
+  interpretDashboardMatches
+} from '../dashboardMatch';
 
 const getCleanToken = (contextToken) => {
   const rawToken = contextToken || localStorage.getItem('token');
@@ -39,41 +46,6 @@ const formatLocation = (profile) =>
     .map((part) => (part ? String(part).trim() : ''))
     .filter(Boolean)
     .join(', ');
-
-const mapMatchFromApi = (match) => {
-  const scholarship = match?.scholarship || {};
-
-  return {
-    _id: scholarship._id,
-    title: scholarship.name,
-    provider: scholarship.scholarshipType,
-    amount: scholarship.grantValue,
-    deadline: scholarship.deadline,
-    description: scholarship.description || scholarship.eligibilityCriteria || 'No description provided for this grant.',
-    weightedScore: match.totalScore,
-    tag: match.classification,
-    isSaved: false,
-    externalUrl: scholarship.applicationURL,
-    matchBreakdown: {
-      gwa: {
-        score: match.gpaScore,
-        max: 100,
-        detail: 'GPA / GWA compatibility'
-      },
-      location: {
-        score: match.tagsScore,
-        max: 100,
-        detail: 'Special eligibility alignment'
-      },
-      financial: {
-        score: match.incomeScore,
-        max: 100,
-        detail: 'Income compatibility'
-      }
-    },
-    scholarship
-  };
-};
 
 const formatCurrency = (amount, currency = 'PHP') => {
   if (typeof amount !== 'number' || isNaN(amount)) return '₱0';
@@ -131,6 +103,7 @@ export default function StudentDashboard() {
   const [weightedMatches, setWeightedMatches] = useState([]);
   const [matchCount, setMatchCount] = useState(0);
   const [matchesError, setMatchesError] = useState('');
+  const [profileIncomplete, setProfileIncomplete] = useState(false);
   
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingId, setIsSavingId] = useState(null);
@@ -145,6 +118,7 @@ export default function StudentDashboard() {
     const fetchDashboardData = async () => {
       setIsLoading(true);
       setMatchesError('');
+      setProfileIncomplete(false);
 
       const token = getCleanToken(contextToken);
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -181,22 +155,18 @@ export default function StudentDashboard() {
       ) {
         try {
           const data = await matchesResult.value.json();
-          const rankedMatches = Array.isArray(data.matches) ? data.matches : [];
-          const list = rankedMatches.length > 0 ? [rankedMatches[0]] : [];
+          const view = interpretDashboardMatches(data);
 
+          setProfileIncomplete(view.profileIncomplete);
           setWeightedMatches(
-            list.map((match) => {
-              const item = mapMatchFromApi(match);
-              return {
-                ...item,
-                isSaved: savedIds.has(String(item._id || ''))
-              };
-            })
+            view.matches.map((item) => ({
+              ...item,
+              isSaved: savedIds.has(String(item._id || ''))
+            }))
           );
-          setMatchCount(
-            typeof data.count === 'number' ? data.count : list.length
-          );
+          setMatchCount(view.count);
         } catch (_err) {
+          setProfileIncomplete(false);
           setWeightedMatches([]);
           setMatchCount(0);
           setMatchesError('Unable to load scholarship matches right now.');
@@ -211,6 +181,7 @@ export default function StudentDashboard() {
             // Keep the fallback when the error body is not JSON.
           }
         }
+        setProfileIncomplete(false);
         setWeightedMatches([]);
         setMatchCount(0);
         setMatchesError(message);
@@ -361,7 +332,9 @@ export default function StudentDashboard() {
               {getGreeting()}, {userProfile.name}!
             </h1>
             <p className="text-xs md:text-sm text-white/90 max-w-xl font-medium leading-relaxed">
-              {matchCount > 0 ? (
+              {profileIncomplete ? (
+                'Complete your student profile to see scholarship matches.'
+              ) : matchCount > 0 ? (
                 <>
                   Your highest-scoring eligible scholarship is shown below.
                   {' '}
@@ -423,9 +396,13 @@ export default function StudentDashboard() {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-base font-extrabold text-app-text flex items-center gap-2">
-                <span>Your top scholarship match</span>
+                <span>{profileIncomplete ? 'Your student profile' : 'Your top scholarship match'}</span>
               </h2>
-              <p className="text-xs text-text-muted font-medium">The highest-scoring scholarship you are eligible for.</p>
+              <p className="text-xs text-text-muted font-medium">
+                {profileIncomplete
+                  ? 'Scholarship matching uses your saved academic, location, and income details.'
+                  : 'The highest-scoring scholarship you are eligible for.'}
+              </p>
             </div>
 
             <button 
@@ -437,10 +414,25 @@ export default function StudentDashboard() {
             </button>
           </div>
 
-          {weightedMatches.length === 0 ? (
+          {profileIncomplete ? (
+            <div className="bg-card-bg border border-app-text/10 rounded-2xl p-8 text-center space-y-3">
+              <UserRound className="h-10 w-10 text-primary mx-auto" />
+              <p className="text-sm font-bold text-app-text">{INCOMPLETE_PROFILE_TITLE}</p>
+              <p className="text-xs text-text-muted max-w-md mx-auto">
+                {INCOMPLETE_PROFILE_MESSAGE}
+              </p>
+              <button
+                type="button"
+                onClick={() => navigate('/dashboard/student/profile')}
+                className="inline-flex items-center justify-center px-4 py-2 bg-primary text-white rounded-xl text-xs font-bold hover:opacity-90 transition-opacity cursor-pointer"
+              >
+                Complete Profile
+              </button>
+            </div>
+          ) : weightedMatches.length === 0 ? (
             <div className="bg-card-bg border border-app-text/10 rounded-2xl p-8 text-center space-y-3">
               <Inbox className="h-10 w-10 text-text-muted mx-auto" />
-              <p className="text-sm font-bold text-app-text">No eligible scholarship match right now</p>
+              <p className="text-sm font-bold text-app-text">{EMPTY_MATCH_TITLE}</p>
               <p className="text-xs text-text-muted">
                 {matchesError || 'Update your academic profile to unlock a recommendation.'}
               </p>
@@ -543,6 +535,7 @@ export default function StudentDashboard() {
                               <div className="mt-1 p-2 bg-app-bg rounded-lg border border-app-text/10 text-[9px] space-y-0.5 animate-in fade-in duration-200">
                                 <p>Academic: <strong className="text-app-text">{item.matchBreakdown.gwa?.score}/100</strong></p>
                                 <p>Income: <strong className="text-app-text">{item.matchBreakdown.financial?.score}/100</strong></p>
+                                <p>Special eligibility: <strong className="text-app-text">{item.matchBreakdown.specialEligibility?.score}/100</strong></p>
                               </div>
                             )}
                           </div>

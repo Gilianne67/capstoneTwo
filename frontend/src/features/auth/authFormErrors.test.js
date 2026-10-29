@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import {
   INVALID_CREDENTIALS_MESSAGE,
   getApiErrorMessage,
+  DUPLICATE_EMAIL_MESSAGE,
+  isDuplicateEmailError,
   isPendingConsentError,
   isRateLimitError,
   isVerificationDeclinedError,
@@ -75,9 +77,22 @@ check('duplicate registration for a resubmittable provider asks them to sign in'
   assert.match(outcome.message, /sign in to update your documents/i);
 });
 
+check('duplicate registration stays on the form with a clear message', () => {
+  const outcome = resolveRegistrationFormOutcome({
+    emailTaken: true,
+    message: DUPLICATE_EMAIL_MESSAGE,
+  });
+  assert.equal(outcome.kind, 'duplicate');
+  assert.equal(outcome.message, DUPLICATE_EMAIL_MESSAGE);
+  assert.equal(isDuplicateEmailError(outcome), true);
+  assert.match(outcome.message, /already registered/i);
+  assert.doesNotMatch(outcome.message, /invalid email/i);
+});
+
 check('other registration failures still use the privacy-safe inbox confirmation', () => {
   const outcome = resolveRegistrationFormOutcome(new Error('Registration failed.'));
   assert.equal(outcome.kind, 'inbox');
+  assert.equal(isDuplicateEmailError(outcome), false);
 });
 
-console.log('\n8 auth form error checks passed');
+console.log('\n9 auth form error checks passed');
