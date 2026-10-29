@@ -1,7 +1,11 @@
 const mongoose = require('mongoose');
 
 const { REGIONS } = require('../data/regions');
-const { COURSE_CATALOG, resolveCanonical } = require('../utils/courseCanonicalCore');
+const {
+  COURSE_CATALOG,
+  resolveCanonical,
+  expandCourseAliases
+} = require('../utils/courseCanonicalCore');
 const {
   createElasticsearchClient,
   assertClusterReady,
@@ -165,7 +169,7 @@ const mergeCourseEntries = (dbEntries = []) => {
     existing.aliases.push(...aliases);
   });
 
-  return Array.from(byId.values());
+  return Array.from(byId.values()).map((entry) => expandCourseAliases(entry));
 };
 
 const courseGroupsFromEntries = (entries) =>
@@ -484,6 +488,13 @@ const buildIndexDefinition = async () => {
 const resolveClient = (options = {}) =>
   options.client || createElasticsearchClient();
 
+// Status and archive sync wait on this client. A closed Elasticsearch port
+// must fail the health check immediately. The default client retries with
+// multi-second backoff, which held the PATCH open. Student search keeps
+// that default client.
+const resolveSyncClient = (options = {}) =>
+  options.client || createElasticsearchClient({ maxRetries: 0 });
+
 const resolveIndexName = (options = {}) =>
   options.indexName || getElasticsearchIndex();
 
@@ -657,7 +668,7 @@ const removeScholarship = async (id, options = {}) => {
     throw new Error('Cannot remove a scholarship without an id.');
   }
 
-  const client = resolveClient(options);
+  const client = resolveSyncClient(options);
   const indexName = resolveIndexName(options);
   await assertClusterReady(client);
 
@@ -697,7 +708,7 @@ const indexScholarship = async (scholarship, options = {}) => {
     return { indexed: false, id, reason: 'closed-or-archived' };
   }
 
-  const client = resolveClient(options);
+  const client = resolveSyncClient(options);
   const indexName = resolveIndexName(options);
   await assertClusterReady(client);
 

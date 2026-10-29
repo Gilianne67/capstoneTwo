@@ -3,6 +3,13 @@
  * Numbers follow backend/src/services/matchingEngine.js for one fictional
  * scholarship. This does not search listings or read a student profile.
  *
+ * GWA tiers follow a proposed improvement-ratio rule. The approved
+ * methodology names 75, 85, and 100 and does not define these widths:
+ * ratio 0 scores 75, a ratio above 0 and below 0.50 scores 85, and a
+ * ratio of 0.50 or higher scores 100.
+ * Income tiers follow a proposed distance from the highest bracket
+ * still under the sample cap: 3 or more scores 100, 2 scores 85,
+ * 1 scores 70, and 0 scores 50.
  * Default weights when a scholarship has no custom criteriaWeights:
  * academic 0.40, income 0.40, preferred tags 0.20.
  * Classification: 90 or higher Highly Recommended, 70 or higher Recommended,
@@ -92,17 +99,27 @@ export function validateSampleInputs({ scale, gwa, incomeBracket, hasPreferredTa
   return errors;
 }
 
+const scoreFromImprovementRatio = (ratio) => {
+  if (!Number.isFinite(ratio) || ratio < 0) return null;
+  if (ratio === 0) return 75;
+  if (ratio < 0.5) return 85;
+  return 100;
+};
+
 const scoreGpa = (scale, gwa) => {
   const threshold = scale === '1.00-5.00'
     ? SAMPLE_SCHOLARSHIP.gwaCeiling
     : SAMPLE_SCHOLARSHIP.percentageFloor;
 
-  const ratio = scale === '1.00-5.00'
-    ? (threshold - gwa) / (threshold - 1)
-    : (gwa - threshold) / (100 - threshold);
+  if (scale === '1.00-5.00') {
+    if (!(gwa >= 1 && gwa <= 5 && gwa <= threshold)) return null;
+    if (threshold <= 1) return 100;
+    return scoreFromImprovementRatio((threshold - gwa) / (threshold - 1));
+  }
 
-  const clamped = Math.min(1, Math.max(0, ratio));
-  return roundScore(60 + 40 * clamped);
+  if (!(gwa >= 60 && gwa <= 100 && gwa >= threshold)) return null;
+  if (threshold >= 100) return 100;
+  return scoreFromImprovementRatio((gwa - threshold) / (100 - threshold));
 };
 
 const passesGwa = (scale, gwa) => {
@@ -131,9 +148,10 @@ const scoreIncome = (incomeBracket) => {
 
   const distance = Math.max(...eligibleIndexes) - index;
 
-  if (distance <= 0) return { passes: true, score: 60 };
-  if (distance === 1) return { passes: true, score: 80 };
-  return { passes: true, score: 100 };
+  if (distance >= 3) return { passes: true, score: 100 };
+  if (distance === 2) return { passes: true, score: 85 };
+  if (distance === 1) return { passes: true, score: 70 };
+  return { passes: true, score: 50 };
 };
 
 /**

@@ -35,10 +35,10 @@ assert.deepEqual(validateSampleInputs({ ...valid, gwa: ' 1.75 ' }), {});
 const highly = evaluateSampleMatch(valid);
 assert.equal(highly.eligible, true);
 assert.equal(highly.illustrative, true);
-assert.equal(highly.gpaScore, 80);
-assert.equal(highly.incomeScore, 100);
+assert.equal(highly.gpaScore, 100);
+assert.equal(highly.incomeScore, 85);
 assert.equal(highly.tagsScore, 100);
-assert.equal(highly.totalScore, 92);
+assert.equal(highly.totalScore, 94);
 assert.equal(highly.classification, 'Highly Recommended');
 
 const exact = evaluateSampleMatch({
@@ -47,11 +47,11 @@ const exact = evaluateSampleMatch({
   incomeBracket: '₱21,191 – ₱43,828 / month',
   hasPreferredTag: 'no',
 });
-assert.equal(exact.gpaScore, 60);
-assert.equal(exact.incomeScore, 60);
+assert.equal(exact.gpaScore, 75);
+assert.equal(exact.incomeScore, 50);
 assert.equal(exact.tagsScore, 0);
-assert.equal(exact.totalScore, 48);
-assert.equal(exact.classification, 'Low Compatibility');
+assert.equal(exact.totalScore, 50);
+assert.equal(exact.classification, 'Potential Match');
 
 const best = evaluateSampleMatch({
   scale: '1.00-5.00',
@@ -60,10 +60,10 @@ const best = evaluateSampleMatch({
   hasPreferredTag: 'yes',
 });
 assert.equal(best.gpaScore, 100);
-assert.equal(best.incomeScore, 80);
+assert.equal(best.incomeScore, 70);
 assert.equal(best.tagsScore, 100);
-assert.equal(best.totalScore, 92);
-assert.equal(best.classification, 'Highly Recommended');
+assert.equal(best.totalScore, 88);
+assert.equal(best.classification, 'Recommended');
 
 const percentage = evaluateSampleMatch({
   scale: '60-100',
@@ -71,10 +71,10 @@ const percentage = evaluateSampleMatch({
   incomeBracket: '₱21,191 – ₱43,828 / month',
   hasPreferredTag: 'yes',
 });
-assert.equal(percentage.gpaScore, 80);
-assert.equal(percentage.incomeScore, 60);
+assert.equal(percentage.gpaScore, 100);
+assert.equal(percentage.incomeScore, 50);
 assert.equal(percentage.tagsScore, 100);
-assert.equal(percentage.totalScore, 76);
+assert.equal(percentage.totalScore, 80);
 assert.equal(percentage.classification, 'Recommended');
 
 const blocked = evaluateSampleMatch({
@@ -104,7 +104,9 @@ const potential = evaluateSampleMatch({
   hasPreferredTag: 'no',
 });
 assert.equal(potential.eligible, true);
-assert.equal(potential.totalScore, 64);
+assert.equal(potential.gpaScore, 100);
+assert.equal(potential.incomeScore, 50);
+assert.equal(potential.totalScore, 60);
 assert.equal(potential.classification, 'Potential Match');
 
 assert.deepEqual(
@@ -133,7 +135,11 @@ for (const bracket of INCOME_BRACKETS) {
   assert.equal(sample.eligible, passes);
   assert.equal(sample.illustrative, true);
   if (passes) {
+    const distance = 2 - INCOME_BRACKETS.indexOf(bracket);
+    const expectedIncome = distance >= 3 ? 100 : distance === 2 ? 85 : distance === 1 ? 70 : 50;
     assert.equal(sample.tagsScore, 0);
+    assert.equal(sample.gpaScore, 100);
+    assert.equal(sample.incomeScore, expectedIncome);
   } else {
     assert.equal(sample.totalScore, null);
     assert.equal(sample.classification, null);
@@ -162,10 +168,10 @@ preview = reducePreview(preview, { type: 'edit', field: 'hasPreferredTag', value
 preview = reducePreview(preview, { type: 'submit' });
 assert.equal(preview.result.illustrative, true);
 assert.equal(preview.result.eligible, true);
-assert.equal(preview.result.totalScore, 76);
+assert.equal(preview.result.totalScore, 80);
 assert.equal(preview.result.classification, 'Recommended');
 assert.equal(describePracticeResult(preview.result).heading, 'Recommended');
-assert.equal(describePracticeResult(preview.result).score, 76);
+assert.equal(describePracticeResult(preview.result).score, 80);
 assert.equal(preview.form.gwa, '92.5');
 assert.equal(preview.form.incomeBracket, '₱21,191 – ₱43,828 / month');
 
@@ -176,9 +182,9 @@ const passing = reducePreview(
   },
   { type: 'submit' }
 );
-assert.equal(passing.result.totalScore, 92);
+assert.equal(passing.result.totalScore, 94);
 assert.equal(passing.result.classification, 'Highly Recommended');
-assert.equal(describePracticeResult(passing.result).score, 92);
+assert.equal(describePracticeResult(passing.result).score, 94);
 
 const failing = reducePreview(
   {

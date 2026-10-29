@@ -69,7 +69,7 @@ Use these values unless a case names different data.
 
 **Score check for that pair**
 
-Student GWA `1.50` against maximum `2.00` on the `1.00-5.00` scale scores **80**. Income bracket `Below ₱10,000 / month` under a `21190` cap scores **80**. No preferred tags score **100**. Weights `0.40 / 0.40 / 0.20` produce total **84**, classification **Recommended**.
+Student GWA `1.50` against maximum `2.00` on the `1.00-5.00` scale has improvement ratio `0.50` and scores **100**. Income bracket `Below ₱10,000 / month` is one bracket below the highest bracket eligible under a `21190` cap and scores **70**. No preferred tags score **100**. Weights `0.40 / 0.40 / 0.20` produce total **88**, classification **Recommended**.
 
 ## Result columns
 
@@ -2189,6 +2189,11 @@ Search loads the matching API and then filters in the browser. It is not a publi
 
 All matching cases use `GET /api/v1/matching` and Match Feed at `/dashboard/student/matches`. A failed hard filter is omitted. It is not returned with score 0.
 
+GWA and income use the tier scores from the approved methodology. The methodology does not define the numeric width of each tier. These boundaries are proposed implementation rules, not quotations from the methodology:
+
+- GWA improvement ratio is `(required - student) / (required - 1.00)` on the `1.00-5.00` scale, where lower is better, and `(student - required) / (100 - required)` on the `60-100` scale. Ratio `0` scores **75**. A ratio above `0` and below `0.50` scores **85**. A ratio of `0.50` or higher scores **100**. If the cutoff is already the best grade on that scale, the score is **100** and the formula does not divide by zero.
+- With a monthly cap, distance from the highest eligible bracket scores **100** at three or more brackets below, **85** at exactly two, **70** at exactly one, and **50** in the highest eligible bracket. A missing or null cap scores **100** for every bracket, including `Above ₱131,484 / month`. A cap of `0` is a real cap. A negative, non-numeric, or non-finite cap excludes the scholarship and is not treated as unlimited.
+
 Prepare one verified provider and edit a single scholarship between cases, or create one scholarship per case. Use the shared complete College profile unless the case changes one field.
 
 ### MATCH-001
@@ -2275,7 +2280,7 @@ Prepare one verified provider and edit a single scholarship between cases, or cr
 - **Priority:** Critical
 - **Test Type:** Positive / Negative
 - **Regression Required?** Critical smoke
-- **Notes:** On this scale a smaller number is the better grade.
+- **Notes:** On this scale a smaller number is the better grade. Against maximum `2.00`, GWA `2.00` scores 75 and GWA `1.25` scores 100. `2.01` is omitted, not scored 0.
 
 ### MATCH-006
 
@@ -2292,7 +2297,7 @@ Prepare one verified provider and edit a single scholarship between cases, or cr
 - **Priority:** Critical
 - **Test Type:** Positive / Negative
 - **Regression Required?** Critical smoke
-- **Notes:**
+- **Notes:** Against minimum `80`, grade `80` scores 75 and grade `95` scores 100. `79` is omitted, not scored 0.
 
 ### MATCH-007
 
@@ -2326,7 +2331,7 @@ Prepare one verified provider and edit a single scholarship between cases, or cr
 - **Priority:** Critical
 - **Test Type:** Positive / Negative
 - **Regression Required?** Critical smoke
-- **Notes:** Brackets must use the labels stored by the profile form.
+- **Notes:** Brackets must use the labels stored by the profile form. Under cap `21190`, `Below ₱10,000 / month` scores 70 and `₱10,001 – ₱21,190 / month` scores 50. The third bracket is omitted, not scored.
 
 ### MATCH-009
 
@@ -2360,7 +2365,7 @@ Prepare one verified provider and edit a single scholarship between cases, or cr
 - **Priority:** High
 - **Test Type:** Positive
 - **Regression Required?** Full regression
-- **Notes:**
+- **Notes:** A configured cap of `0` excludes every stored bracket. A negative, blank-but-nonempty, non-numeric, or non-finite `maxMonthlyIncome` also excludes the scholarship. Only null, omitted, or `''` means no cap.
 
 ### MATCH-011
 
@@ -2506,19 +2511,19 @@ Prepare one verified provider and edit a single scholarship between cases, or cr
 
 - **Module:** Matching / Recommendation Engine
 - **Feature:** Ranking score
-- **Test Scenario:** The shared example scores 84 and is Recommended.
+- **Test Scenario:** The shared example scores 88 and is Recommended.
 - **Preconditions:** Shared complete profile and shared matching scholarship, with no preferred tags.
 - **Test Data:** GWA `1.50` versus maximum `2.00`. Income `Below ₱10,000 / month`. Cap `21190`. Weights 40 / 40 / 20.
 - **Steps:**
   1. Request matches.
   2. Find `QA College Grant`.
-- **Expected Result:** `gpaScore` is 80, `incomeScore` is 80, `tagsScore` is 100, `totalScore` is 84, classification is `Recommended`. Boundaries: 90 or above is `Highly Recommended`, 70–89 is `Recommended`, 50–69 is `Potential Match`, below 50 is `Low Compatibility`.
+- **Expected Result:** `gpaScore` is 100, `incomeScore` is 70, `tagsScore` is 100, `totalScore` is 88, classification is `Recommended`. Boundaries: 90 or above is `Highly Recommended`, 70–89 is `Recommended`, 50–69 is `Potential Match`, below 50 is `Low Compatibility`.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** Critical
 - **Test Type:** Positive
 - **Regression Required?** Critical smoke
-- **Notes:** GWA ratio 0 scores 60, ratio 1 scores 100. Income distance 0 scores 60, 1 scores 80, 2 or more scores 100.
+- **Notes:** Ratio `0.50` is the large-margin boundary and scores 100. One bracket below the highest eligible bracket scores 70. These widths are proposed implementation rules. The methodology names the tier scores and does not define the widths.
 
 ### MATCH-020
 

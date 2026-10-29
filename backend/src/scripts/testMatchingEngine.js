@@ -18,6 +18,8 @@ const FIXED_NOW = new Date('2026-09-26T04:00:00.000Z');
 const BELOW_10K = 'Below ₱10,000 / month';
 const FROM_10K = '₱10,001 – ₱21,190 / month';
 const FROM_21K = '₱21,191 – ₱43,828 / month';
+const FROM_43K = '₱43,829 – ₱76,669 / month';
+const FROM_76K = '₱76,670 – ₱131,484 / month';
 const ABOVE_131K = 'Above ₱131,484 / month';
 
 const baseStudent = (overrides = {}) => {
@@ -179,6 +181,70 @@ test('course mismatch (BSIT vs BSCS)', () => {
     ),
     false
   );
+});
+
+test('civil engineering aliases match on both sides without changing other hard filters', () => {
+  const civilScholarship = baseScholarship({
+    hardFilters: {
+      courseProgram: ['BS in Civil Engineering']
+    }
+  });
+  const civilStudent = baseStudent({ course: 'Civil Engineering' });
+  const civilRanked = ranked(civilStudent, civilScholarship);
+  const itRanked = ranked(baseStudent({ course: 'BSIT' }), baseScholarship());
+
+  assert.strictEqual(eligible(civilStudent, civilScholarship), true);
+  assert.strictEqual(
+    eligible(
+      baseStudent({ course: 'BSCE' }),
+      baseScholarship({
+        hardFilters: { courseProgram: ['Civil Engineering'] }
+      })
+    ),
+    true
+  );
+  assert.strictEqual(
+    eligible(
+      baseStudent({ course: 'Civil Engineering' }),
+      baseScholarship({
+        hardFilters: { courseProgram: ['Mechanical Engineering'] }
+      })
+    ),
+    false
+  );
+  assert.strictEqual(
+    eligible(
+      baseStudent({
+        academicLevel: 'Senior High School',
+        course: 'Civil Engineering',
+        yearLevel: 'Grade 12'
+      }),
+      civilScholarship
+    ),
+    false
+  );
+  assert.strictEqual(
+    eligible(
+      baseStudent({ course: 'Civil Engineering', gwa: 3 }),
+      civilScholarship
+    ),
+    false
+  );
+  assert.strictEqual(
+    eligible(
+      baseStudent({ course: 'Civil Engineering' }),
+      baseScholarship({
+        hardFilters: { courseProgram: [] }
+      })
+    ),
+    true
+  );
+  assert.ok(civilRanked);
+  assert.strictEqual(civilRanked.totalScore, itRanked.totalScore);
+  assert.strictEqual(civilRanked.classification, itRanked.classification);
+  assert.strictEqual(civilRanked.gpaScore, itRanked.gpaScore);
+  assert.strictEqual(civilRanked.incomeScore, itRanked.incomeScore);
+  assert.strictEqual(civilRanked.tagsScore, itRanked.tagsScore);
 });
 
 test('empty provider course list is unrestricted', () => {
@@ -524,85 +590,168 @@ test('provider supports both scales and student uses 60-100', () => {
   );
 });
 
-test('GPA score is calculated', () => {
-  const midpoint = ranked(
-    baseStudent({ gwa: 1.5, gwaScale: '1.00-5.00' }),
+test('GWA score uses the proposed improvement-ratio tiers', () => {
+  const gwaScore = (gwa, scale, minimumGPA) => ranked(
+    baseStudent({ gwa, gwaScale: scale }),
     baseScholarship({
       academicRequirements: [
-        { gradingScale: '1.00-5.00', minimumGPA: 2 }
+        { gradingScale: scale, minimumGPA }
       ]
     })
   );
-  const exact = ranked(
-    baseStudent({ gwa: 2, gwaScale: '1.00-5.00' }),
-    baseScholarship({
-      academicRequirements: [
-        { gradingScale: '1.00-5.00', minimumGPA: 2 }
-      ]
-    })
-  );
-  const best = ranked(
+
+  assert.strictEqual(gwaScore(2, '1.00-5.00', 2).gpaScore, 75);
+  assert.strictEqual(gwaScore(1.75, '1.00-5.00', 2).gpaScore, 85);
+  assert.strictEqual(gwaScore(1.51, '1.00-5.00', 2).gpaScore, 85);
+  assert.strictEqual(gwaScore(1.5, '1.00-5.00', 2).gpaScore, 100);
+  assert.strictEqual(gwaScore(1, '1.00-5.00', 2).gpaScore, 100);
+
+  assert.strictEqual(gwaScore(85, '60-100', 85).gpaScore, 75);
+  assert.strictEqual(gwaScore(90, '60-100', 85).gpaScore, 85);
+  assert.strictEqual(gwaScore(89, '60-100', 80).gpaScore, 85);
+  assert.strictEqual(gwaScore(90, '60-100', 80).gpaScore, 100);
+  assert.strictEqual(gwaScore(100, '60-100', 80).gpaScore, 100);
+});
+
+test('GWA at the best grade does not divide by zero', () => {
+  const perfectFive = ranked(
     baseStudent({ gwa: 1, gwaScale: '1.00-5.00' }),
     baseScholarship({
       academicRequirements: [
-        { gradingScale: '1.00-5.00', minimumGPA: 2 }
+        { gradingScale: '1.00-5.00', minimumGPA: 1 }
       ]
     })
   );
-  const percentage = ranked(
-    baseStudent({ gwa: 90, gwaScale: '60-100' }),
+  const perfectPercent = ranked(
+    baseStudent({ gwa: 100, gwaScale: '60-100' }),
     baseScholarship({
       academicRequirements: [
-        { gradingScale: '60-100', minimumGPA: 80 }
+        { gradingScale: '60-100', minimumGPA: 100 }
       ]
     })
   );
 
-  assert.strictEqual(midpoint.gpaScore, 80);
-  assert.strictEqual(exact.gpaScore, 60);
-  assert.strictEqual(best.gpaScore, 100);
-  assert.strictEqual(percentage.gpaScore, 80);
-});
-
-test('income score is calculated', () => {
-  const partial = ranked(
-    baseStudent({ incomeBracket: BELOW_10K }),
-    baseScholarship({
-      incomeRequirement: { maxMonthlyIncome: 10000 }
-    })
-  );
-  const close = ranked(
-    baseStudent({ incomeBracket: BELOW_10K }),
-    baseScholarship({
-      incomeRequirement: { maxMonthlyIncome: 21190 }
-    })
-  );
-  const full = ranked(
-    baseStudent({ incomeBracket: BELOW_10K }),
-    baseScholarship({
-      incomeRequirement: { maxMonthlyIncome: 43828 }
-    })
-  );
-  const unrestricted = ranked(
-    baseStudent({ incomeBracket: ABOVE_131K }),
-    baseScholarship({
-      incomeRequirement: { maxMonthlyIncome: null }
-    })
-  );
-
-  assert.strictEqual(partial.incomeScore, 60);
-  assert.strictEqual(close.incomeScore, 80);
-  assert.strictEqual(full.incomeScore, 100);
-  assert.strictEqual(unrestricted.incomeScore, 100);
+  assert.ok(perfectFive);
+  assert.strictEqual(perfectFive.gpaScore, 100);
+  assert.ok(perfectPercent);
+  assert.strictEqual(perfectPercent.gpaScore, 100);
   assert.strictEqual(
     eligible(
+      baseStudent({ gwa: 1.01, gwaScale: '1.00-5.00' }),
+      baseScholarship({
+        academicRequirements: [
+          { gradingScale: '1.00-5.00', minimumGPA: 1 }
+        ]
+      })
+    ),
+    false
+  );
+  assert.strictEqual(
+    ranked(
+      baseStudent({ gwa: 1.01, gwaScale: '1.00-5.00' }),
+      baseScholarship({
+        academicRequirements: [
+          { gradingScale: '1.00-5.00', minimumGPA: 1 }
+        ]
+      })
+    ),
+    null
+  );
+  assert.strictEqual(
+    ranked(
+      baseStudent({ gwa: 99, gwaScale: '60-100' }),
+      baseScholarship({
+        academicRequirements: [
+          { gradingScale: '60-100', minimumGPA: 100 }
+        ]
+      })
+    ),
+    null
+  );
+});
+
+test('income score uses the proposed bracket-distance tiers', () => {
+  const incomeScore = (incomeBracket, maxMonthlyIncome) => ranked(
+    baseStudent({ incomeBracket }),
+    baseScholarship({
+      incomeRequirement: { maxMonthlyIncome }
+    })
+  );
+
+  assert.strictEqual(incomeScore(BELOW_10K, 76669).incomeScore, 100);
+  assert.strictEqual(incomeScore(BELOW_10K, 131484).incomeScore, 100);
+  assert.strictEqual(incomeScore(FROM_10K, 76669).incomeScore, 85);
+  assert.strictEqual(incomeScore(FROM_21K, 76669).incomeScore, 70);
+  assert.strictEqual(incomeScore(FROM_43K, 76669).incomeScore, 50);
+  assert.strictEqual(incomeScore(BELOW_10K, 10000).incomeScore, 50);
+  assert.strictEqual(incomeScore(BELOW_10K, 21190).incomeScore, 70);
+  assert.strictEqual(incomeScore(FROM_10K, 21190).incomeScore, 50);
+  assert.strictEqual(incomeScore(BELOW_10K, 43828).incomeScore, 85);
+
+  assert.strictEqual(
+    ranked(
+      baseStudent({ incomeBracket: FROM_76K }),
+      baseScholarship({
+        incomeRequirement: { maxMonthlyIncome: 76669 }
+      })
+    ),
+    null
+  );
+  assert.strictEqual(
+    ranked(
       baseStudent({ incomeBracket: FROM_21K }),
       baseScholarship({
         incomeRequirement: { maxMonthlyIncome: 21190 }
       })
     ),
-    false
+    null
   );
+  assert.strictEqual(
+    ranked(
+      baseStudent({ incomeBracket: ABOVE_131K }),
+      baseScholarship({
+        incomeRequirement: { maxMonthlyIncome: 999999 }
+      })
+    ),
+    null
+  );
+});
+
+test('no income cap scores every bracket at 100, including the open-ended bracket', () => {
+  [BELOW_10K, FROM_10K, FROM_21K, FROM_43K, FROM_76K, ABOVE_131K].forEach((incomeBracket) => {
+    const result = ranked(
+      baseStudent({ incomeBracket }),
+      baseScholarship({
+        incomeRequirement: { maxMonthlyIncome: null, maximumIncome: 240000 }
+      })
+    );
+
+    assert.ok(result, incomeBracket);
+    assert.strictEqual(result.incomeScore, 100, incomeBracket);
+  });
+});
+
+test('a zero cap is a real cap and invalid caps are not unlimited', () => {
+  const excluded = (maxMonthlyIncome) => ranked(
+    baseStudent({ incomeBracket: BELOW_10K }),
+    baseScholarship({
+      incomeRequirement: { maxMonthlyIncome, maximumIncome: 240000 }
+    })
+  );
+
+  assert.strictEqual(excluded(0), null);
+  assert.strictEqual(excluded(-1), null);
+  assert.strictEqual(excluded(Number.NaN), null);
+  assert.strictEqual(excluded(Number.POSITIVE_INFINITY), null);
+  assert.strictEqual(excluded('not-a-number'), null);
+
+  const blank = ranked(
+    baseStudent({ incomeBracket: ABOVE_131K }),
+    baseScholarship({
+      incomeRequirement: { maxMonthlyIncome: '', maximumIncome: 240000 }
+    })
+  );
+  assert.strictEqual(blank.incomeScore, 100);
 });
 
 test('preferred tag score is calculated', () => {
@@ -661,16 +810,17 @@ test('provider weights are applied', () => {
 
   const result = ranked(student, scholarship);
 
-  assert.strictEqual(result.gpaScore, 80);
-  assert.strictEqual(result.incomeScore, 60);
+  assert.strictEqual(result.gpaScore, 100);
+  assert.strictEqual(result.incomeScore, 50);
   assert.strictEqual(result.tagsScore, 50);
   assert.deepStrictEqual(result.weights, {
     gwaWeight: 0.7,
     incomeWeight: 0.2,
     tagsWeight: 0.1
   });
-  assert.strictEqual(result.totalScore, 73);
-  assert.notStrictEqual(result.totalScore, 66);
+  assert.strictEqual(result.totalScore, 85);
+  assert.strictEqual(result.classification, 'Recommended');
+  assert.notStrictEqual(result.totalScore, 70);
 });
 
 test('final score is normalized 0-100', () => {
@@ -729,7 +879,7 @@ test('results are sorted descending', () => {
   const middle = baseScholarship({
     name: 'Middle',
     academicRequirements: [
-      { gradingScale: '1.00-5.00', minimumGPA: 2 }
+      { gradingScale: '1.00-5.00', minimumGPA: 1.8 }
     ]
   });
 
@@ -741,11 +891,13 @@ test('results are sorted descending', () => {
   );
 
   assert.deepStrictEqual(
-    results.map((result) => result.scholarship.name),
-    ['High', 'Middle', 'Low']
+    results.map((result) => [result.scholarship.name, result.totalScore]),
+    [
+      ['High', 100],
+      ['Middle', 94],
+      ['Low', 90]
+    ]
   );
-  assert.ok(results[0].totalScore > results[1].totalScore);
-  assert.ok(results[1].totalScore > results[2].totalScore);
 });
 
 test('recommendation classification is correct', () => {
@@ -762,6 +914,15 @@ test('recommendation classification is correct', () => {
     baseScholarship()
   );
   const recommended = ranked(
+    baseStudent({ gwa: 1.5, incomeBracket: BELOW_10K }),
+    baseScholarship({
+      academicRequirements: [
+        { gradingScale: '1.00-5.00', minimumGPA: 2 }
+      ],
+      incomeRequirement: { maxMonthlyIncome: 21190 }
+    })
+  );
+  const exactOpenIncome = ranked(
     baseStudent({ gwa: 2.5 }),
     baseScholarship({
       academicRequirements: [
@@ -769,11 +930,44 @@ test('recommendation classification is correct', () => {
       ]
     })
   );
+  const lowCompatibility = ranked(
+    baseStudent({
+      gwa: 2,
+      incomeBracket: FROM_43K,
+      specialEligibilityFlags: {}
+    }),
+    baseScholarship({
+      academicRequirements: [
+        { gradingScale: '1.00-5.00', minimumGPA: 2 }
+      ],
+      incomeRequirement: { maxMonthlyIncome: 76669 },
+      specialTags: [
+        { tagName: 'Working Student', mode: 'Preferred' }
+      ],
+      criteriaWeights: {
+        gwaWeight: 0.2,
+        incomeWeight: 0.5,
+        tagsWeight: 0.3
+      }
+    })
+  );
 
   assert.strictEqual(highly.totalScore, 100);
   assert.strictEqual(highly.classification, 'Highly Recommended');
-  assert.strictEqual(recommended.totalScore, 84);
+  assert.strictEqual(recommended.gpaScore, 100);
+  assert.strictEqual(recommended.incomeScore, 70);
+  assert.strictEqual(recommended.tagsScore, 100);
+  assert.strictEqual(recommended.totalScore, 88);
   assert.strictEqual(recommended.classification, 'Recommended');
+  assert.strictEqual(exactOpenIncome.gpaScore, 75);
+  assert.strictEqual(exactOpenIncome.incomeScore, 100);
+  assert.strictEqual(exactOpenIncome.totalScore, 90);
+  assert.strictEqual(exactOpenIncome.classification, 'Highly Recommended');
+  assert.strictEqual(lowCompatibility.gpaScore, 75);
+  assert.strictEqual(lowCompatibility.incomeScore, 50);
+  assert.strictEqual(lowCompatibility.tagsScore, 0);
+  assert.strictEqual(lowCompatibility.totalScore, 40);
+  assert.strictEqual(lowCompatibility.classification, 'Low Compatibility');
 });
 
 test('a scholarship that fails a hard filter never receives a ranking score', () => {
@@ -978,7 +1172,68 @@ const assertFrontendRulesMatch = async () => {
   });
 };
 
-assertFrontendRulesMatch()
+const assertSimulatorMatchesEngine = async () => {
+  const simulatorPath = path.resolve(
+    __dirname,
+    '../../../frontend/src/features/public-landing/components/matchingSimulator.js'
+  );
+  const { evaluateSampleMatch } = await import(
+    pathToFileURL(simulatorPath).href
+  );
+  const sampleScholarship = baseScholarship({
+    academicRequirements: [
+      { gradingScale: '1.00-5.00', minimumGPA: 2 },
+      { gradingScale: '60-100', minimumGPA: 85 }
+    ],
+    incomeRequirement: { maxMonthlyIncome: 43828 },
+    specialTags: [
+      { tagName: '4Ps Beneficiary', mode: 'Preferred' }
+    ]
+  });
+  const cases = [
+    { scale: '1.00-5.00', gwa: '1.50', incomeBracket: BELOW_10K, hasPreferredTag: 'yes' },
+    { scale: '1.00-5.00', gwa: '1.75', incomeBracket: BELOW_10K, hasPreferredTag: 'yes' },
+    { scale: '1.00-5.00', gwa: '2.00', incomeBracket: FROM_21K, hasPreferredTag: 'no' },
+    { scale: '1.00-5.00', gwa: '1.00', incomeBracket: FROM_10K, hasPreferredTag: 'yes' },
+    { scale: '60-100', gwa: '92.5', incomeBracket: FROM_21K, hasPreferredTag: 'yes' },
+    { scale: '60-100', gwa: '85', incomeBracket: BELOW_10K, hasPreferredTag: 'no' },
+    { scale: '1.00-5.00', gwa: '2.25', incomeBracket: ABOVE_131K, hasPreferredTag: 'yes' },
+    { scale: '60-100', gwa: '84', incomeBracket: BELOW_10K, hasPreferredTag: 'no' }
+  ];
+
+  cases.forEach((input) => {
+    const sample = evaluateSampleMatch(input);
+    const engineResult = ranked(
+      baseStudent({
+        gwa: Number(input.gwa),
+        gwaScale: input.scale,
+        incomeBracket: input.incomeBracket,
+        specialEligibilityFlags: {
+          is4PsBeneficiary: input.hasPreferredTag === 'yes'
+        }
+      }),
+      sampleScholarship
+    );
+
+    if (!sample.eligible) {
+      assert.strictEqual(engineResult, null, JSON.stringify(input));
+      return;
+    }
+
+    assert.ok(engineResult, JSON.stringify(input));
+    assert.strictEqual(engineResult.gpaScore, sample.gpaScore, JSON.stringify(input));
+    assert.strictEqual(engineResult.incomeScore, sample.incomeScore, JSON.stringify(input));
+    assert.strictEqual(engineResult.tagsScore, sample.tagsScore, JSON.stringify(input));
+    assert.strictEqual(engineResult.totalScore, sample.totalScore, JSON.stringify(input));
+    assert.strictEqual(
+      engineResult.classification,
+      sample.classification,
+      JSON.stringify(input)
+    );
+  });
+};
+
+Promise.all([assertFrontendRulesMatch(), assertSimulatorMatchesEngine()])
   .then(() => {
     console.log(`matching engine tests passed (${passed})`);
   })

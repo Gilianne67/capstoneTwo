@@ -410,31 +410,51 @@ const matchesAcademicRequirement = (studentProfile, scholarship) => {
  * maxMonthlyIncome is a monthly peso ceiling.
  * Legacy maximumIncome was stored as an annual amount, so it is not
  * applied as a monthly ceiling.
- * A bracket is eligible only when its entire ceiling is at or below
- * the provider maximum. The open-ended top bracket never is.
+ *
+ * null, undefined, and '' mean no cap.
+ * A finite cap of 0 or more, including 0, is a real ceiling.
+ * Negative, non-finite, and non-numeric values are invalid. They must
+ * not be treated as an unlimited allowance.
  */
 const resolveMonthlyIncomeCap = (scholarship) => {
   const income = scholarship.incomeRequirement || {};
   const monthly = income.maxMonthlyIncome;
 
-  if (monthly !== null && monthly !== undefined && monthly !== '') {
-    const cap = Number(monthly);
-
-    if (Number.isFinite(cap) && cap >= 0) {
-      return cap;
-    }
-
-    return null;
+  if (monthly === null || monthly === undefined || monthly === '') {
+    return { kind: 'unset' };
   }
 
-  return null;
+  const cap = typeof monthly === 'number' ? monthly : Number(monthly);
+
+  if (!Number.isFinite(cap) || cap < 0) {
+    return { kind: 'invalid' };
+  }
+
+  return { kind: 'cap', cap };
 };
 
-const matchesIncome = (studentProfile, scholarship) => {
-  const cap = resolveMonthlyIncomeCap(scholarship);
+/**
+ * A bracket is eligible only when its entire ceiling is at or below
+ * the provider maximum. The open-ended top bracket never is.
+ */
+const eligibleIncomeIndexes = (cap) =>
+  INCOME_BRACKETS
+    .map((bracket, index) => ({ bracket, index }))
+    .filter(
+      ({ bracket }) =>
+        Number.isFinite(bracket.ceiling) && bracket.ceiling <= cap
+    )
+    .map(({ index }) => index);
 
-  if (cap === null) {
+const matchesIncome = (studentProfile, scholarship) => {
+  const resolved = resolveMonthlyIncomeCap(scholarship);
+
+  if (resolved.kind === 'unset') {
     return true;
+  }
+
+  if (resolved.kind === 'invalid') {
+    return false;
   }
 
   const index = findIncomeBracketIndex(studentProfile.incomeBracket);
@@ -443,9 +463,7 @@ const matchesIncome = (studentProfile, scholarship) => {
     return false;
   }
 
-  const ceiling = INCOME_BRACKETS[index].ceiling;
-
-  return Number.isFinite(ceiling) && ceiling <= cap;
+  return eligibleIncomeIndexes(resolved.cap).includes(index);
 };
 
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
@@ -554,28 +572,48 @@ const passesHardFilters = (
 };
 
 /**
- * GWA score, 0–100, only after the hard filter has passed.
+ * GWA score after the hard filter has passed.
  *
- * The paper names "meets", "exceeds modestly", and "exceeds by a
- * large margin" but does not define the cutoffs. This score is the
- * straight line between the provider threshold and the best grade
- * on the student's scale:
+ * Table 3.3 names three passing tiers: meeting the cutoff (75),
+ * exceeding it modestly (85), and exceeding it by a large margin (100).
+ * The approved methodology does not define the numeric width of those
+ * tiers. The boundaries below are a proposed implementation rule, not
+ * a cutoff quoted from the methodology.
  *
- *   ratio 0    => meets the threshold exactly        => 60
- *   ratio 0.5  => midpoint, modest / large boundary  => 80
- *   ratio 1    => best grade on the scale            => 100
+ * improvementRatio is the fraction of the span from the cutoff to the
+ * best grade on the student's scale.
  *
- *   gpaScore = 60 + 40 * ratio
+ *   ratio === 0       => 75
+ *   0 < ratio < 0.50  => 85
+ *   ratio >= 0.50     => 100
  *
  * 1.00-5.00, lower is better, best grade is 1.00:
- *   ratio = (threshold - studentGwa) / (threshold - 1.00)
+ *   improvementRatio = (requiredGwa - studentGwa) / (requiredGwa - 1.00)
  *
  * 60-100, higher is better, best grade is 100:
- *   ratio = (studentGwa - threshold) / (100 - threshold)
+ *   improvementRatio = (studentGwa - requiredGwa) / (100 - requiredGwa)
  *
- * ratio is clamped to 0–1. A threshold that is already the best
- * grade scores 100.
+ * When the cutoff is already the best grade, the span length is 0.
+ * The only passing grade is that best grade, so the score is 100 and
+ * the formula does not divide. A failing GWA is excluded by
+ * matchesAcademicRequirement and does not receive a component score.
  */
+const scoreFromImprovementRatio = (ratio) => {
+  if (!Number.isFinite(ratio) || ratio < 0) {
+    return null;
+  }
+
+  if (ratio === 0) {
+    return 75;
+  }
+
+  if (ratio < 0.5) {
+    return 85;
+  }
+
+  return 100;
+};
+
 const scoreGpa = (studentProfile, scholarship) => {
   const requirement = requirementForScale(
     scholarship,
@@ -593,39 +631,71 @@ const scoreGpa = (studentProfile, scholarship) => {
     return null;
   }
 
-  let ratio;
-
   if (requirement.gradingScale === '1.00-5.00') {
-    ratio = threshold <= 1 ? 1 : (threshold - studentGwa) / (threshold - 1);
-  } else {
-    ratio = threshold >= 100 ? 1 : (studentGwa - threshold) / (100 - threshold);
+    const passes =
+      studentGwa >= 1 &&
+      studentGwa <= 5 &&
+      studentGwa <= threshold;
+
+    if (!passes) {
+      return null;
+    }
+
+    if (threshold <= 1) {
+      return 100;
+    }
+
+    return scoreFromImprovementRatio(
+      (threshold - studentGwa) / (threshold - 1)
+    );
   }
 
-  const clamped = Math.min(1, Math.max(0, ratio));
-  return roundScore(60 + 40 * clamped);
+  const passes =
+    studentGwa >= 60 &&
+    studentGwa <= 100 &&
+    studentGwa >= threshold;
+
+  if (!passes) {
+    return null;
+  }
+
+  if (threshold >= 100) {
+    return 100;
+  }
+
+  return scoreFromImprovementRatio(
+    (studentGwa - threshold) / (100 - threshold)
+  );
 };
 
 /**
- * Income score, 0–100, only after the hard filter has passed.
+ * Income score after the hard filter has passed.
  *
- * The paper names "fully aligns", "closely aligns", and "partially
- * aligns" but does not define peso cutoffs. Student income is one of
- * six ordered brackets, so alignment is the number of brackets between
- * the student and the highest bracket that still fits under the
- * monthly ceiling:
+ * Table 3.4 names 100, 85, 70, and 50 for eligible students. The
+ * approved methodology does not define which bracket distance maps to
+ * each tier, and the scholarship stores only a maximum monthly income.
+ * The distances below are a proposed implementation rule, not a cutoff
+ * quoted from the methodology. Distance is measured from the highest
+ * bracket whose ceiling is still at or below that cap:
  *
- *   0 brackets of room => partially aligns => 60
- *   1 bracket of room  => closely aligns   => 80
- *   2 or more          => fully aligns     => 100
+ *   3 or more brackets below => 100
+ *   exactly 2 below          => 85
+ *   exactly 1 below          => 70
+ *   the highest eligible     => 50
  *
- * No monthly ceiling, including a legacy annual maximumIncome that is
- * intentionally ignored, scores 100.
+ * No monthly cap scores 100 for every bracket, including the
+ * open-ended top bracket. An invalid cap scores nothing. A student
+ * above the cap is excluded by matchesIncome and is not scored.
  */
 const scoreIncome = (studentProfile, scholarship) => {
-  const cap = resolveMonthlyIncomeCap(scholarship);
+  const resolved = resolveMonthlyIncomeCap(scholarship);
 
-  if (cap === null) {
+  if (resolved.kind === 'unset') {
     return 100;
+  }
+
+  if (resolved.kind === 'invalid') {
+    return null;
   }
 
   const studentIndex = findIncomeBracketIndex(studentProfile.incomeBracket);
@@ -634,13 +704,7 @@ const scoreIncome = (studentProfile, scholarship) => {
     return null;
   }
 
-  const eligibleIndexes = INCOME_BRACKETS
-    .map((bracket, index) => ({ bracket, index }))
-    .filter(
-      ({ bracket }) =>
-        Number.isFinite(bracket.ceiling) && bracket.ceiling <= cap
-    )
-    .map(({ index }) => index);
+  const eligibleIndexes = eligibleIncomeIndexes(resolved.cap);
 
   if (!eligibleIndexes.includes(studentIndex)) {
     return null;
@@ -649,15 +713,19 @@ const scoreIncome = (studentProfile, scholarship) => {
   const tightest = Math.max(...eligibleIndexes);
   const distance = tightest - studentIndex;
 
-  if (distance <= 0) {
-    return 60;
+  if (distance >= 3) {
+    return 100;
+  }
+
+  if (distance === 2) {
+    return 85;
   }
 
   if (distance === 1) {
-    return 80;
+    return 70;
   }
 
-  return 100;
+  return 50;
 };
 
 /**
