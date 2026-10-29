@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation, Outlet } from 'rea
 
 // Context
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { isSessionOptionalRoute, providerFlowRedirect, studentFlowRedirect } from './context/redirectPath';
 import MaintenanceGate from './components/common/MaintenanceGate';
 
 // Layouts
@@ -65,14 +66,9 @@ function ProtectedRouteGuard({ allowedRoles, children }) {
     );
   }
 
-  // Allow immediate access to onboarding routes & consent verification right after sign-up
-  const isOnboardingRoute = 
-    location.pathname === '/onboarding' || 
-    location.pathname === '/provider/onboarding' ||
-    location.pathname === '/provider/pending-approval' ||
-    location.pathname === '/consent/verify';
-
-  if (!user && !isOnboardingRoute) {
+  // Guardian consent stays available without a session.
+  // Student and provider onboarding require the account created at registration.
+  if (!user && !isSessionOptionalRoute(location.pathname)) {
     return <Navigate to="/auth?mode=signin" state={{ from: location }} replace />;
   }
 
@@ -112,6 +108,11 @@ function ProtectedRouteGuard({ allowedRoles, children }) {
       }
     }
 
+    const studentRedirect = studentFlowRedirect(user, location.pathname);
+    if (studentRedirect && studentRedirect !== location.pathname) {
+      return <Navigate to={studentRedirect} replace />;
+    }
+
     if (allowedRoles) {
       const userRoleNormalized = user?.role?.toLowerCase();
       const isAllowed = allowedRoles?.map((r) => r.toLowerCase()).includes(userRoleNormalized);
@@ -119,6 +120,11 @@ function ProtectedRouteGuard({ allowedRoles, children }) {
       if (!isAllowed) {
         return <Navigate to={`/dashboard/${userRoleNormalized}`} replace />;
       }
+    }
+
+    const flowRedirect = providerFlowRedirect(user, location.pathname);
+    if (flowRedirect && flowRedirect !== location.pathname) {
+      return <Navigate to={flowRedirect} replace />;
     }
   }
 
@@ -141,7 +147,7 @@ function OnboardingGuard({ children }) {
   if (user.role === 'student' && !isVerified) {
     return (
       <Navigate 
-        to={`/verify-holding?email=${encodeURIComponent(user.email || '')}`} 
+        to="/verify-holding" 
         replace 
       />
     );
@@ -184,7 +190,7 @@ function DashboardRedirect() {
   if (user.role === 'student' && !isVerified) {
     return (
       <Navigate 
-        to={`/verify-holding?email=${encodeURIComponent(user.email || '')}`} 
+        to="/verify-holding" 
         replace 
       />
     );
@@ -206,7 +212,7 @@ export default function App() {
             <Route path="/login" element={<AuthPage />} />
             <Route path="/consent/verify" element={<ParentConsentPage />} />
             
-            {/* Verification Gatekeeper Public Routes */}
+            {/* Public verification routes. Unverified sign-in does not create a session, so this page stays outside the route guard. The address is not read from the URL. */}
             <Route path="/verify-holding" element={<VerifyHoldingPage />} />
             <Route path="/verify-email/:token" element={<VerifyEmailPage />} />
             <Route path="/reset-password/:token" element={<ResetPasswordPage />} />

@@ -2,6 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const Module = require('module');
+const { pathToFileURL } = require('url');
 const jwt = require('jsonwebtoken');
 
 
@@ -180,7 +181,42 @@ const main = async () => {
   assert.match(logoutResult, /You are still signed in/);
   assert.match(authContext, /setUser\(null\)/);
   assert.match(authContext, /setToken\(null\)/);
-  assert.match(authContext, /localStorage\.removeItem\('token'\)/);
+  assert.match(authContext, /from '\.\/sessionEnded'/);
+  assert.match(authContext, /removeStoredCredentials\(localStorage\)/);
+  assert.match(
+    authContext,
+    /const clearStoredSession = useCallback\(\(\) => \{\s*removeStoredCredentials\(localStorage\);\s*setUser\(null\);\s*setToken\(null\);/
+  );
+
+  const sessionEndedPath = path.resolve(
+    __dirname,
+    '../../../frontend/src/context/sessionEnded.js'
+  );
+  const { clearStoredSession } = await import(pathToFileURL(sessionEndedPath).href);
+  const stored = new Map([
+    ['token', 'jwt-token'],
+    ['iskolar_session', 'legacy-session'],
+    ['accessToken', 'access-token'],
+    ['authToken', 'auth-token'],
+    ['iskolar-profile-tour', 'true'],
+  ]);
+  const storage = {
+    getItem(key) {
+      return stored.has(key) ? stored.get(key) : null;
+    },
+    removeItem(key) {
+      stored.delete(key);
+    },
+  };
+
+  clearStoredSession(storage);
+  assert.strictEqual(storage.getItem('token'), null);
+  assert.strictEqual(storage.getItem('iskolar_session'), null);
+  assert.strictEqual(storage.getItem('accessToken'), null);
+  assert.strictEqual(storage.getItem('authToken'), null);
+  assert.strictEqual(storage.getItem('iskolar-profile-tour'), 'true');
+  assert.doesNotThrow(() => clearStoredSession(null));
+  assert.doesNotThrow(() => clearStoredSession(undefined));
   assert.match(sidebar, /await logout\(\)/);
   assert.match(sidebar, /result\.ok === false/);
   assert.match(sidebar, /role="alert"/);

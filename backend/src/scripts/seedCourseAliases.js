@@ -5,7 +5,10 @@ const mongoose = require('mongoose');
 dotenv.config({ path: path.join(__dirname, '../../.env') });
 
 const CourseAlias = require('../models/CourseAlias');
-const { COURSE_CATALOG } = require('../data/courseCatalog');
+const {
+  COURSE_CATALOG,
+  expandCourseAliases
+} = require('../data/courseCatalog');
 
 const MONGO_URI =
   process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/iskolarmatch';
@@ -159,8 +162,8 @@ const seedCourseAliases = async () => {
     created: 0
   };
 
-  for (const entry of COURSE_CATALOG) {
-    const result = await upsertCatalogEntry(entry);
+  for (const source of COURSE_CATALOG) {
+    const result = await upsertCatalogEntry(expandCourseAliases(source));
     counts[result] += 1;
   }
 

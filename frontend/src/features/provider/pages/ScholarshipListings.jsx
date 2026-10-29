@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   PlusCircle, 
@@ -23,6 +23,47 @@ import Pagination from '../../../components/common/Pagination';
 import CreateListing from './CreateListing';
 import { formatDeadlineDate } from '../../../utils/deadline';
 import { API_BASE_URL } from '../../../config/api';
+
+const listingKey = (item) => {
+  if (!item || typeof item !== 'object') return '';
+  const id = item._id ?? item.id;
+  return id === undefined || id === null ? '' : String(id);
+};
+
+const scholarshipFromResponse = (payload) => {
+  const scholarship = payload && payload.scholarship;
+  if (!scholarship || typeof scholarship !== 'object' || Array.isArray(scholarship)) {
+    return null;
+  }
+  return scholarship;
+};
+
+const readResponseBody = async (response) => {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+};
+
+const confirmedListingStatus = (payload) => {
+  const scholarship = scholarshipFromResponse(payload);
+  if (!scholarship || !Object.prototype.hasOwnProperty.call(scholarship, 'status')) {
+    return { scholarship, status: null };
+  }
+  if (scholarship.status !== 'Open' && scholarship.status !== 'Closed') {
+    return { scholarship, status: null, invalid: true };
+  }
+  return { scholarship, status: scholarship.status };
+};
+
+const archiveConfirmed = (payload) => {
+  const scholarship = scholarshipFromResponse(payload);
+  if (scholarship && Object.prototype.hasOwnProperty.call(scholarship, 'isArchived')) {
+    return { scholarship, confirmed: scholarship.isArchived === true };
+  }
+  return { scholarship, confirmed: true };
+};
 
 
 export default function ScholarshipListings({ onNavigateToCreate, onNavigateToEdit }) {
@@ -51,6 +92,8 @@ export default function ScholarshipListings({ onNavigateToCreate, onNavigateToEd
     confirmText: 'Confirm',
     confirmVariant: 'emerald' // 'emerald' | 'rose'
   });
+  const [isConfirming, setIsConfirming] = useState(false);
+  const confirmLock = useRef(false);
 
   // Helper Toast Notification
   const showToast = (msg) => {
@@ -105,6 +148,7 @@ export default function ScholarshipListings({ onNavigateToCreate, onNavigateToEd
   
   // Helper to Close Confirm Modal
   const closeConfirmModal = () => {
+    if (confirmLock.current) return;
     setConfirmModal({
       isOpen: false,
       type: null,
@@ -156,103 +200,94 @@ export default function ScholarshipListings({ onNavigateToCreate, onNavigateToEd
 
   // Execute Action upon Modal Confirmation
   const handleConfirmAction = async () => {
+    if (confirmLock.current) return;
+
     const { type, targetItem } = confirmModal;
-    if (!targetItem) return;
+    if (!targetItem || (type !== 'delete' && type !== 'toggle')) return;
 
-    const id = targetItem._id || targetItem.id;
+    const id = listingKey(targetItem);
+    if (!id) return;
 
-    if (type === 'delete') {
-  const previousListings = [...listings];
+    const requestedStatus = targetItem.status === 'Open' ? 'Closed' : 'Open';
 
-  // Immediately remove from screen
-  setListings(prev =>
-    prev.filter(item => (item._id || item.id) !== id)
-  );
+    confirmLock.current = true;
+    setIsConfirming(true);
 
-  try {
-    const token = localStorage.getItem('token');
+    try {
+      const token = localStorage.getItem('token');
 
-    if (!token) {
-      throw new Error('Authentication token not found.');
-    }
+      if (!token) {
+        throw new Error('Authentication token not found.');
+      }
 
-    const res = await fetch(
-      `${API_BASE_URL}/scholarships/${id}/archive`,
-      {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
+      const headers = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      };
+
+      if (type === 'delete') {
+        const res = await fetch(
+          `${API_BASE_URL}/scholarships/${id}/archive`,
+          {
+            method: 'PATCH',
+            headers
+          }
+        );
+        const data = await readResponseBody(res);
+
+        if (!res.ok) {
+          throw new Error((data && data.message) || 'Failed to archive scholarship.');
         }
+
+        const archived = archiveConfirmed(data);
+        if (!archived.confirmed) {
+          throw new Error((data && data.message) || 'Failed to archive scholarship.');
+        }
+
+        setListings((prev) => prev.filter((item) => listingKey(item) !== id));
+        showToast('Scholarship archived successfully.');
+      } else {
+        const res = await fetch(
+          `${API_BASE_URL}/scholarships/${id}/status`,
+          {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify({
+              status: requestedStatus
+            })
+          }
+        );
+        const data = await readResponseBody(res);
+
+        if (!res.ok) {
+          throw new Error((data && data.message) || 'Failed to update scholarship status.');
+        }
+
+        const confirmed = confirmedListingStatus(data);
+        if (confirmed.invalid) {
+          throw new Error((data && data.message) || 'Failed to update scholarship status.');
+        }
+
+        const status = confirmed.status || requestedStatus;
+        setListings((prev) => prev.map((item) => {
+          if (listingKey(item) !== id) return item;
+          if (confirmed.scholarship) {
+            return { ...item, ...confirmed.scholarship, status };
+          }
+          return { ...item, status };
+        }));
+        showToast(`Scholarship status changed to ${status}.`);
       }
-    );
 
-    const data = await res.json();
-
-    if (!res.ok) {
-      throw new Error(data.message || 'Failed to archive scholarship.');
+      confirmLock.current = false;
+      closeConfirmModal();
+    } catch (err) {
+      console.error('Failed to update scholarship:', err);
+      showToast(err.message || 'Failed to update scholarship.');
+    } finally {
+      confirmLock.current = false;
+      setIsConfirming(false);
     }
-
-    showToast('Scholarship archived successfully.');
-
-    // Re-fetch from database
-    await fetchListings();
-
-  } catch (err) {
-    console.error('Failed to archive scholarship:', err);
-
-    // Restore UI if backend failed
-    setListings(previousListings);
-
-    showToast(err.message || 'Failed to archive scholarship.');
-  }
-
-  } else if (type === 'toggle') {
-  const newStatus = targetItem.status === 'Open' ? 'Closed' : 'Open';
-
-  try {
-    const token = localStorage.getItem('token');
-
-    if (!token) {
-      throw new Error('Authentication token not found.');
-    }
-
-    const res = await fetch(
-      `${API_BASE_URL}/scholarships/${id}/status`,
-      {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          status: newStatus
-        })
-      }
-    );
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      throw new Error(
-        data.message || 'Failed to update scholarship status.'
-      );
-    }
-
-    showToast(`Scholarship status changed to ${newStatus}.`);
-
-    // Reload actual data from MongoDB
-    await fetchListings();
-
-  } catch (err) {
-    console.error('Failed to update status:', err);
-
-    showToast(
-      err.message || 'Failed to update scholarship status.'
-    );
-  }
-}
-    closeConfirmModal();
   };
 
   // CRUD Operation 3: START CREATE / EDIT
@@ -531,20 +566,29 @@ if (currentView === 'edit') {
               <button
                 type="button"
                 onClick={closeConfirmModal}
-                className="px-3.5 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl cursor-pointer transition-colors"
+                disabled={isConfirming}
+                className="px-3.5 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleConfirmAction}
-                className={`px-4 py-2 text-xs font-bold text-white rounded-xl cursor-pointer transition-colors ${
+                disabled={isConfirming}
+                className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white rounded-xl cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${
                   confirmModal.confirmVariant === 'rose'
                     ? 'bg-rose-600 hover:bg-rose-700'
                     : 'bg-emerald-600 hover:bg-emerald-700'
                 }`}
               >
-                {confirmModal.confirmText}
+                {isConfirming && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {isConfirming
+                  ? (confirmModal.type === 'delete'
+                    ? 'Archiving...'
+                    : confirmModal.targetItem?.status === 'Open'
+                      ? 'Closing...'
+                      : 'Opening...')
+                  : confirmModal.confirmText}
               </button>
             </div>
           </div>

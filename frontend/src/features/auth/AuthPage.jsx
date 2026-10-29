@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   GraduationCap, 
@@ -42,6 +42,7 @@ export default function AuthPage() {
   const [pendingConsentError, setPendingConsentError] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
   const [hasAuthError, setHasAuthError] = useState(false);
+  const submitLock = useRef(false);
 
   const [formData, setFormData] = useState({
     fullName: '',
@@ -131,8 +132,9 @@ export default function AuthPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Prevent double submissions/race conditions
-    if (isLoading) return;
+    // The ref closes the gap before isLoading is painted, so a second click cannot send another registration.
+    if (submitLock.current || isLoading) return;
+    submitLock.current = true;
 
     setIsLoading(true);
     setErrorMessage('');
@@ -142,21 +144,19 @@ export default function AuthPage() {
     const emailTrimmed = formData.email.trim().toLowerCase();
     const passwordTrimmed = formData.password.trim();
 
-    // 1. Client-Side Real-Time Format Validation
-    if (!EMAIL_REGEX.test(emailTrimmed)) {
-      setErrorMessage('Please enter a valid email address.');
-      setIsLoading(false);
-      return;
-    }
-
-    // 2. Validate Password Length for Sign Up
-    if (authMode === 'signup' && passwordTrimmed.length < MIN_PASSWORD_LENGTH) {
-      setErrorMessage(`Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`);
-      setIsLoading(false);
-      return;
-    }
-
     try {
+      // 1. Client-Side Real-Time Format Validation
+      if (!EMAIL_REGEX.test(emailTrimmed)) {
+        setErrorMessage('Please enter a valid email address.');
+        return;
+      }
+
+      // 2. Validate Password Length for Sign Up
+      if (authMode === 'signup' && passwordTrimmed.length < MIN_PASSWORD_LENGTH) {
+        setErrorMessage(`Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`);
+        return;
+      }
+
       if (authMode === 'signup') {
         const name = signupRole === 'provider' 
           ? formData.organizationName.trim() 
@@ -174,11 +174,16 @@ export default function AuthPage() {
           ...(signupRole === 'provider' && { organization: name }),
         };
 
+        let registeredUser;
         try {
-          await register(payload);
+          registeredUser = await register(payload);
         } catch (regErr) {
           const registrationOutcome = resolveRegistrationFormOutcome(regErr);
-          if (registrationOutcome.kind === 'declined' || registrationOutcome.kind === 'resubmit') {
+          if (
+            registrationOutcome.kind === 'declined' ||
+            registrationOutcome.kind === 'resubmit' ||
+            registrationOutcome.kind === 'duplicate'
+          ) {
             setHasAuthError(true);
             setErrorMessage(registrationOutcome.message);
             return;
@@ -187,7 +192,13 @@ export default function AuthPage() {
           return;
         }
 
-        // 🔒 Correct Flow: Sign Up -> OnboardingForm with registered email state passed along
+        if (!registeredUser || (!registeredUser.id && !registeredUser._id)) {
+          setHasAuthError(true);
+          setErrorMessage('Registration could not be completed. Please try again.');
+          return;
+        }
+
+        // Sign Up -> OnboardingForm with registered email state passed along
         if (signupRole === 'student') {
           navigate('/onboarding', { 
             replace: true, 
@@ -199,7 +210,13 @@ export default function AuthPage() {
       } else {
         const authenticatedUser = await login(emailTrimmed, passwordTrimmed);
         const targetRole = authenticatedUser?.user?.role || authenticatedUser?.role || 'student';
-        navigate(getRedirectPath(authenticatedUser) || `/dashboard/${targetRole}`, { replace: true });
+        const destination = getRedirectPath(authenticatedUser) || `/dashboard/${targetRole}`;
+        navigate(destination, {
+          replace: true,
+          ...(destination === '/onboarding'
+            ? { state: { registeredEmail: emailTrimmed } }
+            : {}),
+        });
       }
     } catch (err) {
       // Intercept unverified account login attempts and redirect to holding page
@@ -210,7 +227,10 @@ export default function AuthPage() {
 
       if (isUnverified) {
         const targetEmail = err?.email || err?.response?.data?.email || emailTrimmed;
-        return navigate(`/verify-holding?email=${encodeURIComponent(targetEmail)}`, { replace: true });
+        return navigate('/verify-holding', {
+          replace: true,
+          state: { email: targetEmail },
+        });
       }
 
       const loginOutcome = resolveLoginFormMessage(err);
@@ -222,6 +242,7 @@ export default function AuthPage() {
         setErrorMessage(loginOutcome.message || 'Invalid email or password. Please try again.');
       }
     } finally {
+      submitLock.current = false;
       setIsLoading(false);
     }
   };

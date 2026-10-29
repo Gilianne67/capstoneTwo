@@ -1,4 +1,3 @@
-import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import heroBgPhoto from '../../../assets/hero-bg-photo.jpg';
@@ -43,10 +42,10 @@ export default function HeroSection({ onNavigate }) {
             </h1>
 
             <p className="text-base sm:text-xl text-blue-50/90 max-w-xl font-normal leading-relaxed">
-               Discover scholarship opportunities tailored to your academic profile,
-                financial needs, and career aspirations. IskolarMatch helps Filipino
-                students find the right opportunities faster and easier.          
-                  </p>
+              Create an account and complete your student profile. IskolarMatch then
+              compares your qualifications with scholarship eligibility criteria and
+              ranks the grants you qualify for.
+            </p>
           </div>
 
           {/* Action Buttons */}
@@ -91,8 +90,8 @@ export default function HeroSection({ onNavigate }) {
             <div className="h-8 w-px bg-white/20" />
             
             <div className="backdrop-blur-md px-3 py-1.5">
-              <span className="block text-2xl font-black text-accent">15 Sec</span>
-              <span className="text-white/90 font-medium font-bold">Match Speed</span>
+              <span className="block text-2xl font-black text-accent">Sign in</span>
+              <span className="text-white/90 font-medium">Required for listings</span>
             </div>
 
           </div>

@@ -55,6 +55,46 @@ const formatAuditRole = (role) => {
 
 const requestIp = (req) => req?.ip || req?.headers?.['x-forwarded-for'] || '127.0.0.1';
 
+const DUPLICATE_EMAIL_MESSAGE = 'An account with this email address is already registered. Please sign in or use a different email.';
+
+const normalizeEmail = (value) => (
+  typeof value === 'string' ? value.trim().toLowerCase() : ''
+);
+
+const isDuplicateKeyError = (err) => {
+  const code = err && (err.code ?? err.cause?.code);
+  if (code === 11000 || code === 11001) return true;
+  return typeof err?.message === 'string' && err.message.includes('E11000');
+};
+
+const duplicateEmailResponse = (res) => res.status(409).json({
+  success: false,
+  emailTaken: true,
+  message: DUPLICATE_EMAIL_MESSAGE,
+});
+
+const respondToExistingRegistration = async (res, existingUser) => {
+  if (existingUser && existingUser.role === 'provider') {
+    const existingProvider = await Provider.findOne({ userId: existingUser._id });
+    if (isFinalRejection(existingProvider)) {
+      return res.status(409).json({
+        success: false,
+        verificationDeclined: true,
+        message: FINAL_REJECTION_REGISTRATION_MESSAGE,
+      });
+    }
+    if (canResubmitVerification(existingProvider)) {
+      return res.status(409).json({
+        success: false,
+        canResubmit: true,
+        message: RESUBMIT_REGISTRATION_MESSAGE,
+      });
+    }
+  }
+
+  return duplicateEmailResponse(res);
+};
+
 const auditFailureError = (message, statusCode, code, ...audits) => {
   const error = new ErrorResponse(message, statusCode);
   if (code) error.code = code;
@@ -176,52 +216,37 @@ exports.register = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse('Organization name is required for scholarship providers.', 400));
   }
 
-  const normalizedEmail = email ? email.toLowerCase().trim() : '';
+  const normalizedEmail = normalizeEmail(email);
 
-  // 3. Check for existing user (Anti-enumeration friendly handling)
+  // 3. Reject an account that already uses this email, including case and whitespace variants.
   const userExists = await User.findOne({ email: normalizedEmail });
   if (userExists) {
-    if (userExists.role === 'provider') {
-      const existingProvider = await Provider.findOne({ userId: userExists._id });
-      if (isFinalRejection(existingProvider)) {
-        return res.status(409).json({
-          success: false,
-          verificationDeclined: true,
-          message: FINAL_REJECTION_REGISTRATION_MESSAGE,
-        });
-      }
-      if (canResubmitVerification(existingProvider)) {
-        return res.status(409).json({
-          success: false,
-          canResubmit: true,
-          message: RESUBMIT_REGISTRATION_MESSAGE,
-        });
-      }
-    }
-
-    return res.status(200).json({
-      success: true,
-      requiresOnboarding: true,
-      email: normalizedEmail,
-      message: 'If an account exists with that email, instructions have been sent.'
-    });
+    return respondToExistingRegistration(res, userExists);
   }
 
   if (typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH) {
     return next(new ErrorResponse(`Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`, 400));
   }
 
-  // 4. Create User Record with isVerified = false & isOnboarded = false
-  const user = await User.create({
-    name,
-    email: normalizedEmail,
-    password,
-    role: role || 'student',
-    organization: role === 'provider' ? organization : '',
-    isOnboarded: false,
-    isVerified: false,
-    status: 'active',
-  });
+  // 4. Create User Record with isVerified = false & isOnboarded = false.
+  // A unique email index rejects a request that passes the lookup at the same time as another insert.
+  let user;
+  try {
+    user = await User.create({
+      name,
+      email: normalizedEmail,
+      password,
+      role: role || 'student',
+      organization: role === 'provider' ? organization : '',
+      isOnboarded: false,
+      isVerified: false,
+      status: 'active',
+    });
+  } catch (err) {
+    if (!isDuplicateKeyError(err)) throw err;
+    const racedUser = await User.findOne({ email: normalizedEmail });
+    return respondToExistingRegistration(res, racedUser);
+  }
 
   // 📝 AUDIT LOG: Registration Event
   const registerAudit = await recordAuditLog({
@@ -274,12 +299,18 @@ exports.verifyEmail = asyncHandler(async (req, res, next) => {
   }, audit));
 });
 
+const RESEND_VERIFICATION_MESSAGE = 'If an unverified account exists for that email, a verification link has been sent.';
+
+const genericResendResponse = (res) => res.status(200).json({
+  success: true,
+  message: RESEND_VERIFICATION_MESSAGE,
+});
+
 // @desc    Resend Verification Email (Rate Limited)
 // @route   POST /api/v1/auth/resend-verification
 // @access  Public
 exports.resendVerification = asyncHandler(async (req, res, next) => {
-  const { email } = req.body;
-  const normalizedEmail = email ? email.toLowerCase().trim() : '';
+  const normalizedEmail = normalizeEmail(req.body?.email);
 
   if (!normalizedEmail) {
     return next(new ErrorResponse('Email address is required.', 400));
@@ -287,12 +318,11 @@ exports.resendVerification = asyncHandler(async (req, res, next) => {
 
   const user = await User.findOne({ email: normalizedEmail });
 
-  if (!user) {
-    return next(new ErrorResponse('User account not found with this email.', 404));
-  }
-
-  if (user.isVerified) {
-    return next(new ErrorResponse('This account is already verified.', 400));
+  // Unknown and already-verified addresses get the same response. The request
+  // does not change isVerified or the stored email. A new link is issued only
+  // for an unverified account, and it is delivered to that account's mailbox.
+  if (!user || user.isVerified) {
+    return genericResendResponse(res);
   }
 
   const previousToken = user.emailVerificationToken;
@@ -300,14 +330,8 @@ exports.resendVerification = asyncHandler(async (req, res, next) => {
   const claimed = await claimVerificationToken(user._id);
 
   if (!claimed.claimed) {
-    if (claimed.reason === 'verified') {
-      return next(new ErrorResponse('This account is already verified.', 400));
-    }
-    if (claimed.reason === 'fresh') {
-      return res.status(200).json({
-        success: true,
-        message: 'A verification link was just sent. Please use that email. You can request another link shortly.',
-      });
+    if (claimed.reason === 'verified' || claimed.reason === 'fresh' || claimed.reason === 'missing') {
+      return genericResendResponse(res);
     }
     return next(new ErrorResponse('Unable to issue a verification link for this account.', 400));
   }
@@ -329,19 +353,16 @@ exports.resendVerification = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse('Failed to dispatch verification link. Please try again.', 500));
   }
 
-  res.status(200).json({
-    success: true,
-    message: 'A fresh verification link has been sent to your email.'
-  });
+  return genericResendResponse(res);
 });
 
 // @desc    Update Typo Email for Unverified Accounts (Authenticated & Password-Protected)
 // @route   PUT /api/v1/auth/update-unverified-email
-// @access  Private or Semi-Public fallback for unverified holding page
+// @access  Private
 exports.updateUnverifiedEmail = asyncHandler(async (req, res, next) => {
   try {
-    const { password, newEmail, oldEmail } = req.body;
-    const normalizedNew = newEmail ? newEmail.toLowerCase().trim() : '';
+    const { password, newEmail } = req.body;
+    const normalizedNew = normalizeEmail(newEmail);
 
     // 1. Strict Email Format Validation
     const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
@@ -353,13 +374,12 @@ exports.updateUnverifiedEmail = asyncHandler(async (req, res, next) => {
       return next(new ErrorResponse('Current password is required to change your email address.', 400));
     }
 
-    // 2. Safely find user
-    let user = null;
-    if (req.user && req.user.id) {
-      user = await User.findById(req.user.id).select('+password');
-    } else if (oldEmail) {
-      user = await User.findOne({ email: oldEmail.toLowerCase().trim() }).select('+password');
+    // The account is the authenticated session. A body field cannot select another user.
+    const userId = req.user && (req.user.id || req.user._id);
+    if (!userId) {
+      return next(new ErrorResponse('User session not found. Please log in again.', 401));
     }
+    const user = await User.findById(userId).select('+password');
 
     if (!user) {
       return next(new ErrorResponse('User session not found. Please log in again.', 401));

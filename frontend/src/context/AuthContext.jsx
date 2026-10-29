@@ -204,6 +204,7 @@ export function AuthProvider({ children }) {
       const err = new Error(data.message || data.error || 'Registration failed.');
       err.verificationDeclined = Boolean(data.verificationDeclined);
       err.canResubmit = Boolean(data.canResubmit);
+      err.emailTaken = Boolean(data.emailTaken);
       throw err;
     }
 

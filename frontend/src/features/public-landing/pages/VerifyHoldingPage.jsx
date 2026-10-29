@@ -1,15 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, Link, useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Mail, RefreshCw, Edit3, ArrowLeft, CheckCircle, AlertCircle, Loader2, Lock, Eye, EyeOff } from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
+import { verificationHoldingEmail } from '../verificationHolding';
 
 export default function VerifyHoldingPage() {
-  const [searchParams] = useSearchParams();
   const location = useLocation();
   const { user } = useAuth();
+  const resolvedEmail = verificationHoldingEmail({
+    userEmail: user?.email,
+    stateEmail: location.state?.email,
+  });
 
-  const [email, setEmail] = useState(searchParams.get('email') || user?.email || '');
+  const [email, setEmail] = useState(resolvedEmail);
   const [isEditing, setIsEditing] = useState(false);
   const [newEmail, setNewEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -28,6 +32,10 @@ export default function VerifyHoldingPage() {
     }
     return () => clearInterval(timer);
   }, [resendCooldown]);
+
+  useEffect(() => {
+    if (resolvedEmail) setEmail(resolvedEmail);
+  }, [resolvedEmail]);
 
   useEffect(() => {
     if (location.state?.emailNotice) {
@@ -115,20 +123,22 @@ export default function VerifyHoldingPage() {
           </p>
 
           <div className="inline-flex items-center gap-2 bg-app-bg px-3.5 py-2 rounded-2xl border border-app-text/10 font-bold text-sm text-app-text my-2 shadow-sm">
-            <span className="truncate max-w-[220px]">{email || 'your-email@example.com'}</span>
-            <button
-              type="button"
-              onClick={() => {
-                setNewEmail(email);
-                setPassword('');
-                setShowPassword(false);
-                setIsEditing(true);
-              }}
-              className="text-primary hover:underline text-xs flex items-center gap-1 ml-1 font-semibold focus:outline-none cursor-pointer shrink-0"
-            >
-              <Edit3 className="h-3.5 w-3.5" />
-              <span>Edit</span>
-            </button>
+            <span className="truncate max-w-[220px]">{email || 'your email address'}</span>
+            {user ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setNewEmail(email);
+                  setPassword('');
+                  setShowPassword(false);
+                  setIsEditing(true);
+                }}
+                className="text-primary hover:underline text-xs flex items-center gap-1 ml-1 font-semibold focus:outline-none cursor-pointer shrink-0"
+              >
+                <Edit3 className="h-3.5 w-3.5" />
+                <span>Edit</span>
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -152,7 +162,7 @@ export default function VerifyHoldingPage() {
           <button
             type="button"
             onClick={handleResend}
-            disabled={resendCooldown > 0 || isLoading}
+            disabled={resendCooldown > 0 || isLoading || !email}
             className="w-full py-3.5 px-4 bg-primary text-white font-bold text-xs rounded-xl shadow-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             {isLoading ? (
@@ -181,7 +191,7 @@ export default function VerifyHoldingPage() {
       </div>
 
       {/* Edit Email Modal Overlay */}
-      {isEditing && (
+      {isEditing && user ? (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="max-w-sm w-full bg-card-bg border border-app-text/10 rounded-3xl p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in duration-200">
             <h3 className="font-bold text-lg text-app-text text-left">Update Email Address</h3>
@@ -249,7 +259,7 @@ export default function VerifyHoldingPage() {
             </form>
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

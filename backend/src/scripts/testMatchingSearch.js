@@ -269,6 +269,41 @@ const runControllerTests = async () => {
     assert.strictEqual(keywordResponse.body.matches, undefined);
     assert.strictEqual(calls[1].query, 'IT');
 
+    matchingService.getRankedScholarships = async () => {
+      throw new Error('secret database detail');
+    };
+    const failureResponse = mockResponse();
+    await matchingController.getMatches(
+      { user: { id: 'student-1' }, query: {} },
+      failureResponse
+    );
+    assert.strictEqual(failureResponse.statusCode, 500);
+    assert.strictEqual(failureResponse.body.success, false);
+    assert.strictEqual(
+      failureResponse.body.message,
+      'Failed to generate scholarship matches'
+    );
+    assert.strictEqual(
+      Object.prototype.hasOwnProperty.call(failureResponse.body, 'error'),
+      false
+    );
+    assert.strictEqual(
+      JSON.stringify(failureResponse.body).includes('secret database detail'),
+      false
+    );
+
+    matchingService.getRankedScholarships = async (profile, options) => {
+      calls.push(options);
+      if (options.query === 'IT') {
+        const error = new Error(
+          'Scholarship search is unavailable. Keyword results cannot be shown until search is restored.'
+        );
+        error.code = 'SEARCH_UNAVAILABLE';
+        throw error;
+      }
+      return [{ scholarship: { _id: 'eligible-it' }, totalScore: 80 }];
+    };
+
     StudentProfile.findOne = async () => ({ academicLevel: 'College' });
     const incompleteCalls = calls.length;
     const incompleteResponse = mockResponse();

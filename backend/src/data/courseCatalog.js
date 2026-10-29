@@ -2,7 +2,7 @@
  * Canonical SHS strands and college/graduate programs.
  * Matching uses exact canonical IDs only — no family matching.
  */
-const COURSE_CATALOG = [
+const COURSE_CATALOG_SOURCE = [
   {
     canonicalId: 'shs-stem',
     canonicalName: 'STEM',
@@ -202,7 +202,8 @@ const COURSE_CATALOG = [
     aliases: [
       'BSED',
       'BSEd',
-      'Bachelor of Secondary Education'
+      'Bachelor of Secondary Education',
+      'Secondary Education'
     ]
   },
   {
@@ -253,4 +254,120 @@ const COURSE_CATALOG = [
   }
 ];
 
-module.exports = { COURSE_CATALOG };
+/**
+ * Degree-prefix variants are derived only for specific program titles.
+ * Short codes (CS, CE, Psych) stay explicit, because the same letters can
+ * name more than one program. Master-level names are left untouched so a
+ * bare title such as "Information Technology" is not also claimed by MSIT.
+ */
+const BACHELOR_PREFIX_RULES = [
+  [/^bachelor'?s? of science in /i, 'BS'],
+  [/^bachelor'?s? of arts in /i, 'BA'],
+  [/^bachelor'?s? of science /i, 'BS'],
+  [/^bachelor'?s? of arts /i, 'BA'],
+  [/^bs in /i, 'BS'],
+  [/^ba in /i, 'BA'],
+  [/^ab in /i, 'AB'],
+  [/^bs /i, 'BS'],
+  [/^ba /i, 'BA'],
+  [/^ab /i, 'AB']
+];
+
+const loosenCourseLabel = (value) =>
+  String(value || '')
+    .trim()
+    .replace(/\./g, '')
+    .replace(/[_/,|-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const isSpecificProgramTitle = (title) => {
+  const words = String(title || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (words.length >= 2) {
+    const substantialWords = words.filter(
+      (word) => word.replace(/[^A-Za-z]/g, '').length >= 4
+    );
+    return substantialWords.length >= 2;
+  }
+
+  if (words.length === 1) {
+    const letters = words[0].replace(/[^A-Za-z]/g, '');
+    return letters.length >= 6 && words[0] !== words[0].toUpperCase();
+  }
+
+  return false;
+};
+
+const deriveSurfaceAliases = (value) => {
+  const loosened = loosenCourseLabel(value);
+
+  if (!loosened) {
+    return [];
+  }
+
+  if (/^bachelor of secondary education$/i.test(loosened)) {
+    return ['Secondary Education'];
+  }
+
+  for (const [pattern, short] of BACHELOR_PREFIX_RULES) {
+    if (!pattern.test(loosened)) {
+      continue;
+    }
+
+    const title = loosened.replace(pattern, '').trim();
+
+    if (!isSpecificProgramTitle(title)) {
+      return [];
+    }
+
+    return [title, `${short} ${title}`, `${short} in ${title}`];
+  }
+
+  return [];
+};
+
+const expandCourseAliases = (entry) => {
+  if (!entry || typeof entry !== 'object') {
+    return entry;
+  }
+
+  const aliases = [];
+  const seen = new Set();
+
+  const addAlias = (value) => {
+    const text = String(value || '').trim();
+    const key = text.toLowerCase();
+
+    if (!text || seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    aliases.push(text);
+  };
+
+  const listedAliases = Array.isArray(entry.aliases) ? entry.aliases : [];
+  listedAliases.forEach(addAlias);
+
+  [entry.canonicalName, ...listedAliases].forEach((source) => {
+    deriveSurfaceAliases(source).forEach(addAlias);
+  });
+
+  return {
+    ...entry,
+    aliases
+  };
+};
+
+const COURSE_CATALOG = COURSE_CATALOG_SOURCE.map((entry) =>
+  expandCourseAliases(entry)
+);
+
+module.exports = {
+  COURSE_CATALOG,
+  expandCourseAliases
+};

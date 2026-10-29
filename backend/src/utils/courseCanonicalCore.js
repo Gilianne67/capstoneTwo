@@ -1,4 +1,7 @@
-const { COURSE_CATALOG } = require('../data/courseCatalog');
+const {
+  COURSE_CATALOG,
+  expandCourseAliases
+} = require('../data/courseCatalog');
 
 const FILLER_WORDS = new Set(['the', 'in', 'of', 'and', 'a', 'an']);
 
@@ -65,29 +68,74 @@ const collectAliasStrings = (entry) => {
   return values;
 };
 
-const buildAliasIndex = (entries) => {
-  const index = new Map();
+/**
+ * One normalized alias at one academic level may belong to only one
+ * canonical course. Conflicting claims are left unresolved so an
+ * ambiguous abbreviation cannot pick a program by overwrite order.
+ */
+const collectAliasClaims = (entries) => {
+  const claims = new Map();
 
   (entries || []).forEach((entry) => {
-    if (!entry?.canonicalId || !entry?.academicLevel) {
+    const expanded = expandCourseAliases(entry);
+
+    if (!expanded?.canonicalId || !expanded?.academicLevel) {
       return;
     }
 
-    collectAliasStrings(entry).forEach((alias) => {
+    collectAliasStrings(expanded).forEach((alias) => {
       const normalized = normalizeCourseText(alias);
 
       if (!normalized) {
         return;
       }
 
-      index.set(
-        aliasIndexKey(entry.academicLevel, normalized),
-        entry.canonicalId
-      );
+      const key = aliasIndexKey(expanded.academicLevel, normalized);
+
+      if (!claims.has(key)) {
+        claims.set(key, new Set());
+      }
+
+      claims.get(key).add(expanded.canonicalId);
     });
   });
 
+  return claims;
+};
+
+const buildAliasIndex = (entries) => {
+  const index = new Map();
+
+  collectAliasClaims(entries).forEach((ids, key) => {
+    if (ids.size === 1) {
+      index.set(key, ids.values().next().value);
+    }
+  });
+
   return index;
+};
+
+const mergeAliasIndex = (base, incoming) => {
+  const merged = new Map(base);
+  const ambiguous = new Set();
+
+  (incoming || new Map()).forEach((canonicalId, key) => {
+    if (ambiguous.has(key)) {
+      return;
+    }
+
+    const existing = merged.get(key);
+
+    if (existing && existing !== canonicalId) {
+      merged.delete(key);
+      ambiguous.add(key);
+      return;
+    }
+
+    merged.set(key, canonicalId);
+  });
+
+  return merged;
 };
 
 const CATALOG_INDEX = buildAliasIndex(COURSE_CATALOG);
@@ -134,8 +182,11 @@ const setsIntersect = (left, right) => {
 module.exports = {
   FILLER_WORDS,
   COURSE_CATALOG,
+  expandCourseAliases,
   normalizeCourseText,
+  collectAliasClaims,
   buildAliasIndex,
+  mergeAliasIndex,
   resolveCanonical,
   toMatchIds,
   setsIntersect,

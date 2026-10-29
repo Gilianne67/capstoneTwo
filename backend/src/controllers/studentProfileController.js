@@ -2,6 +2,14 @@ const StudentProfile = require('../models/StudentProfile');
 const { safeNotifyProfileChange } = require('../services/notificationService');
 const { recordAuditLog, withAuditWarning } = require('./auditController');
 
+const profileUpdatesFromRequest = (body) => {
+  const source = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+  const updates = { ...source };
+  delete updates.userId;
+  delete updates._id;
+  return updates;
+};
+
 // Create a new student profile for the logged-in user
 exports.createProfile = async (req, res) => {
   try {
@@ -11,7 +19,7 @@ exports.createProfile = async (req, res) => {
     }
 
     const profile = await StudentProfile.create({
-      ...req.body,
+      ...profileUpdatesFromRequest(req.body),
       userId: req.user.id
     });
 
@@ -65,7 +73,7 @@ exports.updateProfile = async (req, res) => {
 
     const profile = await StudentProfile.findOneAndUpdate(
       { userId: req.user.id },
-      req.body,
+      profileUpdatesFromRequest(req.body),
       { new: true, runValidators: true }
     );
 

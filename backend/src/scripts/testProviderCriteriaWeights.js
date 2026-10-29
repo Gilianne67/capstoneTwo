@@ -252,12 +252,12 @@ const main = async () => {
       await assertAccepted(weights);
       const result = scoreOf(matchScholarship({ criteriaWeights: weights }));
       assert.deepStrictEqual(result.weights, weights);
-      assert.strictEqual(result.gpaScore, 80);
-      assert.strictEqual(result.incomeScore, 60);
+      assert.strictEqual(result.gpaScore, 100);
+      assert.strictEqual(result.incomeScore, 50);
       assert.strictEqual(result.tagsScore, 50);
       assert.strictEqual(
         result.totalScore,
-        roundedTotal(80, 60, 50, weights)
+        roundedTotal(100, 50, 50, weights)
       );
       assert.ok(result.totalScore >= 0 && result.totalScore <= 100);
     }
@@ -299,7 +299,7 @@ const main = async () => {
     await assertAccepted(inside);
     const scored = scoreOf(matchScholarship({ criteriaWeights: inside }));
     assert.deepStrictEqual(scored.weights, inside);
-    assert.strictEqual(scored.totalScore, roundedTotal(80, 60, 50, inside));
+    assert.strictEqual(scored.totalScore, roundedTotal(100, 50, 50, inside));
     assert.ok(scored.totalScore >= 0 && scored.totalScore <= 100);
 
     await assertRejected(outside);
@@ -327,18 +327,20 @@ const main = async () => {
       FIXED_NOW
     );
 
-    assert.strictEqual(before.gpaScore, 80);
-    assert.strictEqual(before.incomeScore, 60);
+    assert.strictEqual(before.gpaScore, 100);
+    assert.strictEqual(before.incomeScore, 50);
     assert.strictEqual(before.tagsScore, 50);
     assert.deepStrictEqual(before.weights, DEFAULT_CRITERIA_WEIGHTS);
-    assert.strictEqual(before.totalScore, 66);
+    assert.strictEqual(before.totalScore, 70);
+    assert.strictEqual(before.classification, 'Recommended');
     assert.deepStrictEqual(
-      rankedBefore.map((match) => [match.scholarship.name, match.totalScore, match.weights]),
+      rankedBefore.map((match) => [match.scholarship.name, match.totalScore, match.classification, match.weights]),
       [
-        ['Academic leaning', 66, DEFAULT_CRITERIA_WEIGHTS],
+        ['Academic leaning', 70, 'Recommended', DEFAULT_CRITERIA_WEIGHTS],
         [
           'Income leaning',
-          63,
+          60,
+          'Potential Match',
           { gwaWeight: 0.2, incomeWeight: 0.7, tagsWeight: 0.1 }
         ]
       ]
@@ -359,14 +361,15 @@ const main = async () => {
     assert.strictEqual(after.tagsScore, before.tagsScore);
     assert.deepStrictEqual(after.weights, ACADEMIC_CRITERIA_WEIGHTS);
     assert.notDeepStrictEqual(after.weights, DEFAULT_WEIGHTS);
-    assert.strictEqual(after.totalScore, 73);
+    assert.strictEqual(after.totalScore, 85);
+    assert.strictEqual(after.classification, 'Recommended');
     assert.notStrictEqual(after.totalScore, before.totalScore);
     assert.deepStrictEqual(
       rankedAfter.map((match) => match.scholarship.name),
       ['Academic leaning', 'Income leaning']
     );
-    assert.strictEqual(rankedAfter[0].totalScore, 73);
-    assert.strictEqual(rankedAfter[1].totalScore, 63);
+    assert.strictEqual(rankedAfter[0].totalScore, 85);
+    assert.strictEqual(rankedAfter[1].totalScore, 60);
     assert.deepStrictEqual(scoringConfiguration().defaultWeights, DEFAULT_WEIGHTS);
   });
 
@@ -379,7 +382,7 @@ const main = async () => {
     }));
 
     const valid = scoreOf(matchScholarship());
-    assert.strictEqual(valid.totalScore, 66);
+    assert.strictEqual(valid.totalScore, 70);
     assert.ok(valid.totalScore >= 0 && valid.totalScore <= 100);
     assert.ok(valid.gpaScore >= 0 && valid.gpaScore <= 100);
     assert.ok(valid.incomeScore >= 0 && valid.incomeScore <= 100);
@@ -423,7 +426,7 @@ const main = async () => {
       }
     }));
     assert.deepStrictEqual(numericStrings.weights, ACADEMIC_CRITERIA_WEIGHTS);
-    assert.strictEqual(numericStrings.totalScore, 73);
+    assert.strictEqual(numericStrings.totalScore, 85);
     assert.ok(numericStrings.totalScore >= 0 && numericStrings.totalScore <= 100);
   });
 
@@ -436,7 +439,7 @@ const main = async () => {
     for (const scholarship of [missing, explicitNull]) {
       const result = scoreOf(scholarship);
       assert.deepStrictEqual(result.weights, DEFAULT_CRITERIA_WEIGHTS);
-      assert.strictEqual(result.totalScore, 66);
+      assert.strictEqual(result.totalScore, 70);
       assert.ok(result.totalScore >= 0 && result.totalScore <= 100);
     }
 
@@ -454,7 +457,7 @@ const main = async () => {
     assert.strictEqual(before.length, 1);
     assert.strictEqual(before[0].scholarship.name, 'Weighted Grant');
     assert.deepStrictEqual(before[0].weights, DEFAULT_CRITERIA_WEIGHTS);
-    assert.strictEqual(before[0].totalScore, 66);
+    assert.strictEqual(before[0].totalScore, 70);
     assert.ok(before[0].totalScore >= 0 && before[0].totalScore <= 100);
 
     open.criteriaWeights = { ...ACADEMIC_CRITERIA_WEIGHTS };
@@ -505,8 +508,8 @@ const main = async () => {
     assert.deepStrictEqual(
       after.map((match) => [match.scholarship.name, match.totalScore, match.weights]),
       [
-        ['Weighted Grant', 73, ACADEMIC_CRITERIA_WEIGHTS],
-        ['Absent weights', 66, DEFAULT_CRITERIA_WEIGHTS]
+        ['Weighted Grant', 85, ACADEMIC_CRITERIA_WEIGHTS],
+        ['Absent weights', 70, DEFAULT_CRITERIA_WEIGHTS]
       ]
     );
     assert.strictEqual(after[0].gpaScore, before[0].gpaScore);

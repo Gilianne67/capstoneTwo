@@ -342,9 +342,33 @@ const main = async () => {
     },
     ip: '127.0.0.1',
   });
-  assert.strictEqual(studentDuplicate.statusCode, 200);
-  assert.strictEqual(studentDuplicate.body.success, true);
+  assert.strictEqual(studentDuplicate.statusCode, 409);
+  assert.strictEqual(studentDuplicate.body.success, false);
+  assert.strictEqual(studentDuplicate.body.emailTaken, true);
+  assert.match(studentDuplicate.body.message, /already registered/i);
+  assert.ok(!studentDuplicate.body.token);
+  assert.ok(!studentDuplicate.body.user);
   assert.strictEqual(users.size, usersBeforeDuplicate);
+
+  const providerDuplicate = await invoke(register, {
+    body: {
+      name: 'Verified Org Copy',
+      email: '  Verified.Provider@example.com ',
+      password: 'another-password-15',
+      role: 'provider',
+      organization: 'Verified Org Copy',
+    },
+    ip: '127.0.0.1',
+  });
+  assert.strictEqual(providerDuplicate.statusCode, 409);
+  assert.strictEqual(providerDuplicate.body.success, false);
+  assert.strictEqual(providerDuplicate.body.emailTaken, true);
+  assert.strictEqual(providerDuplicate.body.canResubmit, undefined);
+  assert.strictEqual(providerDuplicate.body.verificationDeclined, undefined);
+  assert.match(providerDuplicate.body.message, /already registered/i);
+  assert.ok(!providerDuplicate.body.token);
+  assert.strictEqual(users.size, usersBeforeDuplicate);
+  assert.strictEqual(findUser({ email: 'verified.provider@example.com' })._id, verifiedProviderUser._id);
 
   const freshStudent = await invoke(register, {
     body: {
@@ -417,6 +441,13 @@ const main = async () => {
   });
   assert.equal(registrationOutcome.kind, 'declined');
   assert.doesNotMatch(registrationOutcome.message, /invalid email/i);
+
+  const duplicateOutcome = resolveRegistrationFormOutcome({
+    emailTaken: studentDuplicate.body.emailTaken,
+    message: studentDuplicate.body.message,
+  });
+  assert.equal(duplicateOutcome.kind, 'duplicate');
+  assert.match(duplicateOutcome.message, /already registered/i);
 
   console.log('declined provider auth tests passed');
 };

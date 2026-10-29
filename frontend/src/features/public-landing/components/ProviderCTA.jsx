@@ -1,10 +1,9 @@
-import React from 'react';
 import { Link } from 'react-router-dom';
 import { CheckCircle2, Megaphone, ArrowRight, Building2 } from 'lucide-react';
 
 export default function ProviderCTA() {
   return (
-    <section id="providers" className="py-20 px-4 bg-primary relative overflow-hidden text-white">
+    <section id="providers" className="py-20 px-4 bg-primary relative overflow-hidden text-white scroll-mt-24">
       
       {/* Background Geometric Pattern Accent */}
       <div className="absolute inset-0 z-0 opacity-10 pointer-events-none bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:24px_24px]" />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { GraduationCap, ArrowRight } from 'lucide-react';
 
@@ -33,14 +33,14 @@ export default function Navbar() {
           : 'bg-transparent border-b border-white/10 py-5'
       }`}
     >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 flex items-center justify-between gap-2">
         
         {/* Brand Logo */}
-        <Link to="/" className="flex items-center gap-2.5 group">
-          <GraduationCap className={`h-7 w-7 transition-transform duration-300 group-hover:scale-110 ${
+        <Link to="/" className="flex items-center gap-1.5 sm:gap-2.5 group shrink-0">
+          <GraduationCap className={`h-6 w-6 sm:h-7 sm:w-7 shrink-0 transition-transform duration-300 group-hover:scale-110 ${
             isSolidNav ? 'text-primary' : 'text-accent'
           }`} />
-          <span className={`font-bold text-xl tracking-tight transition-colors ${
+          <span className={`font-bold text-base sm:text-xl tracking-tight whitespace-nowrap transition-colors ${
             isSolidNav ? 'text-app-text' : 'text-white'
           }`}>
             Iskolar<span className={isSolidNav ? 'text-primary' : 'text-accent'}>Match</span>
@@ -54,10 +54,7 @@ export default function Navbar() {
           {isHomePage ? (
             <>
               <a href="#eligibility" className="hover:text-secondary transition-colors">
-                Eligibility Checker
-              </a>
-              <a href="#matches" className="hover:text-secondary transition-colors">
-                Featured Scholarships
+                Matching Simulator
               </a>
               <a href="#providers" className="hover:text-secondary transition-colors">
                 For Providers
@@ -78,10 +75,10 @@ export default function Navbar() {
 
        {/* CTA Buttons */}
        
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
           <Link 
             to="/auth?mode=signin" 
-            className={`px-4 py-2 text-sm font-semibold transition rounded-xl ${
+            className={`px-1.5 sm:px-4 py-2 text-sm font-semibold whitespace-nowrap transition rounded-xl ${
               isSolidNav ? 'text-app-text hover:text-primary' : 'text-slate-200 hover:text-secondary'
             }`}
           >
@@ -89,9 +86,9 @@ export default function Navbar() {
           </Link>
           <Link
             to="/auth?mode=signup"
-            className="px-4 py-2 text-sm font-semibold text-white bg-primary hover:opacity-90 rounded-xl shadow-md transition flex items-center gap-1.5"
+            className="px-2.5 sm:px-4 py-2 text-sm font-semibold whitespace-nowrap text-white bg-primary hover:opacity-90 rounded-xl shadow-md transition flex items-center gap-1.5"
           >
-            Get Started <ArrowRight className="h-4 w-4" />
+            Get Started <ArrowRight className="h-4 w-4 hidden sm:block" />
           </Link>
         </div>
 </div>

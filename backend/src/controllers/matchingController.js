@@ -55,7 +55,6 @@ exports.getMatches = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to generate scholarship matches',
-      error: error.message,
     });
   }
 };
