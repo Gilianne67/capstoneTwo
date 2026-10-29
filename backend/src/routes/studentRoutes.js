@@ -21,8 +21,10 @@ const {
 const {
   createScholarshipReport
 } = require('../controllers/scholarshipReportController');
+const { recordFilterDemand } = require('../controllers/categoryDemandController');
 
 router.post('/profile', protect, authorize('student'), createProfile);
+router.post('/analytics/filter-demand', protect, authorize('student'), recordFilterDemand);
 router.get('/profile', protect, authorize('student'), getProfile);
 router.put('/profile', protect, authorize('student'), updateProfile);
 

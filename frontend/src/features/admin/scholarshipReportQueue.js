@@ -58,9 +58,33 @@ export function applyReportDecision(reports, reportId, savedReport) {
   });
 }
 
+export const MODERATION_STATUS_FILTERS = [
+  'Unresolved',
+  'Retained',
+  'Removed',
+  'All',
+];
+
+const UNRESOLVED_REPORT_STATUSES = ['Pending Review', 'Under Investigation'];
+const LEGACY_STATUS_FILTERS = ['Pending Review', 'Under Investigation', 'Resolved'];
+
+export function moderationStatusFromSearch(value) {
+  if (value == null || value === '') return 'Unresolved';
+  if (LEGACY_STATUS_FILTERS.includes(value) || MODERATION_STATUS_FILTERS.includes(value)) return value;
+  return 'Unresolved';
+}
+
+export function reportMatchesModerationStatus(report, statusFilter) {
+  if (!statusFilter || statusFilter === 'All') return true;
+  if (statusFilter === 'Unresolved') {
+    return UNRESOLVED_REPORT_STATUSES.includes(report && report.status);
+  }
+  return Boolean(report) && report.status === statusFilter;
+}
+
 export function visibleReportQueue(reports, statusFilter) {
   if (!statusFilter || statusFilter === 'All') return reports;
-  return reports.filter((report) => report.status === statusFilter);
+  return (reports || []).filter((report) => reportMatchesModerationStatus(report, statusFilter));
 }
 
 const persistedDecision = (data) => (

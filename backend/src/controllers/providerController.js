@@ -8,7 +8,7 @@ const {
   buildProviderAnalytics,
 } = require('../services/providerAnalyticsService');
 const emailService = require('../utils/emailService');
-const { recordAuditLog } = require('./auditController');
+const { recordAuditLog, withAuditWarning } = require('./auditController');
 const {
   isFinalRejection,
   declinedProviderLoginMessage,
@@ -70,8 +70,9 @@ exports.updateProfile = async (req, res) => {
         ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
         : provider.institutionName || 'Provider User';
 
-      await recordAuditLog({
+      const audit = await recordAuditLog({
         actor: actorName,
+        actorId: req.user && (req.user._id || req.user.id),
         role: 'Provider',
         action: 'SECURITY_ALERT',
         details: `Provider (ID: ${provider._id}) attempted unauthorized self-modification of verification status.`,
@@ -79,10 +80,10 @@ exports.updateProfile = async (req, res) => {
         severity: 'Warning'
       });
 
-      return res.status(403).json({
+      return res.status(403).json(withAuditWarning({
         success: false,
         message: 'Providers cannot change their own verification status.',
-      });
+      }, audit));
     }
 
     // Update root profile fields
@@ -114,8 +115,9 @@ exports.updateProfile = async (req, res) => {
       ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
       : provider.institutionName || 'Provider User';
 
-    await recordAuditLog({
+    const audit = await recordAuditLog({
       actor: actorName,
+        actorId: req.user && (req.user._id || req.user.id),
       role: 'Provider',
       action: 'PROVIDER_PROFILE_UPDATE',
       details: `Provider "${provider.institutionName}" updated organization profile details.`,
@@ -123,11 +125,11 @@ exports.updateProfile = async (req, res) => {
       severity: 'Info'
     });
 
-    res.status(200).json({
+    res.status(200).json(withAuditWarning({
       success: true,
       message: 'Provider profile updated successfully',
       provider,
-    });
+    }, audit));
   } catch (error) {
     console.error('❌ Update Provider Profile Error:', error);
     res.status(500).json({
@@ -368,8 +370,9 @@ exports.handleOnboarding = async (req, res) => {
       ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
       : provider.institutionName || 'Provider User';
 
-    await recordAuditLog({
+    const submissionAudit = await recordAuditLog({
       actor: actorName,
+        actorId: req.user && (req.user._id || req.user.id),
       role: 'Provider',
       action: 'PROVIDER_VERIFICATION_SUBMITTED',
       details: `Provider "${provider.institutionName}" submitted verification documents (${documentType || 'SEC / DTI Registration'}). Status set to Pending Review.`,
@@ -415,12 +418,12 @@ exports.handleOnboarding = async (req, res) => {
       );
     }
 
-    return res.status(200).json({
+    return res.status(200).json(withAuditWarning({
       success: true,
       message: 'Verification documents submitted successfully. Account pending admin review.',
       redirectTo: '/provider/dashboard',
       provider,
-    });
+    }, submissionAudit));
   } catch (error) {
     console.error('❌ Provider Onboarding Error:', error);
     return res.status(500).json({

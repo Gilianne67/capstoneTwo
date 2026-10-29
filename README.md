@@ -126,7 +126,6 @@ Administrators can:
 - Manage system users
 - Review audit information
 - Manage system-level settings
-- Manage scholarship taxonomy and tags
 - Monitor platform activity
 
 ---

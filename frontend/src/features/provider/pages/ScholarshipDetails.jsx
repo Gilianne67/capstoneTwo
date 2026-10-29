@@ -714,7 +714,11 @@ export default function ScholarshipDetails() {
             </p>
           </div>
 
-          {scholarship.applicationURL && (
+          {user?.role === 'student' && (scholarship.isArchived === true || scholarship.adminRemovedAt) ? (
+            <p className="text-xs font-bold text-slate-500">
+              This scholarship has been archived and is no longer accepting applications.
+            </p>
+          ) : scholarship.applicationURL && (
             <a
               href={scholarship.applicationURL}
               target="_blank"

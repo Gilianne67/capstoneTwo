@@ -5,6 +5,9 @@ import {
   buildModerationDecision,
   canStartReportDecision,
   commitReportDecision,
+  MODERATION_STATUS_FILTERS,
+  moderationStatusFromSearch,
+  reportMatchesModerationStatus,
   visibleReportQueue
 } from './scholarshipReportQueue.js';
 
@@ -137,6 +140,67 @@ const untouchedSibling = applyReportDecision(queue, 'missing-report', {
 assert.equal(untouchedSibling[0].status, 'Pending Review');
 assert.equal(untouchedSibling[1].status, 'Pending Review');
 
+const unresolvedQueue = [
+  pending,
+  { _id: 'report-3', status: 'Under Investigation' },
+  { _id: 'report-4', status: 'Retained' },
+];
+assert.deepEqual(
+  visibleReportQueue(unresolvedQueue, 'Unresolved').map((report) => report._id),
+  ['report-1', 'report-3']
+);
+assert.equal(reportMatchesModerationStatus(unresolvedQueue[2], 'Unresolved'), false);
+
+const tabReports = [
+  { _id: 'pending', status: 'Pending Review' },
+  { _id: 'investigation', status: 'Under Investigation' },
+  { _id: 'retained', status: 'Retained' },
+  { _id: 'removed', status: 'Removed' },
+  { _id: 'resolved', status: 'Resolved' },
+  { _id: 'dismissed', status: 'Dismissed' },
+];
+const idsFor = (status) => visibleReportQueue(tabReports, status).map((report) => report._id);
+
+assert.deepEqual(MODERATION_STATUS_FILTERS, [
+  'Unresolved',
+  'Retained',
+  'Removed',
+  'All',
+]);
+assert.equal(MODERATION_STATUS_FILTERS.includes('Pending Review'), false);
+assert.equal(MODERATION_STATUS_FILTERS.includes('Under Investigation'), false);
+assert.equal(MODERATION_STATUS_FILTERS.includes('Resolved'), false);
+assert.deepEqual(idsFor('Unresolved'), ['pending', 'investigation']);
+assert.deepEqual(idsFor('Under Investigation'), ['investigation']);
+assert.deepEqual(idsFor('Retained'), ['retained']);
+assert.deepEqual(idsFor('Removed'), ['removed']);
+assert.deepEqual(idsFor('Resolved'), ['resolved']);
+assert.deepEqual(idsFor('All'), [
+  'pending',
+  'investigation',
+  'retained',
+  'removed',
+  'resolved',
+  'dismissed',
+]);
+assert.equal(reportMatchesModerationStatus(tabReports[0], 'Unresolved'), true);
+assert.equal(reportMatchesModerationStatus(tabReports[1], 'Unresolved'), true);
+assert.equal(reportMatchesModerationStatus(tabReports[5], 'All'), true);
+
+assert.equal(moderationStatusFromSearch(null), 'Unresolved');
+assert.equal(moderationStatusFromSearch(''), 'Unresolved');
+assert.equal(moderationStatusFromSearch('Unresolved'), 'Unresolved');
+assert.equal(moderationStatusFromSearch('Pending Review'), 'Pending Review');
+assert.deepEqual(idsFor(moderationStatusFromSearch('Pending Review')), ['pending']);
+assert.equal(moderationStatusFromSearch('Under Investigation'), 'Under Investigation');
+assert.deepEqual(idsFor(moderationStatusFromSearch('Under Investigation')), ['investigation']);
+assert.equal(moderationStatusFromSearch('Retained'), 'Retained');
+assert.equal(moderationStatusFromSearch('Removed'), 'Removed');
+assert.equal(moderationStatusFromSearch('Resolved'), 'Resolved');
+assert.deepEqual(idsFor(moderationStatusFromSearch('Resolved')), ['resolved']);
+assert.equal(moderationStatusFromSearch('All'), 'All');
+assert.equal(moderationStatusFromSearch('Not a status'), 'Unresolved');
+
 const page = readFileSync(new URL('./pages/ContentModeration.jsx', import.meta.url), 'utf8');
 assert.equal(page.includes('Submit decision'), false);
 assert.equal(page.includes('setSelectedAction'), false);
@@ -144,5 +208,8 @@ assert.match(page, /handleDecision\(report, 'remove'\)/);
 assert.match(page, /handleDecision\(report, 'retain'\)/);
 assert.match(page, /'Remove'/);
 assert.match(page, /'Retain'/);
+assert.match(page, /MODERATION_STATUS_FILTERS\.map/);
+assert.match(page, /status === 'Unresolved'\) next\.delete\('status'\)/);
+assert.equal(page.includes("status === 'Pending Review') next.delete('status')"), false);
 
 console.log('scholarship report queue tests passed');

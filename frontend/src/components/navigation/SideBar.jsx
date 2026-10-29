@@ -18,12 +18,12 @@ import {
   ChevronRight,
   CheckSquare,
   Tag,
-  Tags,
   AlertTriangle,
   Layers,
   Menu,
   X,
-  BarChart3
+  BarChart3,
+  Users
 } from 'lucide-react';
 
 export default function Sidebar({
@@ -107,7 +107,7 @@ export default function Sidebar({
         ],
         general: [
           { label: 'Notifications', path: '/dashboard/provider/notifications', icon: Bell, hasUnread: role === 'provider' && hasUnreadNotifications },
-          { label: 'Help & Support', path: '/dashboard/provider/help', icon: HelpCircle },
+          { label: 'Help', path: '/dashboard/provider/help', icon: HelpCircle },
         ]
       };
     }
@@ -116,16 +116,18 @@ export default function Sidebar({
       return {
         menu: [
           { label: 'Operations Dashboard', path: '/dashboard/admin', icon: LayoutDashboard },
-          { label: 'Verification Queue', path: '/dashboard/admin/verification', icon: CheckSquare, badge: 'Pending' },
+          { label: 'Analytics & Reports', path: '/dashboard/admin/analytics', icon: BarChart3 },
+          { label: 'User Management', path: '/dashboard/admin/users', icon: Users },
+          { label: 'Verification Queue', path: '/dashboard/admin/verification', icon: CheckSquare },
           { label: 'Eligibility Criteria', path: '/dashboard/admin/eligibility-criteria', icon: Tag },
           { label: 'Content Moderation', path: '/dashboard/admin/moderation', icon: AlertTriangle },
-          { label: 'Taxonomy & Tags', path: '/dashboard/admin/taxonomy', icon: Tags },
+          { label: 'All Scholarships', path: '/dashboard/admin/scholarships', icon: GraduationCap },
           { label: 'Audit & Compliance', path: '/dashboard/admin/audit-log', icon: ShieldCheck },
         ],
         general: [
           { label: 'System Settings', path: '/dashboard/admin/settings', icon: Settings },
-          { label: 'Notifications', path: '/dashboard/admin/notifications', icon: Bell },
-          { label: 'Help Center', path: '/dashboard/admin/help', icon: HelpCircle },
+          { label: 'Announcements', path: '/dashboard/admin/notifications', icon: Bell },
+          { label: 'Help', path: '/dashboard/admin/help', icon: HelpCircle },
         ]
       };
     }
@@ -141,7 +143,7 @@ export default function Sidebar({
       ],
       general: [
         { label: 'Deadline Alerts', path: '/dashboard/student/notifications', icon: Bell, hasUnread: role === 'student' && hasUnreadNotifications },
-        { label: 'Help Center', path: '/dashboard/student/help', icon: HelpCircle },
+        { label: 'Help', path: '/dashboard/student/help', icon: HelpCircle },
       ]
     };
   };

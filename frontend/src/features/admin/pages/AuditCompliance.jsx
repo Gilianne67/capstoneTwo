@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  ShieldCheck, 
-  Download, 
-  Search, 
-  AlertCircle, 
-  Loader2, 
-  Clock, 
-  User, 
+import {
+  ShieldCheck,
+  Download,
+  Search,
+  AlertCircle,
+  Loader2,
+  Clock,
+  User,
   FileCheck,
   Server,
   AlertTriangle,
@@ -14,8 +14,18 @@ import {
 } from 'lucide-react';
 
 import PageHeader from '../../../components/common/PageHeader';
+import Pagination from '../../../components/common/Pagination';
+import { apiErrorText, apiUrl } from '../../../config/api';
+import {
+  AUDIT_EVENT_TYPES,
+  AUDIT_PAGE_SIZE,
+  auditExportFilters,
+  auditListParams,
+  auditResultRange,
+  readAuditPage,
+  shouldDownloadAuditCsv,
+} from '../auditCompliance';
 
-// Helper to resolve severity if not explicitly set by backend
 const resolveSeverity = (log) => {
   if (log.severity) return log.severity;
   const actionUpper = String(log.action || '').toUpperCase();
@@ -28,147 +38,140 @@ const resolveSeverity = (log) => {
   return 'Info';
 };
 
+const authHeaders = (json = false) => {
+  const token = localStorage.getItem('token');
+  return {
+    ...(json ? { 'Content-Type': 'application/json' } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+};
+
 export default function AuditCompliance() {
   const [logs, setLogs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [exportError, setExportError] = useState('');
+  const [isExporting, setIsExporting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [severityFilter, setSeverityFilter] = useState('All');
+  const [eventFilter, setEventFilter] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(AUDIT_PAGE_SIZE);
+  const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(0);
+  const [summary, setSummary] = useState({ info: 0, warning: 0, critical: 0, total: 0 });
 
-  const getHeaders = () => {
-    const token = localStorage.getItem('token');
-    return {
-      'Content-Type': 'application/json',
-      ...(token && { Authorization: `Bearer ${token}` })
-    };
-  };
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
-  // Fetch Production Audit Logs from Backend API
   const fetchAuditLogs = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
     try {
-      const res = await fetch('/api/v1/admin/audit-logs', {
-        headers: getHeaders()
+      const params = auditListParams({
+        page,
+        pageSize,
+        search: debouncedSearch,
+        severity: severityFilter,
+        action: eventFilter,
+        from: fromDate,
+        to: toDate,
       });
-
+      const res = await fetch(`${apiUrl('admin/audit-logs')}?${params.toString()}`, {
+        headers: authHeaders(),
+      });
+      const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.message || 'Failed to retrieve audit log trails from server.');
+        throw new Error(apiErrorText(payload, 'Failed to retrieve audit log trails from server.'));
       }
 
-      const data = await res.json();
-      const list = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
-      setLogs(list);
+      const result = readAuditPage(payload);
+      setLogs(result.records);
+      setTotal(result.total);
+      setPages(result.pages);
+      setSummary(result.summary);
     } catch (err) {
       console.error('Fetch Audit Logs Error:', err);
+      setLogs([]);
+      setTotal(0);
+      setPages(0);
+      setSummary({ info: 0, warning: 0, critical: 0, total: 0 });
       setError(err.message || 'Unable to connect to the audit service.');
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [page, pageSize, debouncedSearch, severityFilter, eventFilter, fromDate, toDate]);
 
   useEffect(() => {
     fetchAuditLogs();
   }, [fetchAuditLogs]);
 
-  // Safe CSV Exporter using Blob, Proper Escaping, and Backend Audit Trigger
   const handleExportCSV = async () => {
-    // 1. Notify backend of export action
+    setIsExporting(true);
+    setExportError('');
     try {
-      await fetch('/api/v1/admin/audit-logs/export', {
+      const res = await fetch(apiUrl('admin/audit-logs/export'), {
         method: 'POST',
-        headers: getHeaders()
+        headers: authHeaders(true),
+        body: JSON.stringify(auditExportFilters({
+          search: debouncedSearch,
+          severity: severityFilter,
+          action: eventFilter,
+          from: fromDate,
+          to: toDate,
+        })),
       });
-    } catch (exportErr) {
-      console.warn('Could not record export audit event on backend:', exportErr);
+      const contentType = res.headers.get('content-type') || '';
+      if (!shouldDownloadAuditCsv({ ok: res.ok, contentType })) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(apiErrorText(
+          payload,
+          'The compliance report was not downloaded because the export could not be recorded.'
+        ));
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Audit_Compliance_Report_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      fetchAuditLogs();
+    } catch (err) {
+      setExportError(err.message || 'The compliance report was not downloaded.');
+    } finally {
+      setIsExporting(false);
     }
-
-    // 2. Generate and download CSV locally
-    const escapeCSV = (val) => {
-      if (val === null || val === undefined) return '""';
-      const str = String(val).replace(/"/g, '""');
-      return `"${str}"`;
-    };
-
-    const headers = ['Timestamp', 'Actor', 'Role', 'Action', 'Details', 'IP Address', 'Severity'];
-    const rows = filteredLogs.map(l => [
-      escapeCSV(l.createdAt || l.timestamp),
-      escapeCSV(l.actor || l.actorName || 'System'),
-      escapeCSV(l.role || 'N/A'),
-      escapeCSV(l.action),
-      escapeCSV(l.details),
-      escapeCSV(l.ipAddress || '0.0.0.0'),
-      escapeCSV(resolveSeverity(l))
-    ]);
-
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `Audit_Compliance_Report_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    // 3. Refresh log feed to reflect the EXPORT_LOGS entry
-    fetchAuditLogs();
   };
 
-  const filteredLogs = logs.filter((l) => {
-    const searchLower = searchQuery.toLowerCase();
-    const actorStr = String(l.actor || l.actorName || '');
-    const actionStr = String(l.action || '');
-    const detailsStr = String(l.details || '');
-
-    const matchesSearch = actorStr.toLowerCase().includes(searchLower) ||
-                          actionStr.toLowerCase().includes(searchLower) ||
-                          detailsStr.toLowerCase().includes(searchLower);
-
-    const severity = resolveSeverity(l);
-    const matchesSev = severityFilter === 'All' || severity === severityFilter;
-    return matchesSearch && matchesSev;
-  });
-
-  // Calculate Real-Time Compliance Metrics using resolveSeverity
-  const infoCount = logs.filter(l => resolveSeverity(l) === 'Info').length;
-  const warningCount = logs.filter(l => resolveSeverity(l) === 'Warning').length;
-  const criticalCount = logs.filter(l => resolveSeverity(l) === 'Critical').length;
-
-  if (isLoading) {
-    return (
-      <div className="space-y-6 max-w-7xl mx-auto pb-12">
-        <PageHeader 
-          title="Audit & Compliance Logs" 
-          subtitle="Inspect system action trails, security events, and export regulatory compliance reports."
-        />
-        <div className="min-h-[300px] flex flex-col items-center justify-center gap-3 bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs">
-          <Loader2 className="h-7 w-7 text-emerald-600 animate-spin" />
-          <p className="text-xs text-slate-500 font-medium">Retrieving security audit log trails...</p>
-        </div>
-      </div>
-    );
-  }
+  const range = auditResultRange(page, pageSize, total);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <PageHeader 
-          title="Audit & Compliance Logs" 
-          subtitle="Inspect system action trails, security events, and export regulatory compliance reports."
+        <PageHeader
+          title="Audit & Compliance Logs"
+          description="Inspect system action trails, security events, and export regulatory compliance reports."
         />
 
         <button
           type="button"
           onClick={handleExportCSV}
-          disabled={filteredLogs.length === 0}
+          disabled={isExporting || isLoading || total === 0}
+          title="Exports every record matching these filters, not only this page."
           className="px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center justify-center gap-2 shadow-xs shrink-0 self-start sm:self-auto"
         >
-          <Download className="w-4 h-4 text-emerald-400" /> Export Compliance CSV
+          {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4 text-emerald-400" />}
+          Export Compliance CSV
         </button>
       </div>
 
@@ -178,9 +181,9 @@ export default function AuditCompliance() {
             <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
             {error}
           </span>
-          <button 
-            type="button" 
-            onClick={fetchAuditLogs} 
+          <button
+            type="button"
+            onClick={fetchAuditLogs}
             className="underline text-rose-700 hover:text-rose-900 font-bold cursor-pointer"
           >
             Retry Connection
@@ -188,15 +191,21 @@ export default function AuditCompliance() {
         </div>
       )}
 
-      {/* Compliance Overview Summary */}
+      {exportError && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 p-4 rounded-xl flex items-center gap-2 text-xs font-medium">
+          <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
+          {exportError}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white border border-slate-200/80 rounded-2xl p-4 flex items-center gap-3 shadow-xs">
           <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl">
             <FileCheck className="w-5 h-5" />
           </div>
           <div>
-            <p className="text-[11px] text-slate-400 font-semibold">Total System Events</p>
-            <p className="text-sm font-bold text-slate-900">{logs.length} Log Entries</p>
+            <p className="text-[11px] text-slate-400 font-semibold">Matching Events</p>
+            <p className="text-sm font-bold text-slate-900">{total} Log Entries</p>
           </div>
         </div>
 
@@ -206,7 +215,7 @@ export default function AuditCompliance() {
           </div>
           <div>
             <p className="text-[11px] text-slate-400 font-semibold">Standard & Warning Events</p>
-            <p className="text-sm font-bold text-slate-900">{infoCount} Info / {warningCount} Warnings</p>
+            <p className="text-sm font-bold text-slate-900">{summary.info} Info / {summary.warning} Warnings</p>
           </div>
         </div>
 
@@ -217,8 +226,8 @@ export default function AuditCompliance() {
           <div>
             <p className="text-[11px] text-slate-400 font-semibold">Security & Critical Alerts</p>
             <p className="text-sm font-bold text-slate-900">
-              {criticalCount > 0 ? (
-                <span className="text-rose-600">{criticalCount} Critical Events</span>
+              {summary.critical > 0 ? (
+                <span className="text-rose-600">{summary.critical} Critical Events</span>
               ) : (
                 <span className="text-emerald-600">0 Critical Breaches</span>
               )}
@@ -227,15 +236,17 @@ export default function AuditCompliance() {
         </div>
       </div>
 
-      {/* Audit Log Table Workbench */}
       <div className="bg-white border border-slate-200/80 rounded-2xl p-5 space-y-4 shadow-xs">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="flex flex-col gap-4">
           <div className="flex items-center gap-2 flex-wrap">
             {['All', 'Info', 'Warning', 'Critical'].map((sev) => (
               <button
                 key={sev}
                 type="button"
-                onClick={() => setSeverityFilter(sev)}
+                onClick={() => {
+                  setSeverityFilter(sev);
+                  setPage(1);
+                }}
                 className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-colors cursor-pointer ${
                   severityFilter === sev
                     ? 'bg-slate-900 text-white'
@@ -247,41 +258,111 @@ export default function AuditCompliance() {
             ))}
           </div>
 
-          <div className="relative w-full md:w-64">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-            <input 
-              type="text"
-              placeholder="Search action, actor, or details..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-hidden focus:border-emerald-500"
-            />
+          <div className="flex flex-col lg:flex-row gap-3 lg:items-center">
+            <div className="relative w-full lg:max-w-xs">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder="Search action, actor, or details..."
+                value={searchQuery}
+                onChange={(event) => {
+                  setSearchQuery(event.target.value);
+                  setPage(1);
+                }}
+                className="w-full pl-9 pr-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-hidden focus:border-emerald-500"
+              />
+            </div>
+            <select
+              aria-label="Event type"
+              value={eventFilter}
+              onChange={(event) => {
+                setEventFilter(event.target.value);
+                setPage(1);
+              }}
+              className="w-full lg:w-56 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700"
+            >
+              <option value="">All events</option>
+              {AUDIT_EVENT_TYPES.map((action) => (
+                <option key={action} value={action}>{action}</option>
+              ))}
+            </select>
+            <label className="flex items-center gap-2 text-[11px] font-bold text-slate-500">
+              From
+              <input
+                type="date"
+                aria-label="From date"
+                value={fromDate}
+                onChange={(event) => {
+                  setFromDate(event.target.value);
+                  setPage(1);
+                }}
+                className="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-[11px] font-bold text-slate-500">
+              To
+              <input
+                type="date"
+                aria-label="To date"
+                value={toDate}
+                onChange={(event) => {
+                  setToDate(event.target.value);
+                  setPage(1);
+                }}
+                className="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-[11px] font-bold text-slate-500 lg:ml-auto">
+              Page size
+              <select
+                aria-label="Page size"
+                value={pageSize}
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value));
+                  setPage(1);
+                }}
+                className="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700"
+              >
+                {[20, 50, 100].map((size) => (
+                  <option key={size} value={size}>{size}</option>
+                ))}
+              </select>
+            </label>
           </div>
         </div>
 
-        {/* Audit Log Entries */}
+        <p className="text-[11px] font-semibold text-slate-500">
+          Showing {range.start}–{range.end} of {range.total} matching records.
+          {' '}Export includes every match, not only this page. Dates use the Asia/Manila calendar.
+        </p>
+
         <div className="space-y-3 pt-2">
-          {filteredLogs.length === 0 ? (
+          {isLoading ? (
+            <div className="min-h-[220px] flex flex-col items-center justify-center gap-3">
+              <Loader2 className="h-7 w-7 text-emerald-600 animate-spin" />
+              <p className="text-xs text-slate-500 font-medium">Retrieving security audit log trails...</p>
+            </div>
+          ) : logs.length === 0 ? (
             <p className="text-xs text-slate-500 py-8 text-center">No compliance audit logs found matching criteria.</p>
           ) : (
-            filteredLogs.map((log) => {
-              const formattedDate = log.createdAt 
-                ? new Date(log.createdAt).toLocaleString() 
+            logs.map((log) => {
+              const formattedDate = log.createdAt
+                ? new Date(log.createdAt).toLocaleString()
                 : log.timestamp || 'N/A';
               const severity = resolveSeverity(log);
 
               return (
-                <div key={log._id || Math.random()} className="p-4 bg-slate-50 border border-slate-200/60 rounded-xl space-y-2">
+                <div key={log._id} className="p-4 bg-slate-50 border border-slate-200/60 rounded-xl space-y-2">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/40 pb-2">
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-[11px] font-extrabold px-2 py-0.5 bg-slate-200 text-slate-800 rounded-lg">
                         {log.action}
                       </span>
                       <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold flex items-center gap-1 ${
-                        severity === 'Critical' 
-                          ? 'bg-rose-100 text-rose-800' 
-                          : severity === 'Warning' 
-                          ? 'bg-amber-100 text-amber-800' 
+                        severity === 'Critical'
+                          ? 'bg-rose-100 text-rose-800'
+                          : severity === 'Warning'
+                          ? 'bg-amber-100 text-amber-800'
                           : 'bg-blue-100 text-blue-800'
                       }`}>
                         {severity === 'Critical' && <AlertTriangle className="w-3 h-3" />}
@@ -300,7 +381,7 @@ export default function AuditCompliance() {
 
                   <div className="flex items-center gap-4 text-[11px] text-slate-500 pt-1">
                     <span className="flex items-center gap-1">
-                      <User className="w-3 h-3 text-slate-400" /> 
+                      <User className="w-3 h-3 text-slate-400" />
                       {log.actor || log.actorName || 'System'} {log.role ? `(${log.role})` : ''}
                     </span>
                     <span>•</span>
@@ -311,6 +392,8 @@ export default function AuditCompliance() {
             })
           )}
         </div>
+
+        <Pagination currentPage={page} totalPages={pages} onPageChange={setPage} />
       </div>
     </div>
   );

@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Check, Loader2, Tag, X } from 'lucide-react';
 import StatusBadge from '../../../components/common/StatusBadge';
+import { eligibilityStatusFromSearch } from '../operationsDashboard';
 
 const formatSubmitted = (value) => {
   if (!value) return 'Unknown date';
@@ -18,6 +20,8 @@ const authHeaders = (json = false) => {
 };
 
 export default function EligibilityCriterionQueue() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const reviewFilter = eligibilityStatusFromSearch(searchParams.get('status'));
   const [requests, setRequests] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -114,6 +118,10 @@ export default function EligibilityCriterionQueue() {
     }
   };
 
+  const visibleRequests = reviewFilter === 'Pending'
+    ? requests.filter((request) => request.status === 'Pending')
+    : requests;
+
   return (
     <section className="bg-white border border-slate-200/80 rounded-2xl p-5 space-y-4 shadow-xs">
       <div className="flex items-start justify-between gap-3">
@@ -134,16 +142,37 @@ export default function EligibilityCriterionQueue() {
         </div>
       )}
 
+      {reviewFilter === 'Pending' && (
+        <div className="flex items-center justify-between gap-3 text-xs">
+          <p className="font-medium text-slate-600">Showing requests pending review.</p>
+          <button
+            type="button"
+            onClick={() => {
+              const next = new URLSearchParams(searchParams);
+              next.delete('status');
+              setSearchParams(next, { replace: true });
+            }}
+            className="font-bold text-amber-800 hover:text-amber-900"
+          >
+            Show all requests
+          </button>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="min-h-[120px] flex items-center justify-center gap-2 text-xs text-slate-500">
           <Loader2 className="w-4 h-4 animate-spin text-emerald-700" />
           Loading criterion requests...
         </div>
-      ) : requests.length === 0 ? (
-        <p className="text-xs text-slate-500 py-6 text-center">No eligibility criterion requests yet.</p>
+      ) : visibleRequests.length === 0 ? (
+        <p className="text-xs text-slate-500 py-6 text-center">
+          {reviewFilter === 'Pending'
+            ? 'No eligibility criterion requests are pending review.'
+            : 'No eligibility criterion requests yet.'}
+        </p>
       ) : (
         <div className="space-y-3">
-          {requests.map((request) => {
+          {visibleRequests.map((request) => {
             const providerName = request.provider?.institutionName || 'Unknown provider';
             const nextFulfillment =
               request.status === 'Approved' && request.fulfillmentStatus === 'Pending'

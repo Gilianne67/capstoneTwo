@@ -1,11 +1,14 @@
 import { useState } from 'react';
 import { Lock, Eye, EyeOff, ShieldAlert, CheckCircle2 } from 'lucide-react';
-import { MIN_PASSWORD_LENGTH } from '../../config/passwordPolicy';
+import { MIN_PASSWORD_LENGTH, unchangedPasswordMessage } from '../../config/passwordPolicy';
+import {
+  presentPasswordUpdateFailure,
+  presentSavedPasswordResult,
+} from './passwordUpdateMessage';
 
 export function SecurityForm({
   onSave,
-  passwordChangeAvailable = true,
-  twoFactorAvailable = true
+  passwordChangeAvailable = true
 }) {
   const [showPassword, setShowPassword] = useState(false);
   const [passwords, setPasswords] = useState({
@@ -13,7 +16,6 @@ export function SecurityForm({
     newPassword: '',
     confirmPassword: ''
   });
-  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
   const [statusMessage, setStatusMessage] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -36,32 +38,34 @@ export function SecurityForm({
       return;
     }
 
+    const reusedPassword = unchangedPasswordMessage(passwords.currentPassword, passwords.newPassword);
+    if (reusedPassword) {
+      setStatusMessage({ type: 'error', text: reusedPassword });
+      return;
+    }
+
     setSubmitting(true);
     setStatusMessage(null);
     try {
-      const resultMessage = onSave ? await onSave({ passwords, twoFactorEnabled }) : null;
-      setStatusMessage({
-        type: 'success',
-        text: resultMessage || 'Password updated successfully.',
-      });
-      setPasswords({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      const result = onSave ? await onSave({ passwords }) : null;
+      const alert = presentSavedPasswordResult(result);
+      setStatusMessage(alert);
+      if (alert.type !== 'error') {
+        setPasswords({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      }
     } catch (err) {
-      setStatusMessage({
-        type: 'error',
-        text: err.message || 'Password could not be updated.',
-      });
+      setStatusMessage(presentPasswordUpdateFailure(err.message));
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="bg-card-bg rounded-2xl border border-app-text/10 p-6 shadow-xs space-y-6">
-      <div className="flex items-center gap-2 pb-4 border-b border-app-text/10">
-        <Lock className="w-5 h-5 text-primary" />
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <Lock className="w-4 h-4 text-primary" />
         <div>
-          <h3 className="text-sm font-extrabold text-app-text">Security & Password</h3>
-          <p className="text-xs text-text-muted">Manage your password and authentication security</p>
+          <h4 className="text-xs font-extrabold text-app-text">Change Password</h4>
           {!passwordChangeAvailable && (
             <p className="text-[11px] text-text-muted mt-1">Password changes are currently unavailable.</p>
           )}
@@ -70,9 +74,13 @@ export function SecurityForm({
 
       {statusMessage && (
         <div className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
-          statusMessage.type === 'error' ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+          statusMessage.type === 'error'
+            ? 'bg-rose-50 text-rose-700 border border-rose-200'
+            : statusMessage.type === 'warning'
+              ? 'bg-amber-50 text-amber-800 border border-amber-200'
+              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
         }`}>
-          {statusMessage.type === 'error' ? <ShieldAlert className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
+          {statusMessage.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
           <span>{statusMessage.text}</span>
         </div>
       )}
@@ -135,31 +143,6 @@ export function SecurityForm({
             {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
             <span>{showPassword ? 'Hide Passwords' : 'Show Passwords'}</span>
           </button>
-        </div>
-
-        {/* 2FA Toggle */}
-        <div className="pt-4 border-t border-app-text/10 flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold text-app-text">Two-Factor Authentication (2FA)</p>
-            <p className="text-[11px] text-text-muted">
-              {twoFactorAvailable
-                ? 'Adds an extra layer of security to your account'
-                : 'Two-factor authentication is currently unavailable.'}
-            </p>
-          </div>
-          <label className={`relative inline-flex items-center ${twoFactorAvailable ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
-            <input
-              type="checkbox"
-              checked={twoFactorAvailable && twoFactorEnabled}
-              disabled={!twoFactorAvailable}
-              onChange={() => {
-                if (!twoFactorAvailable) return;
-                setTwoFactorEnabled(!twoFactorEnabled);
-              }}
-              className="sr-only peer"
-            />
-            <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary ${twoFactorAvailable ? '' : 'opacity-50'}`}></div>
-          </label>
         </div>
 
         <button

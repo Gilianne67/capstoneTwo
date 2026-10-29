@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation, Outlet } from 'rea
 
 // Context
 import { AuthProvider, useAuth } from './context/AuthContext';
+import MaintenanceGate from './components/common/MaintenanceGate';
 
 // Layouts
 import PublicLayout from './layouts/PublicLayout';       
@@ -41,10 +42,12 @@ import ScholarshipDetails from './features/provider/pages/ScholarshipDetails';
 
 // Admin Module Pages
 import AdminDashboard from './features/admin/pages/AdminDashboard';
+import AnalyticsReports from './features/admin/pages/AnalyticsReports';
+import UserManagement from './features/admin/pages/UserManagement';
 import VerificationQueue from './features/admin/pages/VerificationQueue';
 import EligibilityCriterionRequests from './features/admin/pages/EligibilityCriterionRequests';
 import ContentModeration from './features/admin/pages/ContentModeration';
-import TaxonomyTags from './features/admin/pages/TaxonomyTags';
+import AllScholarships from './features/admin/pages/AllScholarships';
 import AuditCompliance from './features/admin/pages/AuditCompliance';
 import SystemSettings from './features/admin/pages/SystemSettings';
 import AdminNotifications from './features/admin/pages/AdminNotifications';
@@ -194,6 +197,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <MaintenanceGate>
         <Routes>
           {/* 1. PUBLIC ROUTES */}
           <Route element={<PublicLayout />}>
@@ -256,11 +260,13 @@ export default function App() {
             {/* ADMIN SECTION */}
             <Route element={<ProtectedRouteGuard allowedRoles={['admin', 'superadmin', 'super_admin']} />}>
               <Route path="admin" element={<AdminDashboard />} />
+              <Route path="admin/analytics" element={<AnalyticsReports />} />
+              <Route path="admin/users" element={<UserManagement />} />
               <Route path="admin/scholarships/:id" element={<ScholarshipDetails />} />
               <Route path="admin/verification" element={<VerificationQueue />} />
               <Route path="admin/eligibility-criteria" element={<EligibilityCriterionRequests />} />
               <Route path="admin/moderation" element={<ContentModeration />} />
-              <Route path="admin/taxonomy" element={<TaxonomyTags />} />
+              <Route path="admin/scholarships" element={<AllScholarships />} />
               <Route path="admin/audit-log" element={<AuditCompliance />} />
               <Route path="admin/settings" element={<SystemSettings />} />
               <Route path="admin/notifications" element={<AdminNotifications />} />
@@ -271,6 +277,7 @@ export default function App() {
           {/* Catch-all fallback */}
           <Route path="*" element={<Navigate to="/auth?mode=signin" replace />} />
         </Routes>
+        </MaintenanceGate>
       </AuthProvider>
     </BrowserRouter>
   );

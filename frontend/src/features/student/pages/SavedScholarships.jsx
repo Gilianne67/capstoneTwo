@@ -253,14 +253,20 @@ export default function SavedScholarships() {
 
                 {/* Action Buttons */}
                 <div className="pt-3 border-t border-app-text/10 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={(event) => handleApplyRedirect(event, grant)}
-                    className="flex-1 py-2 bg-app-text text-card-bg hover:bg-primary hover:text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                  >
-                    <span>Official Portal</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </button>
+                  {grant.isArchived ? (
+                    <span className="flex-1 py-2 text-center text-xs font-bold text-slate-500">
+                      Archived
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={(event) => handleApplyRedirect(event, grant)}
+                      className="flex-1 py-2 bg-app-text text-card-bg hover:bg-primary hover:text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <span>Official Portal</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
             );

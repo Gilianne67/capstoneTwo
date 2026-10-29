@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { 
   AlertTriangle, 
   CheckCircle2, 
@@ -15,16 +15,20 @@ import StatusBadge from '../../../components/common/StatusBadge';
 import {
   buildModerationDecision,
   canStartReportDecision,
-  commitReportDecision
+  commitReportDecision,
+  MODERATION_STATUS_FILTERS,
+  moderationStatusFromSearch,
+  reportMatchesModerationStatus,
 } from '../scholarshipReportQueue';
 
 export default function ContentModeration() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const statusFilter = moderationStatusFromSearch(searchParams.get('status'));
   const [reports, setReports] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [processingId, setProcessingId] = useState(null);
   const [processingAction, setProcessingAction] = useState(null);
   const [error, setError] = useState(null);
-  const [statusFilter, setStatusFilter] = useState('Pending Review');
   const [searchQuery, setSearchQuery] = useState('');
   const [explanations, setExplanations] = useState({});
   const [feedback, setFeedback] = useState(null);
@@ -141,7 +145,7 @@ export default function ContentModeration() {
       provider.toLowerCase().includes(searchQuery.toLowerCase()) ||
       reporter.toLowerCase().includes(searchQuery.toLowerCase());
 
-    const matchesStatus = statusFilter === 'All' || r.status === statusFilter;
+    const matchesStatus = reportMatchesModerationStatus(r, statusFilter);
     return matchesSearch && matchesStatus;
   });
 
@@ -166,6 +170,14 @@ export default function ContentModeration() {
         title="Content Moderation" 
         subtitle="Review user reports, take down flagged scam listings, and enforce platform standards."
       />
+
+      <p className="text-xs text-slate-500 font-medium -mt-2">
+        Student reports stay in this queue. To archive any listing, including scholarships that have not been reported, open{' '}
+        <Link to="/dashboard/admin/scholarships" className="font-bold text-amber-700 hover:underline">
+          All Scholarships
+        </Link>
+        .
+      </p>
 
       {error && (
         <div className="bg-rose-500/10 border border-rose-500/20 text-rose-800 p-3.5 rounded-xl flex items-center gap-2 text-xs font-medium">
@@ -195,12 +207,17 @@ export default function ContentModeration() {
       <div className="bg-white border border-slate-200/80 rounded-2xl p-5 space-y-4 shadow-xs">
         {/* Controls Bar */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div className="flex items-center gap-2">
-            {['Pending Review', 'Retained', 'Removed', 'Resolved', 'All'].map((status) => (
+          <div className="flex flex-wrap items-center gap-2">
+            {MODERATION_STATUS_FILTERS.map((status) => (
               <button
                 key={status}
                 type="button"
-                onClick={() => setStatusFilter(status)}
+                onClick={() => {
+                  const next = new URLSearchParams(searchParams);
+                  if (status === 'Unresolved') next.delete('status');
+                  else next.set('status', status);
+                  setSearchParams(next, { replace: true });
+                }}
                 className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-colors cursor-pointer ${
                   statusFilter === status
                     ? 'bg-slate-900 text-white'

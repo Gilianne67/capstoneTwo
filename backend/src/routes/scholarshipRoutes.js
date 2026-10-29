@@ -33,7 +33,7 @@ router.patch(
 router.patch(
   '/:id/archive',
   protect,
-  authorize('provider'),
+  authorize('provider', 'admin', 'super_admin', 'superadmin'),
   archiveScholarship
 );
 

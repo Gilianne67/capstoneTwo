@@ -1,4 +1,6 @@
 import axios from 'axios';
+import { endedSessionReason, SESSION_ENDED_EVENT, shouldIgnoreSessionEnd } from '../context/sessionEnded';
+import { isMaintenanceResponse, publishMaintenance } from '../context/maintenanceMode';
 
 axios.defaults.withCredentials = true;
 
@@ -63,6 +65,21 @@ axios.interceptors.request.use((config) => {
   return config;
 }, (error) => Promise.reject(error));
 
+axios.interceptors.response.use((response) => response, (error) => {
+  const status = error?.response?.status;
+  const url = error?.config?.url || '';
+  if (isMaintenanceResponse(status, error?.response?.data)) {
+    publishMaintenance(error.response.data);
+  } else if (
+    typeof window !== 'undefined'
+    && !shouldIgnoreSessionEnd(url)
+    && endedSessionReason(status, error?.response?.data)
+  ) {
+    window.dispatchEvent(new Event(SESSION_ENDED_EVENT));
+  }
+  return Promise.reject(error);
+});
+
 /**
  * 2. WINDOW.FETCH INTERCEPTOR (Catches standard fetch calls)
  */
@@ -77,6 +94,26 @@ if (typeof window !== 'undefined') {
         resource = new Request(newUrl, resource);
       }
     }
-    return originalFetch.call(this, resource, init);
+    return originalFetch.call(this, resource, init).then(async (response) => {
+      const url = typeof resource === 'string'
+        ? resource
+        : (resource instanceof Request ? resource.url : '');
+      if (response.status === 503 || response.status === 401 || response.status === 403) {
+        try {
+          const data = await response.clone().json();
+          if (isMaintenanceResponse(response.status, data)) {
+            publishMaintenance(data);
+          } else if (
+            !shouldIgnoreSessionEnd(url)
+            && endedSessionReason(response.status, data)
+          ) {
+            window.dispatchEvent(new Event(SESSION_ENDED_EVENT));
+          }
+        } catch {
+          // A non-JSON body is not a session-ending or maintenance response.
+        }
+      }
+      return response;
+    });
   };
 }

@@ -1,6 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ProfileHeader from '../../../components/settings/ProfileHeader';
 import SecurityForm from '../../../components/settings/SecurityForm';
+import { presentPasswordUpdateResult } from '../../../components/settings/passwordUpdateMessage';
+import {
+  createInvitationSubmitGuard,
+  invitationFormAfterResponse,
+  readStoredAuthorizationHeaders,
+} from '../adminInvitation';
 import { useAuth } from '../../../context/AuthContext';
 import axios from 'axios';
 import { 
@@ -13,11 +19,9 @@ import {
   KeyRound
 } from 'lucide-react';
 
-const authHeader = () => {
-  const rawToken = localStorage.getItem('token');
-  const token = rawToken ? rawToken.replace(/^"|"$/g, '').replace(/^Bearer\s+/i, '').trim() : '';
-  return token ? { Authorization: `Bearer ${token}` } : {};
-};
+const authHeader = () => readStoredAuthorizationHeaders(
+  typeof localStorage !== 'undefined' ? localStorage : null
+);
 
 const apiErrorMessage = (err, fallback) =>
   err.response?.data?.message || err.response?.data?.error || fallback;
@@ -30,7 +34,6 @@ export function SystemSettings() {
   
   const [platformConfig, setPlatformConfig] = useState({
     maintenanceMode: false,
-    autoApproveProviders: false
   });
 
   const [newAdmin, setNewAdmin] = useState({
@@ -40,17 +43,21 @@ export function SystemSettings() {
   });
 
   const [loading, setLoading] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const invitationSubmit = useRef(createInvitationSubmitGuard());
   const [feedback, setFeedback] = useState({ type: '', message: '' });
 
   // 🔄 Fetch current system configuration on load
   useEffect(() => {
     const fetchConfig = async () => {
       try {
-        const res = await axios.get('/api/v1/admin/config', { withCredentials: true });
+        const res = await axios.get('/api/v1/admin/config', {
+          withCredentials: true,
+          headers: authHeader(),
+        });
         if (res.data?.data) {
           setPlatformConfig({
             maintenanceMode: res.data.data.maintenanceMode || false,
-            autoApproveProviders: res.data.data.autoApproveProviders || false
           });
         }
       } catch (err) {
@@ -76,7 +83,10 @@ export function SystemSettings() {
     setFeedback({ type: '', message: '' });
 
     try {
-      const res = await axios.put('/api/v1/admin/config', platformConfig, { withCredentials: true });
+      const res = await axios.put('/api/v1/admin/config', platformConfig, {
+        withCredentials: true,
+        headers: authHeader(),
+      });
       setLoading(false);
       setFeedback({ type: 'success', message: res.data.message || 'System configuration saved successfully.' });
     } catch (err) {
@@ -88,20 +98,26 @@ export function SystemSettings() {
   // 🛡️ Provision / Invite New Admin
   const handleInviteAdmin = async (e) => {
     e.preventDefault();
-    setLoading(true);
+    if (!invitationSubmit.current.begin()) return;
+    setInviting(true);
     setFeedback({ type: '', message: '' });
 
     try {
-      const res = await axios.post('/api/v1/admin/invite', newAdmin, { withCredentials: true });
-      setLoading(false);
+      const res = await axios.post('/api/v1/admin/invite', newAdmin, {
+        withCredentials: true,
+        headers: authHeader(),
+      });
       setFeedback({
         type: 'success',
         message: res.data.message || `An invitation link was emailed to ${newAdmin.email}.`,
       });
-      setNewAdmin({ fullName: '', email: '', adminRole: 'admin' });
+      setNewAdmin(invitationFormAfterResponse(newAdmin, true));
     } catch (err) {
-      setLoading(false);
       setFeedback({ type: 'error', message: apiErrorMessage(err, 'Failed to send admin invitation.') });
+      setNewAdmin(invitationFormAfterResponse(newAdmin, false));
+    } finally {
+      invitationSubmit.current.end();
+      setInviting(false);
     }
   };
 
@@ -137,7 +153,7 @@ export function SystemSettings() {
             <Sliders className="w-5 h-5 text-primary" />
             <div>
               <h3 className="text-sm font-extrabold text-app-text">Global Operational Policies</h3>
-              <p className="text-xs text-text-muted">Control system availability and provider verification rules</p>
+              <p className="text-xs text-text-muted">Control whether students and providers can use the app</p>
             </div>
           </div>
 
@@ -151,33 +167,18 @@ export function SystemSettings() {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <label className="flex items-center justify-between p-4 bg-app-bg rounded-xl border border-app-text/10 cursor-pointer">
-            <div>
-              <p className="text-xs font-bold text-app-text">Maintenance Mode</p>
-              <p className="text-[11px] text-text-muted">Saved only. This does not block public access yet.</p>
-            </div>
-            <input
-              type="checkbox"
-              checked={platformConfig.maintenanceMode}
-              onChange={() => handleToggle('maintenanceMode')}
-              className="rounded border-app-text/20 text-primary focus:ring-primary h-4 w-4"
-            />
-          </label>
-
-          <label className="flex items-center justify-between p-4 bg-app-bg rounded-xl border border-app-text/10 cursor-pointer">
-            <div>
-              <p className="text-xs font-bold text-app-text">Auto-Approve Providers</p>
-              <p className="text-[11px] text-text-muted">Saved only. New providers still require manual verification.</p>
-            </div>
-            <input
-              type="checkbox"
-              checked={platformConfig.autoApproveProviders}
-              onChange={() => handleToggle('autoApproveProviders')}
-              className="rounded border-app-text/20 text-primary focus:ring-primary h-4 w-4"
-            />
-          </label>
-        </div>
+        <label className="flex items-center justify-between gap-4 p-4 bg-app-bg rounded-xl border border-app-text/10 cursor-pointer">
+          <div>
+            <p className="text-xs font-bold text-app-text">Maintenance Mode</p>
+            <p className="text-[11px] text-text-muted">When enabled, students and providers cannot use the app. Administrators can still sign in and turn this off.</p>
+          </div>
+          <input
+            type="checkbox"
+            checked={platformConfig.maintenanceMode}
+            onChange={() => handleToggle('maintenanceMode')}
+            className="rounded border-app-text/20 text-primary focus:ring-primary h-4 w-4 shrink-0"
+          />
+        </label>
       </form>
 
       {/* Admin Account Security & Password Form */}
@@ -186,13 +187,12 @@ export function SystemSettings() {
           <KeyRound className="w-5 h-5 text-primary" />
           <div>
             <h3 className="text-sm font-extrabold text-app-text">Admin Security Credentials</h3>
-            <p className="text-xs text-text-muted">Update your administrative password and account security settings</p>
+            <p className="text-xs text-text-muted">Password for this administrator account</p>
           </div>
         </div>
 
         <SecurityForm
           passwordChangeAvailable={true}
-          twoFactorAvailable={false}
           onSave={async ({ passwords }) => {
             try {
               const res = await axios.put('/api/v1/auth/updatepassword', {
@@ -203,12 +203,18 @@ export function SystemSettings() {
                 headers: authHeader(),
               });
               if (res.data?.token && replaceSession) replaceSession(res.data.token);
-              return res.data.message || 'Password updated successfully.';
+              return presentPasswordUpdateResult({ httpStatus: res.status, data: res.data });
             } catch (err) {
               if (err.response?.data?.token && replaceSession) {
                 replaceSession(err.response.data.token);
               }
-              throw new Error(apiErrorMessage(err, 'Password could not be updated.'));
+              const presented = presentPasswordUpdateResult({
+                httpStatus: err.response?.status,
+                data: err.response?.data,
+                thrownMessage: apiErrorMessage(err, 'Your password could not be updated. Please try again.'),
+              });
+              if (presented.type === 'error') throw new Error(presented.text);
+              return presented;
             }
           }}
         />
@@ -270,10 +276,11 @@ export function SystemSettings() {
         <div className="flex justify-end pt-2">
           <button
             type="submit"
-            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+            disabled={inviting}
+            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Send Admin Invitation</span>
+            <span>{inviting ? 'Sending...' : 'Send Admin Invitation'}</span>
           </button>
         </div>
       </form>

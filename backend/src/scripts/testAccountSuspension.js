@@ -293,6 +293,10 @@ const withExpectedConsoleErrors = async (fn, isExpected) => {
 const isUnsupportedStatusLog = (...args) =>
   args[0] instanceof Error && args[0].message === 'Unsupported account status.';
 
+const isPendingConsentStatusLog = (...args) =>
+  args[0] instanceof Error
+  && args[0].message === 'Administrators cannot set an account to pending consent. That state is assigned by the student consent workflow.';
+
 const isBlocklistWriteLog = (...args) =>
   args.length === 1 && args[0] === 'Redis blocklist write failed.';
 
@@ -409,6 +413,7 @@ const main = async () => {
     const revokedSecond = await accessRoute(secondToken);
     assert.equal(revokedFirst.nextCalled, false);
     assert.equal(revokedFirst.statusCode, 401);
+    assert.equal(revokedFirst.body.code, 'SESSION_REVOKED');
     assert.equal(revokedSecond.nextCalled, false);
     assert.equal(revokedSecond.statusCode, 401);
     const otherAccess = await accessRoute(otherToken);
@@ -490,24 +495,29 @@ const main = async () => {
     assert.equal(other.status, 'active');
     assert.equal(await isTokenBlacklisted(otherToken), false);
 
-    const superadminChange = await requestStatus(server, {
-      token: superadminToken,
-      userId: other._id,
-      body: { status: 'pending_consent' },
-    });
-    assert.equal(superadminChange.status, 200);
-    assert.equal(superadminChange.body.revocation.required, false);
-    assert.equal(other.status, 'pending_consent');
+    const saveCountBeforeConsent = other.saveCount;
+    const superadminChange = await withExpectedConsoleErrors(
+      () => requestStatus(server, {
+        token: superadminToken,
+        userId: other._id,
+        body: { status: 'pending_consent' },
+      }),
+      isPendingConsentStatusLog
+    );
+    const adminConsentChange = await withExpectedConsoleErrors(
+      () => requestStatus(server, {
+        token: adminToken,
+        userId: other._id,
+        body: { status: 'pending_consent' },
+      }),
+      isPendingConsentStatusLog
+    );
+    assert.equal(superadminChange.status, 400);
+    assert.equal(superadminChange.body.success, false);
+    assert.equal(adminConsentChange.status, 400);
+    assert.equal(other.status, 'active');
+    assert.equal(other.saveCount, saveCountBeforeConsent);
     assert.equal(await isTokenBlacklisted(otherToken), false);
-    const consentGate = await accessRoute(otherToken);
-    assert.equal(consentGate.nextCalled, false);
-    assert.equal(consentGate.statusCode, 403);
-    assert.equal(consentGate.body.requiresConsent, true);
-    await requestStatus(server, {
-      token: adminToken,
-      userId: other._id,
-      body: { status: 'active' },
-    });
     assert.equal((await accessRoute(otherToken)).nextCalled, true);
 
     const failingUser = createUser({
@@ -681,6 +691,7 @@ const main = async () => {
     const suspendedProtected = await accessRoute(suspendedLogoutToken);
     assert.equal(suspendedProtected.nextCalled, false);
     assert.equal(suspendedProtected.statusCode, 403);
+    assert.equal(suspendedProtected.body.code, 'ACCOUNT_SUSPENDED');
 
     console.log('account suspension functional tests passed (in-memory Redis mock; not a latency measurement)');
   } finally {

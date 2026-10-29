@@ -11,6 +11,7 @@ const {
   getVerifications,
   updateVerificationQueueStatus,
   updateUserAccountStatus,
+  getAdminUsers,
   getSystemConfig,
   updateSystemConfig,
   inviteAdmin,
@@ -20,6 +21,16 @@ const {
   reviewEligibilityCriterionRequest,
   updateEligibilityCriterionFulfillment,
 } = require('../controllers/eligibilityCriterionRequestController');
+const { getAdminScholarships } = require('../controllers/adminScholarshipController');
+const {
+  getOverview,
+  getRegistrations,
+  getScholarships: getScholarshipAnalytics,
+  getCategoryDemand,
+  getStudentInsights,
+  getProviderInsights,
+  exportReport,
+} = require('../controllers/adminAnalyticsController');
 
 // Import auth middleware functions safely
 const authMiddleware = require('../middleware/auth');
@@ -51,6 +62,13 @@ router.use((req, res, next) => {
 // ================================
 
 router.get('/dashboard', getAdminDashboard);
+router.get('/analytics/overview', getOverview);
+router.get('/analytics/registrations', getRegistrations);
+router.get('/analytics/scholarships', getScholarshipAnalytics);
+router.get('/analytics/category-demand', getCategoryDemand);
+router.get('/analytics/student-insights', getStudentInsights);
+router.get('/analytics/provider-insights', getProviderInsights);
+router.get('/analytics/export', exportReport);
 router.get('/verifications', getVerifications);
 router.get('/verification-queue', getVerifications); // Alias
 
@@ -66,8 +84,12 @@ router.patch(
   '/eligibility-criterion-requests/:id/fulfillment',
   updateEligibilityCriterionFulfillment
 );
+router.get('/scholarships', getAdminScholarships);
 router.patch('/scholarships/:id/status', updateScholarshipStatus);
 router.patch('/parental-consent/:id/status', updateConsentStatus);
+
+// GET /api/v1/admin/users - Paginated directory. Search name/email and filter by role.
+router.get('/users', getAdminUsers);
 
 // PATCH /api/v1/admin/users/:id/status - Change account status; suspension revokes tracked sessions
 router.patch('/users/:id/status', updateUserAccountStatus);

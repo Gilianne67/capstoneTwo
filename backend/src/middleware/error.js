@@ -25,10 +25,18 @@ const errorHandler = (err, req, res, next) => {
     error = new ErrorResponse(message, 400);
   }
 
-  res.status(error.statusCode || 500).json({
+  const body = {
     success: false,
     error: error.message || 'Server Error',
-  });
+  };
+  if (err.code === 'ACCOUNT_SUSPENDED' || err.code === 'SESSION_REVOKED') {
+    body.code = err.code;
+  }
+  if (Array.isArray(err.warnings) && err.warnings.length > 0) {
+    body.warnings = err.warnings;
+  }
+
+  res.status(error.statusCode || 500).json(body);
 };
 
 // CRITICAL: Ensure errorHandler is directly exported

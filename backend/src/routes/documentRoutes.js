@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const router = express.Router();
 const path = require('path');
 const Provider = require('../models/Provider');
+const { recordAuditLog } = require('../controllers/auditController');
 
 // Import authentication middleware
 const authMiddleware = require('../middleware/auth');
@@ -41,9 +42,14 @@ const userCanAccessFile = async (user, file) => {
 
 let gfsBucket;
 
+const setDocumentBucket = (bucket) => {
+  gfsBucket = bucket;
+};
+
 // Helper to get or initialize GridFS bucket dynamically
 const getBucket = () => {
-  if (!gfsBucket && mongoose.connection.db) {
+  if (gfsBucket) return gfsBucket;
+  if (mongoose.connection.db) {
     gfsBucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
       bucketName: 'uploads',
     });
@@ -72,7 +78,7 @@ const getMimeType = (filename) => {
  * GET /api/v1/documents/:filename
  * Protected route: Admins, Super Admins, or the original file uploader can stream/view the file
  */
-router.get('/:filename', protect, async (req, res) => {
+const streamDocument = async (req, res) => {
   try {
     const bucket = getBucket();
 
@@ -105,6 +111,29 @@ router.get('/:filename', protect, async (req, res) => {
       });
     }
 
+    const actorName = `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim()
+      || req.user.email
+      || String(req.user._id || req.user.id || 'User');
+    const audit = await recordAuditLog({
+      actor: actorName,
+      actorId: req.user._id || req.user.id,
+      role: req.user.role,
+      action: 'DOCUMENT_ACCESS',
+      details: `User ${req.user._id || req.user.id} accessed document ${file._id} (${file.filename}).`,
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+      severity: 'Info',
+    });
+    if (!audit || audit.ok !== true) {
+      return res.status(500).json({
+        success: false,
+        message: 'The document was not sent because the access could not be recorded in the audit log.',
+        warnings: [{
+          step: 'audit',
+          message: (audit && audit.message) || 'The audit record could not be saved.',
+        }],
+      });
+    }
+
     // 3. Resolve content type
     const contentType = file.contentType || file.metadata?.mimetype || getMimeType(file.filename);
 
@@ -134,6 +163,10 @@ router.get('/:filename', protect, async (req, res) => {
       message: error.message || 'Server error retrieving file.',
     });
   }
-});
+};
+
+router.get('/:filename', protect, streamDocument);
+router.streamDocument = streamDocument;
+router.setDocumentBucket = setDocumentBucket;
 
 module.exports = router;

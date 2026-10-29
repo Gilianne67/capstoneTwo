@@ -1,7 +1,7 @@
 const Provider = require('../models/Provider');
 const User = require('../models/User');
 const EligibilityCriterionRequest = require('../models/EligibilityCriterionRequest');
-const { recordAuditLog } = require('./auditController');
+const { recordAuditLog, withAuditWarning } = require('./auditController');
 const emailService = require('../utils/emailService');
 const { isAdminRole } = require('../middleware/auth');
 const { CRITERION_TYPES } = EligibilityCriterionRequest;
@@ -206,16 +206,15 @@ const requireAdmin = (req, res) => {
   return true;
 };
 
-const auditRequest = async (req, action, details, severity = 'Info') => {
-  await recordAuditLog({
-    actor: actorNameFrom(req.user, 'Admin User'),
-    role: 'Admin',
-    action,
-    details,
-    ipAddress: req.ip || req.headers?.['x-forwarded-for'] || '127.0.0.1',
-    severity,
-  });
-};
+const auditRequest = async (req, action, details, severity = 'Info') => recordAuditLog({
+  actor: actorNameFrom(req.user, 'Admin User'),
+  actorId: req.user && (req.user._id || req.user.id),
+  role: (req.user && req.user.role) || 'Admin',
+  action,
+  details,
+  ipAddress: req.ip || req.headers?.['x-forwarded-for'] || '127.0.0.1',
+  severity,
+});
 
 const deliverCompletionEmail = async (request, provider) => {
   if (request.completionEmailSentAt) {
@@ -451,7 +450,7 @@ exports.createEligibilityCriterionRequest = async (req, res) => {
 
     const actorName = actorNameFrom(req.user, provider.institutionName || 'Provider User');
 
-    await recordAuditLog({
+    const audit = await recordAuditLog({
       actor: actorName,
       role: 'Provider',
       action: 'ELIGIBILITY_REQUEST_SUBMIT',
@@ -460,12 +459,12 @@ exports.createEligibilityCriterionRequest = async (req, res) => {
       severity: 'Info',
     });
 
-    res.status(201).json({
+    res.status(201).json(withAuditWarning({
       success: true,
       message:
         'Eligibility criterion request submitted successfully. An administrator will review this request before it can be used for scholarship matching.',
       request: toProviderRequest(request),
-    });
+    }, audit));
   } catch (error) {
     console.error('Create Eligibility Criterion Request Error:', error);
 
@@ -559,7 +558,7 @@ exports.reviewEligibilityCriterionRequest = async (req, res) => {
 
     await request.save();
 
-    await auditRequest(
+    const audit = await auditRequest(
       req,
       decision === 'Approved' ? 'ELIGIBILITY_REQUEST_APPROVE' : 'ELIGIBILITY_REQUEST_REJECT',
       decision === 'Approved'
@@ -570,14 +569,14 @@ exports.reviewEligibilityCriterionRequest = async (req, res) => {
 
     const provider = await loadProvider(request.providerId);
 
-    res.status(200).json({
+    res.status(200).json(withAuditWarning({
       success: true,
       message:
         decision === 'Approved'
           ? 'Eligibility criterion request approved. It remains Pending until an administrator moves it to In Progress or Done.'
           : 'Eligibility criterion request rejected.',
       request: await toAdminRequest(request, provider),
-    });
+    }, audit));
   } catch (error) {
     if (isCastError(error)) {
       return res.status(404).json({
@@ -636,11 +635,12 @@ exports.updateEligibilityCriterionFulfillment = async (req, res) => {
       });
     }
 
+    let fulfillmentAudit = null;
     if (!repeatingDone) {
       request.fulfillmentStatus = nextStatus;
       await request.save();
 
-      await auditRequest(
+      fulfillmentAudit = await auditRequest(
         req,
         'ELIGIBILITY_REQUEST_STATUS',
         `Admin moved eligibility criterion "${request.criterionName}" from ${currentStatus} to ${nextStatus}.`
@@ -653,24 +653,24 @@ exports.updateEligibilityCriterionFulfillment = async (req, res) => {
       email = await deliverCompletionEmail(request, provider);
       const visible = await toAdminRequest(request, provider);
 
-      return res.status(200).json({
+      return res.status(200).json(withAuditWarning({
         success: true,
         message: email.sent
           ? 'Eligibility criterion request marked Done. The provider was emailed at the registered account address.'
           : 'Eligibility criterion request is Done.',
         request: visible,
         email,
-      });
+      }, fulfillmentAudit));
     }
 
     const provider = await loadProvider(request.providerId);
 
-    res.status(200).json({
+    res.status(200).json(withAuditWarning({
       success: true,
       message: `Eligibility criterion request is now ${nextStatus}.`,
       request: await toAdminRequest(request, provider),
       email,
-    });
+    }, fulfillmentAudit));
   } catch (error) {
     if (isCastError(error)) {
       return res.status(404).json({

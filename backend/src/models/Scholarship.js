@@ -227,6 +227,10 @@ const scholarshipSchema = new mongoose.Schema(
   }
 );
 
+scholarshipSchema.index({ createdAt: 1 });
+scholarshipSchema.index({ scholarshipType: 1 });
+scholarshipSchema.index({ deadline: 1 });
+
 
 
 

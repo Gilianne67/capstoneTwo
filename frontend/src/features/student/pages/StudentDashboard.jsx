@@ -20,7 +20,6 @@ import {
 
 import { useAuth } from '../../../context/AuthContext';
 import ConfirmModal from '../../../components/common/ConfirmModal';
-import BroadcastBanner from '../../../components/common/BroadcastBanner';
 
 import { API_BASE_URL, apiErrorText } from '../../../config/api';
 
@@ -351,9 +350,6 @@ export default function StudentDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Active Broadcast Announcements */}
-      <BroadcastBanner />
-
       {/* Dynamic Student Banner */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-primary to-primary/90 p-6 md:p-8 text-white shadow-xl">
         <div className="absolute inset-0 z-0 opacity-10 pointer-events-none bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:24px_24px]" />

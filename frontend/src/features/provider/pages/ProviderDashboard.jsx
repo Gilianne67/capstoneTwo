@@ -20,7 +20,6 @@ import {
 // Reusable Common Components
 import PageHeader from '../../../components/common/PageHeader';
 import StatusBadge from '../../../components/common/StatusBadge';
-import BroadcastBanner from '../../../components/common/BroadcastBanner';
 
 // Create / Edit Listing View Component
 import CreateListing from './CreateListing';
@@ -297,7 +296,6 @@ export default function ProviderDashboard() {
   if (isLoading) {
     return (
       <div className="space-y-6 max-w-7xl mx-auto pb-12">
-        <BroadcastBanner />
         <PageHeader 
           title={`${getGreeting()}, Provider`} 
           subtitle="Manage scholarship offerings, configure matching weights, and monitor outbound application traffic."
@@ -312,9 +310,6 @@ export default function ProviderDashboard() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12 relative">
-      {/* Active Broadcast Announcements Banner */}
-      <BroadcastBanner />
-
       {/* Toast Notification Banner */}
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-3 bg-slate-900 text-white rounded-xl shadow-xl text-xs font-semibold animate-in fade-in slide-in-from-bottom-3 duration-200">

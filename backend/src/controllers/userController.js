@@ -10,7 +10,7 @@ const {
   clientBaseUrl,
   restoreVerificationToken,
 } = require('../utils/verificationToken');
-const { recordAuditLog } = require('./auditController');
+const { recordAuditLog, withAuditWarning } = require('./auditController');
 
 // Shared secret for signing & verifying consent tokens across all functions
 const JWT_SECRET = process.env.JWT_SECRET || 'iskolarmatch_fallback_secret_key';
@@ -195,14 +195,16 @@ exports.handleOnboarding = async (req, res) => {
 
     // AUDIT LOG: Onboarding Completed
     const actorName = studentUser.name || studentUser.email;
-    await recordAuditLog({
+    const onboardingAudit = await recordAuditLog({
       actor: actorName,
+      actorId: studentUser._id,
       role: 'Student',
       action: 'ONBOARDING_COMPLETE',
-      details: `Student (${studentUser.email}) completed onboarding profile.${isMinor ? ' Pending guardian consent.' : ''}`,
+      details: `Student ${studentUser._id} completed onboarding profile.${isMinor ? ' Pending guardian consent.' : ''}`,
       ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
       severity: 'Info'
     });
+    const onboardingAuditWarnings = [];
 
     let emailSent;
     let verificationMessage = 'Profile saved and a verification email has been sent.';
@@ -260,25 +262,33 @@ exports.handleOnboarding = async (req, res) => {
         });
         console.log(`[MAILER SUCCESS] Consent email dispatched to ${normalizedGuardianEmail}`);
 
-        await recordAuditLog({
+        const consentRequestAudit = await recordAuditLog({
           actor: 'System Consent Guard',
+          actorId: studentUser._id,
           role: 'System',
           action: 'CONSENT_REQUESTED',
-          details: `Parental consent request dispatched to ${normalizedGuardianEmail} for minor Student ID #${studentUser._id}`,
+          details: `Parental consent request dispatched for student ${studentUser._id}.`,
           ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
           severity: 'Info'
         });
+        if (consentRequestAudit && consentRequestAudit.ok === false) {
+          onboardingAuditWarnings.push(consentRequestAudit);
+        }
       } catch (emailErr) {
         console.error(`[MAILER ERROR] Failed to send email to ${normalizedGuardianEmail}:`, emailErr.message);
 
-        await recordAuditLog({
+        const consentFailureAudit = await recordAuditLog({
           actor: 'System Consent Guard',
+          actorId: studentUser._id,
           role: 'System',
           action: 'SECURITY_ALERT',
-          details: `Failed to deliver guardian consent email to ${normalizedGuardianEmail}: ${emailErr.message}`,
+          details: `Failed to deliver the guardian consent email for student ${studentUser._id}.`,
           ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
           severity: 'Warning'
         });
+        if (consentFailureAudit && consentFailureAudit.ok === false) {
+          onboardingAuditWarnings.push(consentFailureAudit);
+        }
       }
     }
 
@@ -293,19 +303,51 @@ exports.handleOnboarding = async (req, res) => {
       status: studentUser.status,
     };
 
-    return res.status(200).json({
+    return res.status(200).json(withAuditWarning({
       success: true,
       emailSent: isMinor ? undefined : emailSent,
       message: isMinor
         ? 'Onboarding completed. Consent email sent to guardian.'
         : verificationMessage,
       user: publicUser
-    });
+    }, onboardingAudit, ...onboardingAuditWarnings));
 
   } catch (error) {
     console.error('Onboarding Server Error:', error);
     return res.status(500).json({ success: false, message: 'Failed to process onboarding.' });
   }
+};
+
+const CONSENT_LINK_INVALID = 'The consent link is invalid or has expired.';
+
+const rejectConsentToken = async (req, res, { statusCode = 400, message = CONSENT_LINK_INVALID, reason, userId }) => {
+  const studentId = userId ? String(userId) : '';
+  await recordAuditLog({
+    actor: 'System Consent Guard',
+    actorId: studentId || undefined,
+    role: 'System',
+    action: 'CONSENT_TOKEN_REJECTED',
+    details: studentId
+      ? `Guardian consent token was rejected (${reason}) for student ${studentId}.`
+      : `Guardian consent token was rejected (${reason}).`,
+    ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+    severity: 'Warning',
+  });
+  // The public body stays the same when the audit insert fails, so a store
+  // outage does not add a warning or reveal whether a student account exists.
+  return res.status(statusCode).json({ success: false, message });
+};
+
+const verifiedConsentUserId = (token) => {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET, { ignoreExpiration: true });
+    if (decoded && decoded.purpose === 'parental_consent' && decoded.userId) {
+      return String(decoded.userId);
+    }
+  } catch {
+    // An invalid signature has no trustworthy student id.
+  }
+  return '';
 };
 
 // GET /api/v1/consent/verify?token=...
@@ -314,13 +356,19 @@ exports.verifyConsent = async (req, res) => {
     const { token } = req.query;
 
     if (!token) {
-      return res.status(400).json({ success: false, message: 'Verification token is missing' });
+      return rejectConsentToken(req, res, {
+        message: 'Verification token is missing',
+        reason: 'missing',
+      });
     }
 
     const decoded = jwt.verify(token, JWT_SECRET);
 
     if (decoded.purpose !== 'parental_consent') {
-      return res.status(400).json({ success: false, message: 'Invalid token purpose' });
+      return rejectConsentToken(req, res, {
+        reason: 'wrong purpose',
+        userId: decoded.userId,
+      });
     }
 
     const consentRecord = await ParentConsent.findOne({
@@ -330,7 +378,12 @@ exports.verifyConsent = async (req, res) => {
     }).populate('studentId', 'name email status');
 
     if (!consentRecord || !consentRecord.studentId) {
-      return res.status(404).json({ success: false, message: 'Consent request not found or already processed.' });
+      return rejectConsentToken(req, res, {
+        statusCode: 404,
+        message: 'Consent request not found or already processed.',
+        reason: 'not found or already used',
+        userId: decoded.userId,
+      });
     }
 
     const studentProfile = await StudentProfile.findOne({ userId: consentRecord.studentId._id });
@@ -347,32 +400,37 @@ exports.verifyConsent = async (req, res) => {
       municipality: studentProfile?.municipalityCity || 'N/A'
     };
 
-    await recordAuditLog({
+    const audit = await recordAuditLog({
       actor: 'System Consent Guard',
+      actorId: studentData._id,
       role: 'System',
       action: 'CONSENT_TOKEN_INSPECTED',
-      details: `Parent/Guardian inspected consent verification page for Student ID #${studentData._id} (${studentData.email})`,
+      details: `Parent or guardian inspected the consent page for student ${studentData._id}.`,
       ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
       severity: 'Info'
     });
 
-    return res.status(200).json({
+    return res.status(200).json(withAuditWarning({
       success: true,
       student: studentData,
       guardianEmail: consentRecord.guardianEmail
-    });
+    }, audit));
 
   } catch (error) {
     console.error('❌ Consent Verification Detailed Error:', error.name, '-', error.message);
 
     if (error.name === 'TokenExpiredError') {
-      return res.status(400).json({ success: false, message: 'Consent token has expired. Please request a new one.' });
+      return rejectConsentToken(req, res, {
+        message: 'Consent token has expired. Please request a new one.',
+        reason: 'expired',
+        userId: verifiedConsentUserId(req.query && req.query.token),
+      });
     }
     if (error.name === 'JsonWebTokenError') {
-      return res.status(400).json({ success: false, message: `Invalid consent token signature (${error.message}).` });
+      return rejectConsentToken(req, res, { reason: 'invalid' });
     }
 
-    return res.status(400).json({ success: false, message: 'Consent token is invalid or has expired.' });
+    return rejectConsentToken(req, res, { reason: 'invalid' });
   }
 };
 
@@ -382,13 +440,19 @@ exports.approveConsent = async (req, res) => {
     const { token } = req.body;
 
     if (!token) {
-      return res.status(400).json({ success: false, message: 'Token missing.' });
+      return rejectConsentToken(req, res, {
+        message: 'Token missing.',
+        reason: 'missing',
+      });
     }
 
     const decoded = jwt.verify(token, JWT_SECRET);
 
     if (decoded.purpose !== 'parental_consent') {
-      return res.status(400).json({ success: false, message: 'Invalid token purpose' });
+      return rejectConsentToken(req, res, {
+        reason: 'wrong purpose',
+        userId: decoded.userId,
+      });
     }
 
     const consentRecord = await ParentConsent.findOneAndUpdate(
@@ -402,7 +466,12 @@ exports.approveConsent = async (req, res) => {
     );
 
     if (!consentRecord) {
-      return res.status(404).json({ success: false, message: 'Invalid or expired consent token.' });
+      return rejectConsentToken(req, res, {
+        statusCode: 404,
+        message: 'Invalid or expired consent token.',
+        reason: 'not found or already used',
+        userId: decoded.userId,
+      });
     }
 
     const updatedUser = await User.findByIdAndUpdate(
@@ -415,25 +484,40 @@ exports.approveConsent = async (req, res) => {
     );
 
     if (!updatedUser) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+      return rejectConsentToken(req, res, {
+        statusCode: 404,
+        reason: 'student not found',
+        userId: decoded.userId,
+      });
     }
 
-    await recordAuditLog({
+    const audit = await recordAuditLog({
       actor: 'System Consent Guard',
+      actorId: updatedUser._id,
       role: 'System',
       action: 'CONSENT_VERIFIED',
-      details: `Minor Consent verified for Student ID #${updatedUser._id} (${updatedUser.email}). Account status set to active.`,
+      details: `Guardian consent verified for student ${updatedUser._id}. Account status set to active.`,
       ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
       severity: 'Info'
     });
 
-    return res.status(200).json({
+    return res.status(200).json(withAuditWarning({
       success: true,
       message: 'Account verified successfully.'
-    });
+    }, audit));
   } catch (error) {
-    console.error('Consent Approval Error:', error);
-    return res.status(400).json({ success: false, message: 'Failed to process authorization token.' });
+    console.error('Consent Approval Error:', error.name);
+    if (error.name === 'TokenExpiredError') {
+      return rejectConsentToken(req, res, {
+        message: 'Consent token has expired. Please request a new one.',
+        reason: 'expired',
+        userId: verifiedConsentUserId(req.body && req.body.token),
+      });
+    }
+    return rejectConsentToken(req, res, {
+      message: 'Failed to process authorization token.',
+      reason: 'invalid',
+    });
   }
 };
 
@@ -508,20 +592,21 @@ exports.resendConsentEmail = async (req, res) => {
         consentLink
       });
 
-      await recordAuditLog({
+      const audit = await recordAuditLog({
         actor: user.name || user.email,
+        actorId: user._id,
         role: 'Student',
         action: 'CONSENT_RESENT',
-        details: `Student (${user.email}) requested a new consent email to be sent to ${targetEmail}`,
+        details: `Student ${user._id} requested a new guardian consent email.`,
         ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
         severity: 'Info'
       });
+
+      return res.status(200).json(withAuditWarning({ success: true, message: 'Consent email resent.' }, audit));
     } catch (mailError) {
       console.error(`[MAILER ERROR] Failed to resend email to ${targetEmail}:`, mailError.message);
       return res.status(500).json({ success: false, message: 'Failed to deliver email through SMTP provider.' });
     }
-
-    return res.status(200).json({ success: true, message: 'Consent email resent.' });
   } catch (error) {
     console.error('Resend Email Error:', error);
     return res.status(500).json({ success: false, message: 'Failed to send email.' });
