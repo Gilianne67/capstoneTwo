@@ -88,7 +88,8 @@ const scholarship = (id, overrides = {}) => {
     isArchived: overrides.isArchived === true,
     deadline: overrides.deadline || new Date('2026-12-31T00:00:00.000Z'),
     academicRequirements: overrides.academicRequirements || [
-      { gradingScale: '1.00-5.00', minimumGPA: 2.5 }
+      // 1.75 keeps GWA 1.50 in the 85 tier. A 2.50 cutoff scores both 1.50 and 1.00 as 100.
+      { gradingScale: '1.00-5.00', minimumGPA: 1.75 }
     ],
     hardFilters: {
       academicLevel: 'College',

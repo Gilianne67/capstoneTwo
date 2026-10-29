@@ -1,6 +1,6 @@
 import axios from 'axios';
-import { endedSessionReason, SESSION_ENDED_EVENT, shouldIgnoreSessionEnd } from '../context/sessionEnded';
-import { isMaintenanceResponse, publishMaintenance } from '../context/maintenanceMode';
+import { endedSessionReason, SESSION_ENDED_EVENT, shouldIgnoreSessionEnd } from '../context/sessionEnded.js';
+import { isMaintenanceResponse, publishMaintenance } from '../context/maintenanceMode.js';
 
 axios.defaults.withCredentials = true;
 
