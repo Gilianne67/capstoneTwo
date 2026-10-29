@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { broadcastPhase } = require('../utils/broadcastRules');
 
 const BroadcastSchema = new mongoose.Schema(
   {
@@ -12,6 +13,7 @@ const BroadcastSchema = new mongoose.Schema(
       type: String,
       required: [true, 'Please add broadcast message content'],
       trim: true,
+      maxlength: [2000, 'Broadcast message cannot exceed 2000 characters'],
     },
     target: {
       type: String,
@@ -45,14 +47,9 @@ const BroadcastSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Virtual check to determine if the broadcast is currently active and unexpired
+// Same rule as broadcastPhase: Active, started, and not yet expired.
 BroadcastSchema.virtual('isCurrentlyActive').get(function () {
-  const now = new Date();
-  return (
-    this.status === 'Active' &&
-    now >= new Date(this.startDate) &&
-    now <= new Date(this.expiresAt)
-  );
+  return broadcastPhase(this) === 'live';
 });
 
 module.exports = mongoose.models.Broadcast || mongoose.model('Broadcast', BroadcastSchema);

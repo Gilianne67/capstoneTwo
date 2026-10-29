@@ -3,6 +3,7 @@ const { loadAliasIndex } = require('../utils/courseCanonical');
 const { runMatchingWorker } = require('./matchingWorkerRunner');
 const { searchScholarships } = require('./scholarshipSearchService');
 const matchCache = require('./matchCache');
+const { publishedScholarshipFilter } = require('./suspendedProviderFilter');
 const engine = require('./matchingEngine');
 const { passesHardFilters } = engine;
 
@@ -23,18 +24,12 @@ const isRankingOptions = (value) =>
 
 const findOpenScholarships = (filter) => Scholarship.find(filter).lean();
 
-const publishedScholarshipFilter = () => ({
-  status: 'Open',
-  isArchived: false,
-  adminRemovedAt: null
-});
-
 const loadOpenScholarships = async (ids, findScholarships) => {
   if (Array.isArray(ids) && ids.length === 0) {
     return [];
   }
 
-  const filter = publishedScholarshipFilter();
+  const filter = await publishedScholarshipFilter();
 
   if (Array.isArray(ids)) {
     filter._id = { $in: ids };
@@ -71,8 +66,9 @@ const getEligibleScholarships = async (
   studentProfile,
   now = new Date()
 ) => {
+  const filter = await publishedScholarshipFilter();
   const [scholarships, aliasIndex] = await Promise.all([
-    Scholarship.find(publishedScholarshipFilter()).lean(),
+    Scholarship.find(filter).lean(),
     loadAliasIndex()
   ]);
 

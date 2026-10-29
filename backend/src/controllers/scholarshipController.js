@@ -1,11 +1,17 @@
+const mongoose = require('mongoose');
 const Provider = require('../models/Provider');
 const Scholarship = require('../models/Scholarship');
-const { isAdminRole } = require('../middleware/auth');
+const { isAdminRole, canonicalRole } = require('../middleware/auth');
+const { administrativelyRemoveScholarship } = require('../services/scholarshipArchiveService');
+const { resolveAdminArchiveReason } = require('../utils/adminArchiveReason');
+const { recordAuditLog, withAuditWarning } = require('./auditController');
+const notificationService = require('../services/notificationService');
 const {
   closeExpiredScholarships
 } = require('../services/scholarshipExpirationService');
 const searchSync = require('../services/scholarshipSearchSync');
 const matchCache = require('../services/matchCache');
+const { isProviderAccountSuspended } = require('../services/suspendedProviderFilter');
 const {
   validateScholarshipInput
 } = require('../utils/scholarshipInputValidation');
@@ -50,6 +56,114 @@ const clientValidationMessage = (error) => {
 };
 
 const isAdministrativelyRemoved = (scholarship) => Boolean(scholarship?.adminRemovedAt);
+
+const isScholarshipId = (value) => {
+  const id = String(value || '');
+  return mongoose.Types.ObjectId.isValid(id) && /^[a-fA-F0-9]{24}$/.test(id);
+};
+
+const adminActorName = (user) => {
+  if (!user) return 'Admin User';
+  const name = `${user.firstName || user.name || ''} ${user.lastName || ''}`.trim();
+  return name || user.email || 'Admin User';
+};
+
+const actorLabel = (user, fallback) => {
+  if (!user) return fallback;
+  const name = `${user.firstName || user.name || ''} ${user.lastName || ''}`.trim();
+  return name || user.email || fallback;
+};
+
+const requestIp = (req) => req?.ip || req?.headers?.['x-forwarded-for'] || '127.0.0.1';
+
+const noteScholarshipAudit = async (req, entry) => recordAuditLog({
+  ipAddress: requestIp(req),
+  actorId: req.user && (req.user._id || req.user.id),
+  ...entry,
+});
+
+const archiveScholarshipAsAdmin = async (req, res) => {
+  if (!isScholarshipId(req.params.id)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid scholarship ID.',
+    });
+  }
+
+  const reasonResult = resolveAdminArchiveReason(req.body || {});
+  if (!reasonResult.ok) {
+    return res.status(400).json({
+      success: false,
+      message: reasonResult.message,
+    });
+  }
+
+  const existing = await Scholarship.findById(req.params.id);
+  if (!existing) {
+    return res.status(404).json({
+      success: false,
+      message: 'Scholarship not found',
+    });
+  }
+
+  if (existing.isArchived === true || existing.adminRemovedAt) {
+    return res.status(400).json({
+      success: false,
+      message: 'Scholarship is already archived',
+    });
+  }
+
+  const followUpErrors = [];
+  const scholarship = await administrativelyRemoveScholarship(
+    existing._id,
+    followUpErrors,
+    reasonResult.reason
+  );
+
+  if (!scholarship) {
+    return res.status(404).json({
+      success: false,
+      message: 'Scholarship not found',
+    });
+  }
+
+  try {
+    await notificationService.notifyProviderListingRemoved({
+      providerId: scholarship.providerId,
+      scholarshipId: scholarship._id,
+      scholarshipTitle: scholarship.name,
+      explanation: reasonResult.reason,
+      removedAt: scholarship.adminRemovedAt,
+    });
+  } catch (notifyError) {
+    console.error('Provider removal notification failed:', notifyError.message);
+    followUpErrors.push({
+      step: 'providerNotification',
+      message: 'The scholarship provider could not be notified of this removal.',
+    });
+  }
+
+  const audit = await noteScholarshipAudit(req, {
+    actor: adminActorName(req.user),
+    role: (req.user && req.user.role) || 'Admin',
+    action: 'SCHOLARSHIP_ARCHIVED',
+    details: `Admin archived scholarship "${scholarship.name}" (ID: ${scholarship._id}). Reason: ${reasonResult.reason}.`,
+    severity: 'Warning',
+  });
+  if (audit && audit.ok === false) {
+    followUpErrors.push({
+      step: 'audit',
+      message: 'The archive audit record could not be saved.',
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: 'Scholarship archived successfully',
+    scholarship,
+    ...(followUpErrors.length > 0 ? { warnings: followUpErrors } : {}),
+  });
+};
 
 const rejectAdministrativelyRemoved = (res, scholarship) => {
   if (!isAdministrativelyRemoved(scholarship)) return false;
@@ -138,11 +252,19 @@ exports.createScholarship = async (req, res) => {
     await searchSync.syncScholarshipSearch(scholarship);
     await matchCache.invalidateMatchCache();
 
-    res.status(201).json({
+    const audit = await noteScholarshipAudit(req, {
+      actor: actorLabel(req.user, provider.institutionName || 'Provider User'),
+      role: 'Provider',
+      action: 'SCHOLARSHIP_CREATED',
+      details: `Provider ${provider._id} created scholarship "${scholarship.name}" (ID: ${scholarship._id}).`,
+      severity: 'Info',
+    });
+
+    res.status(201).json(withAuditWarning({
       success: true,
       message: 'Scholarship created successfully',
       scholarship,
-    });
+    }, audit));
   } catch (error) {
     return handleScholarshipSaveError(res, error, 'Create Scholarship Error:');
   }
@@ -192,6 +314,16 @@ exports.getScholarshipById = async (req, res) => {
       const scholarship = await Scholarship.findById(req.params.id);
 
       if (!scholarship) {
+        return res.status(404).json({
+          success: false,
+          message: 'Scholarship not found',
+        });
+      }
+
+      if (
+        req.user.role === 'student'
+        && await isProviderAccountSuspended(scholarship.providerId)
+      ) {
         return res.status(404).json({
           success: false,
           message: 'Scholarship not found',
@@ -304,15 +436,25 @@ exports.updateScholarship = async (req, res) => {
       }
     });
 
+    const changedFields = allowedFields.filter((field) => req.body[field] !== undefined);
+
     await scholarship.save();
     await searchSync.syncScholarshipSearch(scholarship);
     await matchCache.invalidateMatchCache();
 
-    res.status(200).json({
+    const audit = await noteScholarshipAudit(req, {
+      actor: actorLabel(req.user, provider.institutionName || 'Provider User'),
+      role: 'Provider',
+      action: 'SCHOLARSHIP_UPDATED',
+      details: `Provider ${provider._id} updated scholarship "${scholarship.name}" (ID: ${scholarship._id}). Fields: ${changedFields.join(', ') || 'none'}.`,
+      severity: 'Info',
+    });
+
+    res.status(200).json(withAuditWarning({
       success: true,
       message: 'Scholarship updated successfully',
       scholarship,
-    });
+    }, audit));
   } catch (error) {
     return handleScholarshipSaveError(res, error, 'Update Scholarship Error:');
   }
@@ -364,11 +506,19 @@ exports.updateScholarshipStatus = async (req, res) => {
     await searchSync.syncScholarshipSearch(scholarship);
     await matchCache.invalidateMatchCache();
 
-    res.status(200).json({
+    const audit = await noteScholarshipAudit(req, {
+      actor: actorLabel(req.user, provider.institutionName || 'Provider User'),
+      role: 'Provider',
+      action: status === 'Closed' ? 'SCHOLARSHIP_CLOSED' : 'SCHOLARSHIP_REOPENED',
+      details: `Provider ${provider._id} set scholarship "${scholarship.name}" (ID: ${scholarship._id}) to ${status}.`,
+      severity: status === 'Closed' ? 'Warning' : 'Info',
+    });
+
+    res.status(200).json(withAuditWarning({
       success: true,
       message: 'Scholarship status updated successfully',
       scholarship,
-    });
+    }, audit));
   } catch (error) {
     return handleScholarshipError(
       res,
@@ -379,9 +529,20 @@ exports.updateScholarshipStatus = async (req, res) => {
   }
 };
 
-// Archive a scholarship belonging to the logged-in provider
+// Archive a provider's own scholarship, or any eligible scholarship when the caller is an admin.
 exports.archiveScholarship = async (req, res) => {
   try {
+    if (req.user?.role && !isAdminRole(req.user.role) && canonicalRole(req.user.role) !== 'provider') {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to access this page.',
+      });
+    }
+
+    if (isAdminRole(req.user?.role)) {
+      return await archiveScholarshipAsAdmin(req, res);
+    }
+
     const provider = await Provider.findOne({
       userId: req.user.id,
     });
@@ -424,11 +585,19 @@ exports.archiveScholarship = async (req, res) => {
     await searchSync.syncScholarshipSearch(scholarship);
     await matchCache.invalidateMatchCache();
 
-    res.status(200).json({
+    const audit = await noteScholarshipAudit(req, {
+      actor: actorLabel(req.user, provider.institutionName || 'Provider User'),
+      role: 'Provider',
+      action: 'SCHOLARSHIP_ARCHIVED',
+      details: `Provider ${provider._id} archived scholarship "${scholarship.name}" (ID: ${scholarship._id}).`,
+      severity: 'Warning',
+    });
+
+    res.status(200).json(withAuditWarning({
       success: true,
       message: 'Scholarship archived successfully',
       scholarship,
-    });
+    }, audit));
   } catch (error) {
     return handleScholarshipError(
       res,

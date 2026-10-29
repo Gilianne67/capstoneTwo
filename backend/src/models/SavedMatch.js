@@ -21,5 +21,7 @@ savedMatchSchema.index(
   { studentProfileId: 1, scholarshipId: 1 },
   { unique: true }
 );
+savedMatchSchema.index({ dateSaved: 1 });
+savedMatchSchema.index({ scholarshipId: 1 });
 
 module.exports = mongoose.model('SavedMatch', savedMatchSchema);

@@ -5,7 +5,7 @@ const SystemConfig = require('../models/SystemConfig');
 const asyncHandler = require('../utils/asyncHandler');
 const ErrorResponse = require('../utils/errorResponse');
 const emailService = require('../utils/emailService');
-const { recordAuditLog } = require('./auditController');
+const { recordAuditLog, withAuditWarning } = require('./auditController');
 const crypto = require('crypto');
 const {
   parseBooleanFlag,
@@ -14,8 +14,132 @@ const {
 const { revokeUserSessions } = require('../services/tokenService');
 const matchCache = require('../services/matchCache');
 const { canonicalRole, isSuperadminRole, isAdminRole } = require('../middleware/auth');
+const { buildAdminInvitationUrl } = require('../utils/invitationLink');
+const {
+  loadOperationsDashboard,
+  PENDING_PROVIDER_QUERY,
+} = require('../services/adminOperationsService');
 
-const ACCOUNT_STATUSES = ['pending_consent', 'active', 'suspended'];
+const MANUAL_ACCOUNT_STATUSES = ['active', 'suspended'];
+const USER_LIST_ROLES = ['all', 'student', 'provider', 'administrator'];
+const USER_LIST_STATUSES = ['all', 'active', 'suspended', 'pending_consent'];
+const USER_LIST_DEFAULT_LIMIT = 20;
+const USER_LIST_MAX_LIMIT = 50;
+const ADMINISTRATOR_ROLES = ['admin', 'superadmin', 'super_admin', 'super-admin'];
+const INVITE_ROLES = new Set(['admin', 'superadmin']);
+const OFFICIAL_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const DUPLICATE_ADMIN_EMAIL = 'An account with this email address already exists.';
+
+const isDuplicateKeyError = (err) => Boolean(err && (err.code === 11000 || err.code === 11001));
+
+const invitationValidationMessage = (err) => {
+  if (err && err.name === 'ValidationError' && err.errors) {
+    const first = Object.values(err.errors)[0];
+    if (first && first.message) return String(first.message);
+  }
+  return 'Please provide a valid full name and official email address.';
+};
+
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const parsePositiveInt = (value, fallback) => {
+  if (value === undefined || value === null || value === '') return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) return null;
+  return parsed;
+};
+
+const normalizeListRole = (role) => {
+  const value = String(role || '').trim().toLowerCase();
+  if (value === 'scholarship provider') return 'provider';
+  if (value === 'admin' || value === 'superadmin' || value === 'super_admin' || value === 'super-admin') {
+    return 'administrator';
+  }
+  return value;
+};
+
+const parseUserListQuery = (query = {}) => {
+  if (query.search !== undefined && typeof query.search !== 'string') {
+    return { ok: false, message: 'Search must be a text value.' };
+  }
+  if (query.role !== undefined && query.role !== '' && typeof query.role !== 'string') {
+    return { ok: false, message: 'Role filter must be Student, Scholarship Provider, or Administrator.' };
+  }
+
+  const search = typeof query.search === 'string' ? query.search.trim() : '';
+  if (search.length > 100) {
+    return { ok: false, message: 'Search must be 100 characters or fewer.' };
+  }
+
+  const role = normalizeListRole(query.role === undefined || query.role === '' ? 'all' : query.role);
+  if (!USER_LIST_ROLES.includes(role)) {
+    return { ok: false, message: 'Role filter must be Student, Scholarship Provider, or Administrator.' };
+  }
+
+  if (query.status !== undefined && query.status !== '' && typeof query.status !== 'string') {
+    return { ok: false, message: 'Status filter must be all, active, suspended, or pending_consent.' };
+  }
+  const status = query.status === undefined || query.status === ''
+    ? 'all'
+    : String(query.status).trim();
+  if (!USER_LIST_STATUSES.includes(status)) {
+    return { ok: false, message: 'Status filter must be all, active, suspended, or pending_consent.' };
+  }
+
+  const page = parsePositiveInt(query.page, 1);
+  const limit = parsePositiveInt(query.limit, USER_LIST_DEFAULT_LIMIT);
+  if (page === null) {
+    return { ok: false, message: 'Page must be a positive integer.' };
+  }
+  if (limit === null) {
+    return { ok: false, message: 'Limit must be a positive integer.' };
+  }
+
+  return {
+    ok: true,
+    search,
+    role,
+    status,
+    page,
+    limit: Math.min(limit, USER_LIST_MAX_LIMIT),
+  };
+};
+
+const userListFilter = ({ search, role, status }) => {
+  const filter = {};
+  if (role === 'student' || role === 'provider') {
+    filter.role = role;
+  } else if (role === 'administrator') {
+    filter.role = { $in: ADMINISTRATOR_ROLES };
+  }
+  if (status && status !== 'all') {
+    filter.status = status;
+  }
+
+  if (search) {
+    const regex = new RegExp(escapeRegex(search), 'i');
+    filter.$or = [{ name: regex }, { email: regex }];
+  }
+
+  return filter;
+};
+
+const presentManagedUser = (user, provider) => ({
+  id: user._id,
+  name: user.name,
+  email: user.email,
+  role: user.role,
+  status: user.status,
+  isVerified: Boolean(user.isVerified),
+  isOnboarded: Boolean(user.isOnboarded),
+  createdAt: user.createdAt || null,
+  ...(user.role === 'provider'
+    ? {
+        verificationStatus: provider ? provider.verificationStatus || null : null,
+        providerId: provider ? provider._id || null : null,
+      }
+    : {}),
+});
 
 // Safe import for Scholarship
 let Scholarship;
@@ -23,16 +147,6 @@ try {
   Scholarship = require('../models/Scholarship');
 } catch (e) {
   Scholarship = null;
-}
-
-// Helper for relative timestamps (e.g., "2 hours ago")
-function formatDateAgo(date) {
-  if (!date) return 'Recently';
-  const seconds = Math.floor((new Date() - new Date(date)) / 1000);
-  if (seconds < 60) return 'Just now';
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} mins ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
-  return `${Math.floor(seconds / 86400)} days ago`;
 }
 
 // Helper to safely extract user properties when populated or unpopulated
@@ -43,96 +157,30 @@ function getUserField(userId, field) {
   return null;
 }
 
-// Standard pending filter across queries
-const PENDING_PROVIDER_QUERY = {
-  verificationStatus: { $in: ['Pending Review', 'Submitted', 'Pending', 'PENDING', 'PENDING REVIEW'] }
+const DATABASE_READ_ALERT = {
+  id: 'database-read',
+  severity: 'critical',
+  message: 'Operational data could not be read from the database.',
 };
 
 // @desc    Get Admin Dashboard Overview & Queues
 // @route   GET /api/v1/admin/dashboard
 // @access  Private (Admin / Super Admin)
-exports.getAdminDashboard = asyncHandler(async (req, res, next) => {
-  const [
-    pendingProvidersCount,
-    pendingConsentsCount,
-    activeProvidersCount,
-    pendingProviders,
-    pendingListings,
-    pendingConsents
-  ] = await Promise.all([
-    Provider.countDocuments(PENDING_PROVIDER_QUERY),
-    ParentalConsent.countDocuments({ status: { $in: ['Submitted', 'Pending', 'Pending Review', 'PENDING'] } }),
-    Provider.countDocuments({ verificationStatus: { $in: ['Approved', 'Verified', 'APPROVED', 'VERIFIED'] } }),
-
-    // Fetch top 10 queue items
-    Provider.find(PENDING_PROVIDER_QUERY)
-      .populate('userId', 'email name')
-      .sort({ createdAt: -1 })
-      .limit(10),
-
-    Scholarship
-      ? Scholarship.find({ status: { $in: ['Pending', 'SUBMITTED', 'Pending Review', 'PENDING'] } })
-          .populate('providerId', 'institutionName')
-          .sort({ createdAt: -1 })
-          .limit(10)
-      : [],
-
-    ParentalConsent.find({ status: { $in: ['Pending', 'SUBMITTED', 'Pending Review', 'PENDING'] } })
-      .sort({ createdAt: -1 })
-      .limit(10)
-  ]);
-
-  const metrics = [
-    {
-      id: 'metric-1',
-      label: 'Pending Verifications',
-      value: String(pendingProvidersCount),
-      iconKey: 'CheckSquare',
-      color: 'amber'
-    },
-    {
-      id: 'metric-2',
-      label: 'Pending Minor Consents',
-      value: String(pendingConsentsCount),
-      iconKey: 'ShieldCheck',
-      color: 'blue'
-    },
-    {
-      id: 'metric-3',
-      label: 'Active Providers',
-      value: String(activeProvidersCount),
-      iconKey: 'Building2',
-      color: 'emerald'
-    }
-  ];
-
-  res.status(200).json({
-    success: true,
-    metrics,
-    pendingProviders: pendingProviders.map((p) => ({
-      id: p._id,
-      name: p.institutionName || getUserField(p.userId, 'name') || 'Unassigned Provider',
-      email: p.representative?.workEmail || p.contactEmail || getUserField(p.userId, 'email') || null,
-      taxId: p.taxId || p.secRegistrationNumber || null,
-      submitted: formatDateAgo(p.submittedAt || p.createdAt)
-    })),
-    pendingListings: pendingListings.map((s) => ({
-      id: s._id,
-      title: s.title,
-      provider: s.providerId?.institutionName || s.providerName || 'Provider',
-      value: s.grantValue ? `₱${Number(s.grantValue).toLocaleString()}` : 'N/A',
-      submitted: formatDateAgo(s.createdAt)
-    })),
-    pendingConsents: pendingConsents.map((c) => ({
-      id: c._id,
-      studentName: c.studentName,
-      age: c.age,
-      guardianName: c.guardianName,
-      guardianEmail: c.guardianEmail,
-      documentUrl: c.documentUrl || '#',
-      submitted: formatDateAgo(c.createdAt)
-    }))
-  });
+exports.getAdminDashboard = asyncHandler(async (req, res) => {
+  try {
+    const dashboard = await loadOperationsDashboard();
+    return res.status(200).json({
+      success: true,
+      ...dashboard,
+    });
+  } catch (error) {
+    console.error('Admin operations dashboard error:', error);
+    return res.status(500).json({
+      success: false,
+      message: DATABASE_READ_ALERT.message,
+      alerts: [DATABASE_READ_ALERT],
+    });
+  }
 });
 
 // @desc    Patch Provider Verification Status from Dashboard / Queue
@@ -211,9 +259,10 @@ exports.updateProviderVerification = asyncHandler(async (req, res, next) => {
     ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
     : 'Admin User';
 
-  await recordAuditLog({
+  const verificationAudit = await recordAuditLog({
     actor: adminActor,
-    role: 'Admin',
+    actorId: req.user && (req.user._id || req.user.id),
+    role: (req.user && req.user.role) || 'Admin',
     action: isApproved ? 'PROVIDER_VERIFIED' : 'PROVIDER_REJECTED',
     details: isApproved 
       ? `Admin verified provider application for "${provider.institutionName || 'Provider'}" (ID: ${provider._id}).`
@@ -262,7 +311,7 @@ exports.updateProviderVerification = asyncHandler(async (req, res, next) => {
     }
   }
 
-  res.status(200).json({
+  res.status(200).json(withAuditWarning({
     success: true,
     message: `Provider status successfully updated to ${finalStatus}`,
     data: {
@@ -273,7 +322,7 @@ exports.updateProviderVerification = asyncHandler(async (req, res, next) => {
       isFinalRejection: isApproved ? false : Boolean(provider.isFinalRejection)
     },
     notification
-  });
+  }, verificationAudit));
 });
 
 // @desc    Patch Scholarship Listing Status (Approve/Reject)
@@ -302,20 +351,21 @@ exports.updateScholarshipStatus = asyncHandler(async (req, res, next) => {
     ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
     : 'Admin User';
 
-  await recordAuditLog({
+  const moderationAudit = await recordAuditLog({
     actor: adminActor,
-    role: 'Admin',
+    actorId: req.user && (req.user._id || req.user.id),
+    role: (req.user && req.user.role) || 'Admin',
     action: 'SCHOLARSHIP_MODERATED',
-    details: `Admin set status of scholarship listing "${scholarship.title}" (ID: ${scholarship._id}) to ${updatedStatus}.`,
+    details: `Admin set status of scholarship "${scholarship.name || 'Unknown scholarship'}" (ID: ${scholarship._id}) to ${updatedStatus}.`,
     ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
     severity: isApproved ? 'Info' : 'Warning'
   });
 
-  res.status(200).json({
+  res.status(200).json(withAuditWarning({
     success: true,
     message: `Scholarship listing updated to ${updatedStatus}`,
     data: scholarship
-  });
+  }, moderationAudit));
 });
 
 // @desc    Patch Parental Consent Verification Status
@@ -338,20 +388,21 @@ exports.updateConsentStatus = asyncHandler(async (req, res, next) => {
     ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
     : 'Admin User';
 
-  await recordAuditLog({
+  const consentAudit = await recordAuditLog({
     actor: adminActor,
-    role: 'Admin',
+    actorId: req.user && (req.user._id || req.user.id),
+    role: (req.user && req.user.role) || 'Admin',
     action: 'CONSENT_MODERATED',
     details: `Admin updated parental consent status for Student "${consent.studentName || 'N/A'}" to ${updatedStatus}.`,
     ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
     severity: isApproved ? 'Info' : 'Warning'
   });
 
-  res.status(200).json({
+  res.status(200).json(withAuditWarning({
     success: true,
     message: `Consent record updated to ${updatedStatus}`,
     data: consent
-  });
+  }, consentAudit));
 });
 
 // @desc    Get all pending or submitted provider applications for review
@@ -503,6 +554,63 @@ const suspensionMessage = (revocation) => {
   return 'Account status updated to suspended and tracked sessions were revoked.';
 };
 
+// @desc    List registered users for admin user management
+// @route   GET /api/v1/admin/users
+// @access  Private (Admin / Super Admin)
+exports.getAdminUsers = asyncHandler(async (req, res, next) => {
+  const parsed = parseUserListQuery(req.query || {});
+  if (!parsed.ok) {
+    return next(new ErrorResponse(parsed.message, 400));
+  }
+
+  try {
+    const filter = userListFilter(parsed);
+    const skip = (parsed.page - 1) * parsed.limit;
+    const [users, total] = await Promise.all([
+      User.find(filter)
+        .select('name email role status isVerified isOnboarded createdAt')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parsed.limit)
+        .lean(),
+      User.countDocuments(filter),
+    ]);
+
+    const providerIds = (users || [])
+      .filter((user) => user.role === 'provider')
+      .map((user) => user._id)
+      .filter(Boolean);
+    const providers = providerIds.length === 0
+      ? []
+      : await Provider.find({ userId: { $in: providerIds } })
+          .select('userId verificationStatus')
+          .lean();
+    const providerByUserId = new Map(
+      (providers || []).map((provider) => [
+        String(provider.userId && provider.userId._id ? provider.userId._id : provider.userId),
+        provider,
+      ])
+    );
+
+    const data = (users || []).map((user) => presentManagedUser(
+      user,
+      user.role === 'provider' ? providerByUserId.get(String(user._id)) : null
+    ));
+
+    return res.status(200).json({
+      success: true,
+      count: data.length,
+      total,
+      page: parsed.page,
+      pages: total === 0 ? 0 : Math.ceil(total / parsed.limit),
+      data,
+    });
+  } catch (error) {
+    console.error('Admin user list error:', error);
+    return next(new ErrorResponse('Unable to load users. Please try again.', 500));
+  }
+});
+
 // @desc    Update a user account status and revoke sessions when suspending
 // @route   PATCH /api/v1/admin/users/:id/status
 // @access  Private (Admin / Super Admin)
@@ -514,7 +622,14 @@ exports.updateUserAccountStatus = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse('User id is required.', 400));
   }
 
-  if (typeof status !== 'string' || !ACCOUNT_STATUSES.includes(status)) {
+  if (status === 'pending_consent') {
+    return next(new ErrorResponse(
+      'Administrators cannot set an account to pending consent. That state is assigned by the student consent workflow.',
+      400
+    ));
+  }
+
+  if (typeof status !== 'string' || !MANUAL_ACCOUNT_STATUSES.includes(status)) {
     return next(new ErrorResponse('Unsupported account status.', 400));
   }
 
@@ -535,6 +650,10 @@ exports.updateUserAccountStatus = asyncHandler(async (req, res, next) => {
   const previousStatus = user.status;
   user.status = status;
   await user.save();
+
+  if (canonicalRole(user.role) === 'provider') {
+    await matchCache.invalidateMatchCache();
+  }
 
   let revocation = {
     required: false,
@@ -561,11 +680,12 @@ exports.updateUserAccountStatus = asyncHandler(async (req, res, next) => {
       ? `Tracked session revocation completed (${revocation.blocklisted} blocklisted, ${revocation.skipped} expired).`
       : `Tracked session revocation incomplete (${revocation.blocklisted} blocklisted, ${revocation.failed} failed, reason: ${revocation.reason || 'unknown'}).`;
 
-  await recordAuditLog({
+  const statusAudit = await recordAuditLog({
     actor: adminActor,
-    role: 'Admin',
+    actorId: req.user && (req.user._id || req.user.id),
+    role: (req.user && req.user.role) || 'Admin',
     action: 'ACCOUNT_STATUS_CHANGE',
-    details: `Account status for ${user.email || user._id} changed from ${previousStatus || 'unknown'} to ${status}. ${revocationDetail}`,
+    details: `Account status for ${user.email || user._id} (${user._id}) changed from ${previousStatus || 'unknown'} to ${status}. ${revocationDetail}`,
     ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
     severity: status === 'suspended' ? 'Warning' : 'Info',
   });
@@ -581,20 +701,20 @@ exports.updateUserAccountStatus = asyncHandler(async (req, res, next) => {
   };
 
   if (status === 'suspended' && !revocation.success) {
-    return res.status(503).json({
+    return res.status(503).json(withAuditWarning({
       success: false,
       message: suspensionMessage(revocation),
       ...payload,
-    });
+    }, statusAudit));
   }
 
-  return res.status(200).json({
+  return res.status(200).json(withAuditWarning({
     success: true,
     message: status === 'suspended'
       ? suspensionMessage(revocation)
       : `Account status updated to ${status}.`,
     ...payload,
-  });
+  }, statusAudit));
 });
 
 // @desc    Get Global System Configuration
@@ -603,7 +723,7 @@ exports.updateUserAccountStatus = asyncHandler(async (req, res, next) => {
 exports.getSystemConfig = asyncHandler(async (req, res, next) => {
   let config = await SystemConfig.findOne();
   if (!config) {
-    config = await SystemConfig.create({ maintenanceMode: false, autoApproveProviders: false });
+    config = await SystemConfig.create({ maintenanceMode: false });
   }
 
   res.status(200).json({
@@ -616,15 +736,16 @@ exports.getSystemConfig = asyncHandler(async (req, res, next) => {
 // @route   PUT /api/v1/admin/config
 // @access  Private (Admin / Super Admin)
 exports.updateSystemConfig = asyncHandler(async (req, res, next) => {
-  const { maintenanceMode, autoApproveProviders } = req.body;
+  const { maintenanceMode } = req.body;
 
   let config = await SystemConfig.findOne();
   if (!config) {
     config = new SystemConfig();
   }
 
-  config.maintenanceMode = maintenanceMode !== undefined ? maintenanceMode : config.maintenanceMode;
-  config.autoApproveProviders = autoApproveProviders !== undefined ? autoApproveProviders : config.autoApproveProviders;
+  if (maintenanceMode !== undefined) {
+    config.maintenanceMode = maintenanceMode;
+  }
   config.updatedBy = req.user._id;
 
   await config.save();
@@ -633,20 +754,21 @@ exports.updateSystemConfig = asyncHandler(async (req, res, next) => {
     ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
     : 'Admin User';
 
-  await recordAuditLog({
+  const configAudit = await recordAuditLog({
     actor: adminActor,
-    role: 'Admin',
+    actorId: req.user && (req.user._id || req.user.id),
+    role: (req.user && req.user.role) || 'Admin',
     action: 'SYSTEM_CONFIG_UPDATED',
-    details: `Updated settings: maintenanceMode=${config.maintenanceMode}, autoApproveProviders=${config.autoApproveProviders}`,
+    details: `Updated settings: maintenanceMode=${config.maintenanceMode}`,
     ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
     severity: 'Info'
   });
 
-  res.status(200).json({
+  res.status(200).json(withAuditWarning({
     success: true,
     data: config,
     message: 'System configuration saved successfully.',
-  });
+  }, configAudit));
 });
 
 // @desc    Invite / Provision New Admin Account
@@ -654,36 +776,64 @@ exports.updateSystemConfig = asyncHandler(async (req, res, next) => {
 // @access  Private (Admin / Super Admin)
 exports.inviteAdmin = asyncHandler(async (req, res, next) => {
   const { fullName, email, adminRole } = req.body;
+  const trimmedName = String(fullName || '').trim();
+  const normalizedEmail = String(email || '').toLowerCase().trim();
 
-  if (!fullName || !email) {
+  if (!trimmedName || !normalizedEmail) {
     return next(new ErrorResponse('Please provide full name and official email address.', 400));
   }
 
-  const normalizedEmail = String(email).toLowerCase().trim();
-  const existingUser = await User.findOne({ email: normalizedEmail });
-  if (existingUser) {
-    return next(new ErrorResponse('An account with this email address already exists.', 400));
+  if (!OFFICIAL_EMAIL.test(normalizedEmail)) {
+    return next(new ErrorResponse('Please provide a valid official email address.', 400));
   }
 
   const requestedRole = canonicalRole(adminRole);
+  if (!INVITE_ROLES.has(requestedRole)) {
+    return next(new ErrorResponse('Select a valid administrator role.', 400));
+  }
+
   if (requestedRole === 'superadmin' && !isSuperadminRole(req.user && req.user.role)) {
     return next(new ErrorResponse('Only a super admin can provision another super admin.', 403));
   }
 
-  const roleToAssign = requestedRole === 'superadmin' ? 'superadmin' : 'admin';
+  const existingUser = await User.findOne({ email: normalizedEmail });
+  if (existingUser) {
+    return next(new ErrorResponse(DUPLICATE_ADMIN_EMAIL, 409));
+  }
+
+  const resetToken = crypto.randomBytes(32).toString('hex');
+  const invitationLink = buildAdminInvitationUrl(resetToken);
+  if (!invitationLink.ok) {
+    return next(new ErrorResponse(
+      'The invitation link could not be created because the application address is not configured for this deployment.',
+      500
+    ));
+  }
+
+  const roleToAssign = requestedRole;
   const placeholderPassword = crypto.randomBytes(32).toString('hex');
+
+  const removeInvitedAccount = async (account) => {
+    if (!account || !account._id) return true;
+    try {
+      await User.findByIdAndDelete(account._id);
+      return true;
+    } catch (cleanupError) {
+      console.error('Failed to roll back admin invitation:', cleanupError.message);
+      return false;
+    }
+  };
 
   let newAdminUser;
   try {
     newAdminUser = await User.create({
-      name: fullName,
+      name: trimmedName,
       email: normalizedEmail,
       password: placeholderPassword,
       role: roleToAssign,
       isVerified: true,
     });
 
-    const resetToken = crypto.randomBytes(32).toString('hex');
     newAdminUser.resetPasswordToken = crypto
       .createHash('sha256')
       .update(resetToken)
@@ -691,28 +841,28 @@ exports.inviteAdmin = asyncHandler(async (req, res, next) => {
     newAdminUser.resetPasswordExpire = Date.now() + 30 * 60 * 1000;
     await newAdminUser.save({ validateBeforeSave: false });
 
-    const clientUrl =
-      process.env.CLIENT_URL ||
-      (process.env.NODE_ENV === 'production'
-        ? 'https://iskolarmatch.website'
-        : 'http://localhost:5173');
-    const setupUrl = `${clientUrl}/reset-password/${resetToken}`;
-
     if (typeof emailService.sendAdminInvitationEmail !== 'function') {
       throw new Error('Admin invitation email is not configured.');
     }
 
-    await emailService.sendAdminInvitationEmail(newAdminUser.email, setupUrl, newAdminUser.name);
+    await emailService.sendAdminInvitationEmail(
+      newAdminUser.email,
+      invitationLink.url,
+      newAdminUser.name
+    );
   } catch (err) {
-    let removed = !newAdminUser;
-    if (newAdminUser && newAdminUser._id) {
-      try {
-        await User.findByIdAndDelete(newAdminUser._id);
-        removed = true;
-      } catch (cleanupError) {
-        removed = false;
-        console.error('Failed to roll back admin invitation:', cleanupError.message);
-      }
+    const removed = await removeInvitedAccount(newAdminUser);
+
+    if (isDuplicateKeyError(err)) {
+      return next(new ErrorResponse(DUPLICATE_ADMIN_EMAIL, 409));
+    }
+
+    if (err && err.name === 'ValidationError') {
+      return next(new ErrorResponse(invitationValidationMessage(err), 400));
+    }
+
+    if (!newAdminUser) {
+      return next(new ErrorResponse('The invitation could not be created. No admin account was created.', 500));
     }
 
     console.error('Admin invitation email failed:', err.message);
@@ -728,16 +878,17 @@ exports.inviteAdmin = asyncHandler(async (req, res, next) => {
     ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
     : 'Admin User';
 
-  await recordAuditLog({
+  const inviteAudit = await recordAuditLog({
     actor: adminActor,
-    role: 'Admin',
+    actorId: req.user && (req.user._id || req.user.id),
+    role: (req.user && req.user.role) || 'Admin',
     action: 'ADMIN_ACCOUNT_PROVISIONED',
     details: `Emailed a password-setup link for a new ${roleToAssign} account at ${normalizedEmail}.`,
     ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
     severity: 'Warning'
   });
 
-  res.status(201).json({
+  res.status(201).json(withAuditWarning({
     success: true,
     message: `An invitation link was emailed to ${normalizedEmail}. It expires in 30 minutes.`,
     data: {
@@ -746,7 +897,7 @@ exports.inviteAdmin = asyncHandler(async (req, res, next) => {
       email: newAdminUser.email,
       role: newAdminUser.role,
     },
-  });
+  }, inviteAudit));
 });
 
 // Alias for queue status updates

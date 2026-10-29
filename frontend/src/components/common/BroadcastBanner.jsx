@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { 
   Info, 
   AlertTriangle, 
@@ -8,8 +9,10 @@ import {
 } from 'lucide-react';
 
 import { API_BASE_URL } from '../../config/api';
+import { bannerPresentation, compareBroadcasts } from '../../features/admin/broadcastDispatch';
 
 export default function BroadcastBanner() {
+  const location = useLocation();
   const [broadcasts, setBroadcasts] = useState([]);
   const [dismissedIds, setDismissedIds] = useState(() => {
     try {
@@ -46,7 +49,7 @@ export default function BroadcastBanner() {
         const list = Array.isArray(data.broadcasts) ? data.broadcasts : (Array.isArray(data) ? data : []);
 
         if (isMounted) {
-          setBroadcasts(list);
+          setBroadcasts(list.slice().sort(compareBroadcasts));
         }
       } catch (err) {
         console.error('Failed to load active broadcasts:', err);
@@ -58,7 +61,7 @@ export default function BroadcastBanner() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [location.pathname]);
 
   const handleDismiss = (id) => {
     const updated = [...dismissedIds, id];
@@ -81,50 +84,39 @@ export default function BroadcastBanner() {
       {visibleBroadcasts.map((item) => {
         const itemId = item._id || item.id;
         const priority = item.priority || 'Info';
-
-        let bgStyle = 'bg-blue-500/10 border-blue-500/30 text-blue-900 dark:text-blue-200';
-        let iconStyle = 'bg-blue-500 text-white';
-        let Icon = Info;
-
-        if (priority === 'Warning') {
-          bgStyle = 'bg-amber-500/10 border-amber-500/30 text-amber-900 dark:text-amber-200';
-          iconStyle = 'bg-amber-500 text-white';
-          Icon = AlertTriangle;
-        } else if (priority === 'Urgent') {
-          bgStyle = 'bg-rose-500/10 border-rose-500/30 text-rose-900 dark:text-rose-200';
-          iconStyle = 'bg-rose-500 text-white';
-          Icon = AlertOctagon;
-        }
+        const style = bannerPresentation(priority);
+        const Icon = priority === 'Warning' ? AlertTriangle : priority === 'Urgent' ? AlertOctagon : Info;
 
         return (
           <div
             key={itemId}
-            className={`relative flex items-start justify-between gap-3 p-4 rounded-2xl border backdrop-blur-md shadow-xs transition-all animate-in fade-in slide-in-from-top-2 duration-300 ${bgStyle}`}
+            className={`relative flex items-start justify-between gap-3 p-4 rounded-2xl border shadow-xs ${style.card}`}
           >
             <div className="flex items-start gap-3">
-              <div className={`p-2 rounded-xl shrink-0 ${iconStyle}`}>
+              <div className={`p-2 rounded-xl shrink-0 ${style.icon}`}>
                 <Icon className="w-4 h-4" />
               </div>
 
               <div className="space-y-0.5 pr-6">
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-black uppercase tracking-wider opacity-80 flex items-center gap-1">
+                  <span className={`text-[10px] font-black uppercase tracking-wider flex items-center gap-1 ${style.text}`}>
                     <Megaphone className="w-3 h-3" /> System Announcement
                   </span>
                   {priority !== 'Info' && (
-                    <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase bg-current/10">
+                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${style.badge}`}>
                       {priority}
                     </span>
                   )}
                 </div>
-                <h4 className="text-xs font-extrabold leading-snug">{item.title}</h4>
-                <p className="text-xs font-medium opacity-90 leading-relaxed">{item.message}</p>
+                <h4 className={`text-xs font-extrabold leading-snug ${style.text}`}>{item.title}</h4>
+                <p className={`text-xs font-medium leading-relaxed ${style.text}`}>{item.message}</p>
               </div>
             </div>
 
             <button
+              type="button"
               onClick={() => handleDismiss(itemId)}
-              className="p-1 rounded-lg opacity-60 hover:opacity-100 transition-opacity cursor-pointer shrink-0"
+              className={`p-1 rounded-lg transition-colors cursor-pointer shrink-0 ${style.dismiss}`}
               title="Dismiss banner"
             >
               <X className="w-4 h-4" />

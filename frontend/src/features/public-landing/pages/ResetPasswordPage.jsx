@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { API_BASE_URL } from '../../../config/api';
 import { MIN_PASSWORD_LENGTH } from '../../../config/passwordPolicy';
+import { presentPasswordSetupResult } from '../passwordSetupResult';
 import { 
   GraduationCap, 
   Lock, 
@@ -60,14 +61,15 @@ export default function ResetPasswordPage() {
       });
 
       const data = await res.json();
+      const presented = presentPasswordSetupResult({ httpStatus: res.status, data });
 
-      if (res.ok) {
-        setStatus({ loading: false, error: '', success: true });
+      if (presented.outcome === 'saved') {
+        setStatus({ loading: false, error: '', success: true, notice: presented.text });
         setTimeout(() => navigate('/auth?mode=signin'), 2500);
       } else {
         setStatus({
           loading: false,
-          error: data.error || data.message || 'Password reset link is invalid or has expired. Please request a new link.',
+          error: presented.text,
           success: false
         });
       }
@@ -160,9 +162,9 @@ export default function ResetPasswordPage() {
                     <KeyRound className="h-6 w-6" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-app-text text-base">Password Reset Complete!</h4>
+                    <h4 className="font-bold text-app-text text-base">Password saved</h4>
                     <p className="text-xs text-text-muted mt-1 leading-relaxed">
-                      Your password has been successfully updated. Redirecting you to the Sign In page now...
+                      {status.notice || 'Your password has been saved. You can sign in now.'} Redirecting you to the Sign In page now...
                     </p>
                   </div>
                 </div>

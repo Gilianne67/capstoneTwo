@@ -50,6 +50,7 @@ const protect = async (req, res, next) => {
       if (blacklisted && !isLogoutRequest(req)) {
         return res.status(401).json({
           success: false,
+          code: 'SESSION_REVOKED',
           message: 'Your session has been revoked. Please log in again.',
         });
       }
@@ -70,6 +71,7 @@ const protect = async (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({
         success: false,
+        code: 'SESSION_REVOKED',
         message: 'We could not find your account. Please sign up or log in again.',
       });
     }
@@ -83,6 +85,7 @@ const protect = async (req, res, next) => {
       if (!Number.isFinite(changedAtMs) || tokenChangedAt !== changedAtMs) {
         return res.status(401).json({
           success: false,
+          code: 'SESSION_REVOKED',
           message: 'Your session has been revoked. Please log in again.',
         });
       }
@@ -94,6 +97,7 @@ const protect = async (req, res, next) => {
     if (req.user.status === 'suspended' && !isLogoutRequest(req)) {
       return res.status(403).json({
         success: false,
+        code: 'ACCOUNT_SUSPENDED',
         message: 'Your account has been suspended due to security concerns. Please contact support.',
       });
     }
@@ -121,9 +125,11 @@ const protect = async (req, res, next) => {
     req.token = token;
     next();
   } catch (err) {
-    return res
-      .status(401)
-      .json({ success: false, message: 'Your session has expired or is invalid. Please log in again.' });
+    return res.status(401).json({
+      success: false,
+      code: 'SESSION_REVOKED',
+      message: 'Your session has expired or is invalid. Please log in again.',
+    });
   }
 };
 

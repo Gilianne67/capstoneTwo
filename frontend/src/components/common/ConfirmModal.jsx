@@ -10,6 +10,9 @@ export function ConfirmModal({
   confirmText = 'Confirm',
   cancelText = 'Cancel',
   isDanger = false,
+  children = null,
+  confirmDisabled = false,
+  closeOnConfirm = true,
 }) {
   if (!isOpen) return null;
 
@@ -24,7 +27,7 @@ export function ConfirmModal({
             </div>
             <h3 className="text-base font-extrabold text-app-text">{title}</h3>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-app-text">
+          <button type="button" onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-app-text">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -33,19 +36,28 @@ export function ConfirmModal({
           {description}
         </p>
 
+        {children}
+
         <div className="flex items-center justify-end gap-3 pt-2">
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-2 rounded-xl text-xs font-bold border border-slate-200 text-app-text hover:bg-slate-50 transition-colors"
           >
             {cancelText}
           </button>
           <button
-            onClick={() => {
+            type="button"
+            disabled={confirmDisabled}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (confirmDisabled) return;
               onConfirm();
-              onClose();
+              if (closeOnConfirm) onClose();
             }}
-            className={`px-4 py-2 rounded-xl text-xs font-extrabold text-white shadow-sm transition-all active:scale-95 ${
+            className={`px-4 py-2 rounded-xl text-xs font-extrabold text-white shadow-sm transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${
               isDanger ? 'bg-rose-600 hover:bg-rose-700' : 'bg-primary hover:bg-blue-700'
             }`}
           >

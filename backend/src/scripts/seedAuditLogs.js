@@ -1,6 +1,4 @@
 const dns = require('dns');
-dns.setServers(['8.8.8.8', '8.8.4.4']);
-
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 const path = require('path');
@@ -12,14 +10,6 @@ const AuditLog = require('../models/AuditLog');
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/iskolarmatch';
 
 const sampleLogs = [
-  {
-    actor: 'Admin System',
-    role: 'Admin',
-    action: 'TAXONOMY_UPDATE',
-    details: 'Admin User updated Taxonomy Tag: Bachelor of Science in Information Technology (BSIT).',
-    ipAddress: '127.0.0.1',
-    severity: 'Info'
-  },
   {
     actor: 'Security Firewall',
     role: 'System',
@@ -46,24 +36,50 @@ const sampleLogs = [
   }
 ];
 
-const seedAuditLogs = async () => {
-  try {
-    console.log('⏳ Connecting to MongoDB...');
-    await mongoose.connect(MONGO_URI);
-    console.log('✅ Connected to MongoDB.');
+const resetRequested = (argv = process.argv, env = process.env) => (
+  argv.includes('--reset') || env.ALLOW_AUDIT_LOG_RESET === 'true'
+);
 
-    console.log('🧹 Clearing old audit logs...');
-    await AuditLog.deleteMany({});
-
-    console.log('🌱 Inserting clean audit log trails...');
-    const created = await AuditLog.insertMany(sampleLogs);
-
-    console.log(`\n🎉 Success! Seeded ${created.length} system audit logs into MongoDB.\n`);
-    process.exit(0);
-  } catch (error) {
-    console.error('❌ Error seeding audit logs:', error);
-    process.exit(1);
+const seedAuditLogs = async ({
+  reset = false,
+  connect = () => mongoose.connect(MONGO_URI),
+  deleteMany = (...args) => AuditLog.deleteMany(...args),
+  insertMany = (...args) => AuditLog.insertMany(...args),
+  log = console.log,
+  warn = console.warn,
+} = {}) => {
+  if (!reset) {
+    log('Audit history was left unchanged. Existing audit records were not deleted.');
+    log('A destructive development reset requires an explicit opt-in:');
+    log('  node src/scripts/seedAuditLogs.js --reset');
+    log('or ALLOW_AUDIT_LOG_RESET=true. That deletes every audit record in the configured database.');
+    return { deleted: false, inserted: 0 };
   }
+
+  warn('WARNING: --reset deletes every audit record in the configured database, then inserts sample rows.');
+  dns.setServers(['8.8.8.8', '8.8.4.4']);
+  log('Connecting to MongoDB...');
+  await connect();
+  log('Clearing audit logs because reset was explicitly requested...');
+  await deleteMany({});
+  const created = await insertMany(sampleLogs);
+  log(`Inserted ${created.length} sample audit logs.`);
+  return { deleted: true, inserted: created.length };
 };
 
-seedAuditLogs();
+if (require.main === module) {
+  seedAuditLogs({ reset: resetRequested() })
+    .then((result) => {
+      process.exit(result.deleted ? 0 : 0);
+    })
+    .catch((error) => {
+      console.error('Error seeding audit logs:', error.message || 'The audit seed failed.');
+      process.exit(1);
+    });
+}
+
+module.exports = {
+  sampleLogs,
+  resetRequested,
+  seedAuditLogs,
+};

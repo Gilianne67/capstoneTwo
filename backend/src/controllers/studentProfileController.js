@@ -1,6 +1,6 @@
 const StudentProfile = require('../models/StudentProfile');
 const { safeNotifyProfileChange } = require('../services/notificationService');
-const { recordAuditLog } = require('./auditController');
+const { recordAuditLog, withAuditWarning } = require('./auditController');
 
 // Create a new student profile for the logged-in user
 exports.createProfile = async (req, res) => {
@@ -22,8 +22,9 @@ exports.createProfile = async (req, res) => {
       ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
       : 'Student User';
 
-    await recordAuditLog({
+    const audit = await recordAuditLog({
       actor: actorName,
+      actorId: req.user.id || req.user._id,
       role: 'Student',
       action: 'PROFILE_CREATE',
       details: `Student (${req.user.email}) created their profile. Course: ${profile.course || 'N/A'}, Year: ${profile.yearLevel || 'N/A'}.`,
@@ -31,7 +32,7 @@ exports.createProfile = async (req, res) => {
       severity: 'Info'
     });
 
-    res.status(201).json({ success: true, profile });
+    res.status(201).json(withAuditWarning({ success: true, profile }, audit));
   } catch (error) {
     console.error('Error creating student profile:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -79,16 +80,17 @@ exports.updateProfile = async (req, res) => {
       ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
       : 'Student User';
 
-    await recordAuditLog({
+    const audit = await recordAuditLog({
       actor: actorName,
+      actorId: req.user.id || req.user._id,
       role: 'Student',
       action: 'PROFILE_UPDATE',
-      details: `Student (${req.user.email}) updated profile details (GWA: ${profile.gwa || 'N/A'}, Income Bracket: ${profile.incomeBracket || 'N/A'}).`,
+      details: `Student ${req.user.id || req.user._id} updated their profile.`,
       ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
       severity: 'Info'
     });
 
-    res.status(200).json({ success: true, profile });
+    res.status(200).json(withAuditWarning({ success: true, profile }, audit));
   } catch (error) {
     console.error('Error updating student profile:', error);
     res.status(500).json({ success: false, message: error.message });

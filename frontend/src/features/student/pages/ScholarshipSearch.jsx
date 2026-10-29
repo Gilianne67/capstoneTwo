@@ -27,6 +27,7 @@ import { useAuth } from '../../../context/AuthContext';
 import ConfirmModal from '../../../components/common/ConfirmModal';
 import { isProfileComplete } from '../profileCompletion';
 import { applyScholarshipSearch, SCHOLARSHIP_SEARCH_REGIONS } from '../scholarshipSearchFilters';
+import { buildFilterDemandPayload, postFilterDemand } from '../filterDemand';
 import { API_BASE_URL, apiErrorText } from '../../../config/api';
 
 const PROFILE_ROUTE = '/dashboard/student/profile';
@@ -182,6 +183,23 @@ export default function ScholarshipSearch() {
 
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  useEffect(() => {
+    const payload = buildFilterDemandPayload({
+      selectedRegion,
+      selectedDegree,
+      selectedFlags,
+    });
+    if (!payload) return undefined;
+
+    const timer = setTimeout(() => {
+      const token = getCleanToken(contextToken);
+      if (!token) return;
+      postFilterDemand(API_BASE_URL, token, payload);
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [selectedRegion, selectedDegree, selectedFlags, contextToken]);
 
   // 1. Fetch live matching results. A keyword is resolved by the matching API.
   useEffect(() => {

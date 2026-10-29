@@ -28,11 +28,13 @@ install('../config/redis', {
 });
 
 const audits = [];
+const { withAuditWarning } = require('../controllers/auditController');
 install('../controllers/auditController', {
   async recordAuditLog(entry) {
     audits.push(entry);
     return entry;
   },
+  withAuditWarning,
 });
 
 const revocations = [];
@@ -52,13 +54,14 @@ const tokenApi = {
     const key = String(userId);
     revocations.push(key);
     if (tokenApi.failNextRevoke) {
+      const reason = tokenApi.failNextRevoke === true ? 'redis_unavailable' : tokenApi.failNextRevoke;
       tokenApi.failNextRevoke = false;
       return {
         success: false,
-        blocklisted: 0,
-        failed: 0,
+        blocklisted: reason === 'partial_failure' ? 1 : 0,
+        failed: reason === 'partial_failure' ? 1 : 0,
         skipped: 0,
-        reason: 'redis_unavailable',
+        reason,
         elapsedMs: null,
       };
     }
@@ -272,6 +275,10 @@ const invoke = (handler, req) => new Promise((resolve, reject) => {
   })).catch(reject);
 });
 
+const PASSWORD_UPDATED_MESSAGE = 'Your password has been updated successfully. Please sign in again on your other devices.';
+const PASSWORD_UPDATED_UNCONFIRMED_MESSAGE = "Your password was updated, but we couldn't verify that all other sessions were signed out. Please sign out of your other devices.";
+const leaksSessionInternals = (message) => /redis|session index|blocklist|blocklisted|revocation_store/i.test(String(message || ''));
+
 const run = async () => {
   const admin = makeUser({ _id: 'admin-1', email: 'admin@example.test', role: 'admin' });
   const superadmin = makeUser({ _id: 'super-1', email: 'super@example.test', role: 'superadmin' });
@@ -337,7 +344,195 @@ const run = async () => {
   assert.equal(failedMail.statusCode, 500);
   assert.equal(users.size, mailed);
   assert.ok(deletedIds.length > 0);
+  assert.equal(failedMail.body.error, 'The invitation email could not be sent. No admin account was created.');
   assert.equal(JSON.stringify(failedMail.body).toLowerCase().includes('password'), false);
+
+  const savedEnv = {
+    NODE_ENV: process.env.NODE_ENV,
+    CLIENT_URL: process.env.CLIENT_URL,
+    FRONTEND_URL: process.env.FRONTEND_URL,
+  };
+  const restoreInvitationEnv = () => {
+    ['NODE_ENV', 'CLIENT_URL', 'FRONTEND_URL'].forEach((key) => {
+      if (savedEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = savedEnv[key];
+    });
+  };
+
+  try {
+    process.env.NODE_ENV = 'development';
+    process.env.CLIENT_URL = 'https://students.example';
+    delete process.env.FRONTEND_URL;
+    const clientInvite = await invoke(inviteAdmin, {
+      body: { fullName: 'Client Linked', email: 'client.linked@example.test', adminRole: 'admin' },
+      user: admin,
+      ip: '127.0.0.1',
+      headers: {},
+    });
+    assert.equal(clientInvite.statusCode, 201);
+    assert.equal(clientInvite.body.data.role, 'admin');
+    const clientMail = sentMail.at(-1);
+    assert.ok(clientMail.setupUrl.startsWith('https://students.example/reset-password/'));
+    assert.equal(clientMail.setupUrl.includes('localhost'), false);
+    const setupToken = clientMail.setupUrl.split('/').pop();
+    const invitedUser = [...users.values()].find((user) => user.email === 'client.linked@example.test');
+    const placeholder = invitedUser._secret;
+    tokenApi.failNextRevoke = 'redis_unavailable';
+    const setup = await invoke(resetPassword, {
+      params: { resettoken: setupToken },
+      body: { password: 'replacement-secret' },
+      ip: '127.0.0.1',
+      headers: {},
+    });
+    assert.equal(setup.statusCode, 503);
+    assert.equal(setup.body.success, false);
+    assert.equal(setup.body.revocation.reason, 'redis_unavailable');
+    assert.equal(setup.body.revocation.success, false);
+    assert.equal(invitedUser.resetPasswordToken, undefined);
+    assert.equal(invitedUser._secret, 'replacement-secret');
+    assert.equal(String(setup.body.message).toLowerCase().includes('redis'), false);
+    assert.equal(/could not be saved|password change failed/i.test(setup.body.message), false);
+    const newSignIn = await invoke(login, {
+      body: { email: invitedUser.email, password: 'replacement-secret' },
+      ip: '127.0.0.1',
+      headers: {},
+    });
+    assert.equal(newSignIn.statusCode, 200);
+    assert.ok(newSignIn.body.token);
+    const oldSignIn = await invoke(login, {
+      body: { email: invitedUser.email, password: placeholder },
+      ip: '127.0.0.1',
+      headers: {},
+    });
+    assert.equal(oldSignIn.statusCode, 401);
+    const reused = await invoke(resetPassword, {
+      params: { resettoken: setupToken },
+      body: { password: 'another-secret-value' },
+      ip: '127.0.0.1',
+      headers: {},
+    });
+    assert.equal(reused.statusCode, 400);
+    assert.equal(reused.body.error, 'Invalid or expired password reset token.');
+    assert.equal(invitedUser._secret, 'replacement-secret');
+
+    const invalidToken = await invoke(resetPassword, {
+      params: { resettoken: 'not-a-real-invitation-token' },
+      body: { password: 'replacement-secret' },
+      ip: '127.0.0.1',
+      headers: {},
+    });
+    assert.equal(invalidToken.statusCode, 400);
+    assert.equal(invalidToken.body.error, 'Invalid or expired password reset token.');
+
+    delete process.env.CLIENT_URL;
+    process.env.FRONTEND_URL = 'https://frontend.example/';
+    const frontendInvite = await invoke(inviteAdmin, {
+      body: { fullName: 'Frontend Linked', email: 'frontend.linked@example.test', adminRole: 'admin' },
+      user: admin,
+      ip: '127.0.0.1',
+      headers: {},
+    });
+    assert.equal(frontendInvite.statusCode, 201);
+    const frontendMail = sentMail.at(-1);
+    assert.ok(frontendMail.setupUrl.startsWith('https://frontend.example/reset-password/'));
+    assert.equal(frontendMail.setupUrl.includes('localhost'), false);
+    const expiringUser = [...users.values()].find((user) => user.email === 'frontend.linked@example.test');
+    const expiringSecret = expiringUser._secret;
+    const expiringToken = frontendMail.setupUrl.split('/').pop();
+    expiringUser.resetPasswordExpire = Date.now() - 1000;
+    const expired = await invoke(resetPassword, {
+      params: { resettoken: expiringToken },
+      body: { password: 'replacement-secret' },
+      ip: '127.0.0.1',
+      headers: {},
+    });
+    assert.equal(expired.statusCode, 400);
+    assert.equal(expired.body.error, 'Invalid or expired password reset token.');
+    assert.equal(expiringUser._secret, expiringSecret);
+    assert.ok(expiringUser.resetPasswordToken);
+
+    process.env.NODE_ENV = 'production';
+    process.env.CLIENT_URL = 'http://localhost:5173';
+    process.env.FRONTEND_URL = 'https://app.example';
+    const publicFallback = await invoke(inviteAdmin, {
+      body: { fullName: 'Public Fallback', email: 'public.fallback@example.test', adminRole: 'admin' },
+      user: admin,
+      ip: '127.0.0.1',
+      headers: {},
+    });
+    assert.equal(publicFallback.statusCode, 201);
+    assert.ok(sentMail.at(-1).setupUrl.startsWith('https://app.example/reset-password/'));
+    assert.equal(sentMail.at(-1).setupUrl.includes('localhost'), false);
+
+    process.env.CLIENT_URL = 'http://127.0.0.1:5173';
+    delete process.env.FRONTEND_URL;
+    const beforeUnusable = users.size;
+    const mailBeforeUnusable = sentMail.length;
+    const unusable = await invoke(inviteAdmin, {
+      body: { fullName: 'Unusable Link', email: 'unusable.link@example.test', adminRole: 'admin' },
+      user: admin,
+      ip: '127.0.0.1',
+      headers: {},
+    });
+    assert.equal(unusable.statusCode, 500);
+    assert.equal(users.size, beforeUnusable);
+    assert.equal(sentMail.length, mailBeforeUnusable);
+    assert.equal(JSON.stringify(unusable.body).includes('localhost'), false);
+    assert.equal(String(unusable.body.error).includes('email could not be sent'), false);
+
+    process.env.NODE_ENV = 'development';
+    process.env.CLIENT_URL = 'https://students.example';
+    const duplicate = await invoke(inviteAdmin, {
+      body: { fullName: 'Duplicate', email: 'client.linked@example.test', adminRole: 'admin' },
+      user: admin,
+      ip: '127.0.0.1',
+      headers: {},
+    });
+    assert.equal(duplicate.statusCode, 409);
+    assert.equal(duplicate.body.error, 'An account with this email address already exists.');
+
+    const beforeUnsupported = users.size;
+    const unsupported = await invoke(inviteAdmin, {
+      body: { fullName: 'Student Role', email: 'student.role@example.test', adminRole: 'student' },
+      user: admin,
+      ip: '127.0.0.1',
+      headers: {},
+    });
+    assert.equal(unsupported.statusCode, 400);
+    assert.equal(unsupported.body.error, 'Select a valid administrator role.');
+    assert.equal(users.size, beforeUnsupported);
+
+    const beforeInvalidEmail = users.size;
+    const invalidEmail = await invoke(inviteAdmin, {
+      body: { fullName: 'Bad Email', email: 'not-an-email', adminRole: 'admin' },
+      user: admin,
+      ip: '127.0.0.1',
+      headers: {},
+    });
+    assert.equal(invalidEmail.statusCode, 400);
+    assert.equal(invalidEmail.body.error, 'Please provide a valid official email address.');
+    assert.equal(String(invalidEmail.body.error).includes('email could not be sent'), false);
+    assert.equal(users.size, beforeInvalidEmail);
+
+    const originalCreate = User.create;
+    User.create = async () => {
+      const error = new Error('E11000 duplicate key');
+      error.code = 11000;
+      throw error;
+    };
+    const raced = await invoke(inviteAdmin, {
+      body: { fullName: 'Race', email: 'race.admin@example.test', adminRole: 'admin' },
+      user: admin,
+      ip: '127.0.0.1',
+      headers: {},
+    });
+    User.create = originalCreate;
+    assert.equal(raced.statusCode, 409);
+    assert.equal(raced.body.error, 'An account with this email address already exists.');
+    assert.equal([...users.values()].some((user) => user.email === 'race.admin@example.test'), false);
+  } finally {
+    restoreInvitationEnv();
+  }
 
   const selfStatus = await invoke(updateUserAccountStatus, {
     params: { id: admin._id },
@@ -393,6 +588,10 @@ const run = async () => {
     headers: {},
   });
   assert.equal(rejectedPassword.statusCode, 401);
+  assert.equal(rejectedPassword.body.error, 'Current password is incorrect.');
+  assert.equal(/password was updated|has been updated/i.test(rejectedPassword.body.error), false);
+  assert.equal(leaksSessionInternals(rejectedPassword.body.error), false);
+  assert.equal(admin._secret, 'current-secret');
   assert.equal(JSON.stringify(rejectedPassword.body).includes(wrongPassword), false);
   assert.equal(JSON.stringify(rejectedPassword.body).includes('replacement-secret'), false);
 
@@ -403,7 +602,51 @@ const run = async () => {
     headers: {},
   });
   assert.equal(shortChange.statusCode, 400);
+  assert.equal(shortChange.body.error, 'Password must be at least 15 characters long.');
+  assert.equal(/password was updated|has been updated/i.test(shortChange.body.error), false);
+  assert.equal(leaksSessionInternals(shortChange.body.error), false);
   assert.equal(admin._secret, 'current-secret');
+
+  const sameUser = makeUser({
+    _id: 'same-password-1',
+    email: 'same-password@example.test',
+    role: 'admin',
+    password: 'current-secret-value',
+  });
+  sameUser.password = '$2a$10$stored-hash-not-plaintext';
+  const comparedPasswords = [];
+  const originalMatch = sameUser.matchPassword.bind(sameUser);
+  sameUser.matchPassword = async (entered) => {
+    comparedPasswords.push(entered);
+    return originalMatch(entered);
+  };
+  const revocationsBeforeSame = revocations.length;
+  const samePassword = await invoke(updatePassword, {
+    body: { currentPassword: 'current-secret-value', newPassword: 'current-secret-value' },
+    user: sameUser,
+    ip: '127.0.0.1',
+    headers: {},
+  });
+  assert.equal(samePassword.statusCode, 400);
+  assert.equal(samePassword.body.error, 'Your new password must be different from your current password.');
+  assert.equal(sameUser._secret, 'current-secret-value');
+  assert.equal(sameUser.password, '$2a$10$stored-hash-not-plaintext');
+  assert.equal(sameUser.saveCount, 0);
+  assert.equal(sameUser.passwordChangedAt, undefined);
+  assert.equal(revocations.length, revocationsBeforeSame);
+  assert.deepEqual(comparedPasswords, ['current-secret-value', 'current-secret-value']);
+  assert.equal(await sameUser.matchPassword('current-secret-value'), true);
+  assert.equal(JSON.stringify(samePassword.body).includes('current-secret-value'), false);
+  sameUser.matchPassword = originalMatch;
+
+  const changedSameUser = await invoke(updatePassword, {
+    body: { currentPassword: 'current-secret-value', newPassword: 'replacement-secret' },
+    user: sameUser,
+    ip: '127.0.0.1',
+    headers: {},
+  });
+  assert.equal(changedSameUser.statusCode, 200);
+  assert.equal(sameUser._secret, 'replacement-secret');
 
   const previousToken = admin.getSignedJwtToken();
   const otherSession = admin.getSignedJwtToken();
@@ -418,6 +661,9 @@ const run = async () => {
     headers: {},
   });
   assert.equal(changedPassword.statusCode, 200);
+  assert.equal(changedPassword.body.success, true);
+  assert.equal(changedPassword.body.message, PASSWORD_UPDATED_MESSAGE);
+  assert.equal(leaksSessionInternals(changedPassword.body.message), false);
   assert.equal(admin._secret, 'replacement-secret');
   assert.equal(JSON.stringify(changedPassword.body).includes('replacement-secret'), false);
   assert.equal(audits.at(-1).action, 'PASSWORD_CHANGED');
@@ -473,7 +719,14 @@ const run = async () => {
     headers: {},
   });
   assert.equal(offlineChange.statusCode, 503);
+  assert.equal(offlineChange.body.success, false);
   assert.equal(offlineChange.body.revocation.reason, 'redis_unavailable');
+  assert.equal(offlineChange.body.message, PASSWORD_UPDATED_UNCONFIRMED_MESSAGE);
+  assert.equal(leaksSessionInternals(offlineChange.body.message), false);
+  assert.equal(offlineUser._secret, 'replacement-secret');
+  const offlineAudit = audits.find((entry) => entry.action === 'PASSWORD_CHANGED' && String(entry.details).includes('offline@example.test'));
+  assert.ok(offlineAudit);
+  assert.equal(offlineAudit.details.includes('redis_unavailable'), true);
   assert.ok(offlineChange.body.token);
   assert.equal(await tokenApi.isTokenBlacklisted(staleToken), false);
   assert.equal(await tokenApi.isTokenBlacklisted(offlineChange.body.token), false);
@@ -484,6 +737,27 @@ const run = async () => {
   assert.equal(staleAccess.statusCode, 401);
   const replacementAccess = await callProtect(offlineChange.body.token);
   assert.equal(replacementAccess.nextCalled, true);
+
+  const partialUser = makeUser({
+    _id: 'partial-1',
+    email: 'partial@example.test',
+    role: 'student',
+    password: 'current-secret',
+  });
+  tokenApi.failNextRevoke = 'partial_failure';
+  const partialChange = await invoke(updatePassword, {
+    body: { currentPassword: 'current-secret', newPassword: 'replacement-secret' },
+    user: partialUser,
+    ip: '127.0.0.1',
+    headers: {},
+  });
+  assert.equal(partialChange.statusCode, 503);
+  assert.equal(partialChange.body.success, false);
+  assert.equal(partialChange.body.revocation.reason, 'partial_failure');
+  assert.equal(partialUser._secret, 'replacement-secret');
+  assert.equal(partialChange.body.message, PASSWORD_UPDATED_UNCONFIRMED_MESSAGE);
+  assert.equal(leaksSessionInternals(partialChange.body.message), false);
+  assert.ok(partialChange.body.token);
 
   const sameSecondUser = makeUser({
     _id: 'same-second-1',
@@ -572,20 +846,25 @@ const run = async () => {
 
   const queriesBefore = faqQueries.length;
   const hiddenAdminFaqs = await invoke(getFAQs, { query: { role: 'admin' }, headers: {} });
-  assert.equal(hiddenAdminFaqs.statusCode, 403);
+  assert.equal(hiddenAdminFaqs.statusCode, 401);
   assert.equal(faqQueries.length, queriesBefore);
 
-  const publicStudentFaqs = await invoke(getFAQs, { query: { role: 'student' }, headers: {} });
-  assert.equal(publicStudentFaqs.statusCode, 200);
+  const studentFaqs = await invoke(getFAQs, {
+    query: { role: 'admin' },
+    user: { role: 'student' },
+    headers: {},
+  });
+  assert.equal(studentFaqs.statusCode, 200);
   assert.deepEqual(faqQueries.at(-1).targetRole.$in, ['student', 'all']);
+  assert.equal(faqQueries.at(-1).isPublished, true);
 
   const adminFaqs = await invoke(getFAQs, {
-    query: { role: 'admin' },
+    query: { role: 'student' },
     user: { role: 'super_admin' },
     headers: {},
   });
   assert.equal(adminFaqs.statusCode, 200);
-  assert.deepEqual(faqQueries.at(-1).targetRole.$in, ['admin', 'all']);
+  assert.deepEqual(faqQueries.at(-1), {});
 
   const report = {
     _id: 'report-1',

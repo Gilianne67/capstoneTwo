@@ -24,6 +24,7 @@ import PageHeader from '../../../components/common/PageHeader';
 import StatusBadge from '../../../components/common/StatusBadge';
 import ProtectedDocumentViewer from '../../../components/common/ProtectedDocumentViewer';
 import { API_ORIGIN } from '../../../config/api';
+import { VERIFICATION_QUEUE_TABS, verificationTabFromSearch } from '../verificationQueue';
 
 const COMMON_REJECTION_REASONS = [
   'Incomplete or unclear documentation submitted.',
@@ -46,13 +47,14 @@ const getFullDocumentUrl = (rawPath) => {
 };
 
 export default function VerificationQueue() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const focusProviderId = searchParams.get('providerId');
+  const requestedStatus = searchParams.get('status');
   const [verifications, setVerifications] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [statusFilter, setStatusFilter] = useState('Pending Review');
+  const [statusFilter, setStatusFilter] = useState(() => verificationTabFromSearch(requestedStatus));
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAction, setSelectedAction] = useState(null);
   const [rejectionReason, setRejectionReason] = useState('');
@@ -97,11 +99,25 @@ export default function VerificationQueue() {
   }, []);
 
   useEffect(() => {
+    if (VERIFICATION_QUEUE_TABS.includes(requestedStatus)) {
+      setStatusFilter(requestedStatus);
+    }
+  }, [requestedStatus]);
+
+  useEffect(() => {
     if (!focusProviderId || verifications.length === 0) return;
     setStatusFilter('All');
     const target = document.getElementById(`provider-${focusProviderId}`);
     if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [focusProviderId, verifications]);
+
+  const selectVerificationTab = (status) => {
+    setStatusFilter(status);
+    const next = new URLSearchParams(searchParams);
+    if (status === 'Pending Review') next.delete('status');
+    else next.set('status', status);
+    setSearchParams(next, { replace: true });
+  };
 
   const handleConfirmAction = async () => {
     if (!selectedAction) return;
@@ -260,11 +276,11 @@ export default function VerificationQueue() {
       <div className="bg-white border border-slate-200/80 rounded-2xl p-5 space-y-4 shadow-xs">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div className="flex flex-wrap items-center gap-2">
-            {['Pending Review', 'Verified', 'Rejected', 'All'].map((status) => (
+            {VERIFICATION_QUEUE_TABS.map((status) => (
               <button
                 key={status}
                 type="button"
-                onClick={() => setStatusFilter(status)}
+                onClick={() => selectVerificationTab(status)}
                 className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-colors cursor-pointer ${
                   statusFilter === status
                     ? 'bg-slate-900 text-white'

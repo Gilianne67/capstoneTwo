@@ -942,7 +942,7 @@ Every case below includes: Test Case ID, Module, Feature, Test Scenario, Precond
 - **Priority:** Critical
 - **Test Type:** Positive
 - **Regression Required?** Critical smoke
-- **Notes:** Do not expect the admin dashboard "Pending Minor Consents" count to increase. That count reads a different `ParentalConsent` collection, which this flow does not write.
+- **Notes:** After minor onboarding, the Operations Dashboard count "Students awaiting guardian consent" includes this student. That count reads `User.status` of `pending_consent`. The dashboard does not approve consent.
 
 ### CONSENT-005
 
@@ -1954,7 +1954,7 @@ Create and edit cases require a **Verified** provider. Use the provider from VER
   1. Submit the custom request.
   2. Submit `Working Student` as if it were new.
   3. Create a scholarship and look for the custom name in its tags.
-- **Expected Result:** The custom request can be saved through `POST /api/v1/provider/eligibility-criterion-requests` and starts as Pending. `Working Student` is rejected as already supported. The custom name does not appear as a selectable matching tag and does not change match results, including after an administrator approves the request. Review happens in the admin verification queue, not on the Taxonomy page. Taxonomy remains prototype-only.
+- **Expected Result:** The custom request can be saved through `POST /api/v1/provider/eligibility-criterion-requests` and starts as Pending. `Working Student` is rejected as already supported. The custom name does not appear as a selectable matching tag and does not change match results, including after an administrator approves the request. Review happens in the admin verification queue.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** Medium
@@ -3018,31 +3018,33 @@ Student deadline alerts are generated for saved scholarships only. Windows are 7
 
 - **Module:** Admin Module
 - **Feature:** Admin dashboard
-- **Test Scenario:** The dashboard loads live queue data.
+- **Test Scenario:** The operations dashboard loads current totals, pending actions, recent activity, and alerts.
 - **Preconditions:** Admin signed in. API running.
 - **Test Data:** None.
 - **Steps:**
   1. Open `/dashboard/admin`.
   2. Refresh.
-- **Expected Result:** `GET /api/v1/admin/dashboard` returns `200` with `metrics`, `pendingProviders`, `pendingListings`, and `pendingConsents`. The cards show those metric labels: Pending Verifications, Pending Minor Consents, and Active Providers. A failed request shows an error and does not replace the queue with fake providers.
+  3. Repeat the load once with the database unavailable, or force `GET /api/v1/admin/dashboard` to fail.
+- **Expected Result:** `GET /api/v1/admin/dashboard` returns `200` with `summary`, `pendingActions`, `activity`, `alerts`, and `metrics`. Summary cards are current totals: Student accounts, Provider accounts, Active accounts, Suspended accounts, Verified organizations, Open scholarships, and Archived scholarships. The page states that active accounts are separate from verified organizations, and that open scholarships follow the All Scholarships Open filter, including listings from suspended providers. Pending actions show counts and links for provider verification, unresolved scholarship reports, pending eligibility reviews, and students awaiting guardian consent. Recent activity lists persisted audit events with a fixed description, timestamp, and severity, and does not show raw audit details or email addresses. There are no scholarship publish buttons and no consent approve or reject buttons. A failed read shows a database-read error and a Retry control, and does not replace the totals with zeros. Maintenance mode, when enabled, is the only other alert. The response does not include `pendingProviders`, `pendingListings`, or `pendingConsents`.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** Critical
 - **Test Type:** Positive / API failure
 - **Regression Required?** Critical smoke
-- **Notes:** Scholarship status values in this system are Open and Closed. The pending-listings query looks for statuses such as Pending and Submitted, so that list can be empty even when Open scholarships exist.
+- **Notes:** Open scholarship status is `Open` with `isArchived` false and no admin removal. There is no Published scholarship status on this dashboard.
 
 ### ADMIN-003
 
 - **Module:** Admin Module
 - **Feature:** Dashboard counts
-- **Test Scenario:** Pending verification count matches pending providers.
-- **Preconditions:** Note the Pending Verifications number. Submit one new provider onboarding, or use a known Pending Review provider.
+- **Test Scenario:** Pending verification and verified-organization counts match stored provider records.
+- **Preconditions:** Note Pending provider verification and Verified organizations. Submit one new provider onboarding, or use a known Pending Review provider.
 - **Test Data:** That provider.
 - **Steps:**
-  1. Refresh the admin dashboard.
-  2. Compare the number with `GET /api/v1/admin/providers/pending`.
-- **Expected Result:** Pending Verifications equals the number of providers whose status is Pending, Pending Review, or Submitted. Active Providers counts Approved or Verified providers. The new pending provider is included after refresh.
+  1. Refresh the operations dashboard.
+  2. Compare Pending provider verification with `GET /api/v1/admin/providers/pending`.
+  3. Compare Verified organizations with provider profiles whose verification status is Approved or Verified.
+- **Expected Result:** Pending provider verification equals providers whose status is Pending, Pending Review, or Submitted. Verified organizations equals Approved or Verified profiles. Active accounts is the current count of user records with status active, across roles, and is not the verified-organization count. The new pending provider is included after refresh. The verification link opens `/dashboard/admin/verification` on Pending Review.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** High
@@ -3053,20 +3055,20 @@ Student deadline alerts are generated for saved scholarships only. Windows are 7
 ### ADMIN-004
 
 - **Module:** Admin Module
-- **Feature:** Minor consent metric
-- **Test Scenario:** The live guardian-consent flow does not increase Pending Minor Consents.
-- **Preconditions:** Admin dashboard visible. Complete CONSENT-004.
+- **Feature:** Students awaiting guardian consent
+- **Test Scenario:** Minor onboarding increases the waiting count, and the dashboard does not approve consent.
+- **Preconditions:** Operations dashboard visible. Complete CONSENT-004.
 - **Test Data:** The new pending-consent student.
 - **Steps:**
-  1. Refresh the admin dashboard.
-  2. Open the consent area of the dashboard if it is shown.
-- **Expected Result:** Pending Minor Consents does not gain a row for that student. The count reads the `ParentalConsent` collection, which registration and onboarding do not write. Do not treat a missing row as a failed consent email. Confirm consent with CONSENT-005 instead.
+  1. Refresh the operations dashboard.
+  2. Open Students awaiting guardian consent.
+- **Expected Result:** The count increases by one for that student. It reads student accounts whose `User.status` is `pending_consent`. The link opens `/dashboard/admin/users?role=student&status=pending_consent`. The page has no consent approve or reject buttons. Confirm the guardian flow with CONSENT-005 instead.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** High
-- **Test Type:** Known limitation
+- **Test Type:** Positive
 - **Regression Required?** Full regression
-- **Notes:** Mark Fail only if the UI claims the student consent was stored in this queue.
+- **Notes:** Mark Fail if the dashboard offers an admin approval action for guardian consent.
 
 ### ADMIN-005
 
@@ -3190,27 +3192,6 @@ Student deadline alerts are generated for saved scholarships only. Windows are 7
   3. Run a resolve or remove action.
   4. Refresh.
 - **Expected Result:** A **Prototype only** notice says content moderation is not connected to the database and resolve or remove actions are not saved. The action shows an error that it was not saved. Refresh does not show a newly stored moderation record. The page must not show a success message that claims the listing was removed from the database.
-- **Actual Result:**
-- **Status:** Not Run
-- **Priority:** High
-- **Test Type:** Prototype
-- **Regression Required?** Full regression
-- **Notes:** Prototype-only.
-
-### ADMIN-012
-
-- **Module:** Admin Module
-- **Feature:** Taxonomy prototype
-- **Test Scenario:** Adding or deleting a tag does not change scholarship data.
-- **Preconditions:** Admin signed in. Note an existing scholarship's tags.
-- **Test Data:** Tag name `QA Prototype Tag`.
-- **Steps:**
-  1. Open `/dashboard/admin/taxonomy`.
-  2. Read the notice.
-  3. Add the tag.
-  4. Refresh.
-  5. Open a scholarship as a provider and look for that tag.
-- **Expected Result:** A **Prototype only** notice says taxonomy is not stored and adding or deleting a tag does not change scholarship data. The add action reports that the tag was not saved. After refresh, provider scholarship tags are unchanged.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** High

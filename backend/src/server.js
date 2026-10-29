@@ -32,9 +32,9 @@ const matchingRoutes = require('./routes/matchingRoutes');
 const documentRoutes = require('./routes/documentRoutes');
 const errorHandler = require('./middleware/error');
 const moderationRoutes = require('./routes/moderationRoutes');
-const taxonomyRoutes = require('./routes/taxonomyRoutes');
 const auditRoutes = require('./routes/auditRoutes');
 const { protect } = require('./middleware/auth');
+const { enforceMaintenanceMode } = require('./middleware/maintenanceMode');
 const { rehydrateRevocations } = require('./services/tokenService');
 const broadcastRoutes = require('./routes/broadcastRoutes');
 const { getActiveUserBroadcasts } = require('./controllers/broadcastController');
@@ -91,6 +91,10 @@ if (process.env.NODE_ENV === 'development') {
 // pass through stricter per-IP limiters mounted inside mountRateLimiters.
 mountRateLimiters(app);
 
+// Block student and provider traffic while an administrator can still sign in
+// and turn maintenance off. Exempt paths are exact, not whole route groups.
+app.use(enforceMaintenanceMode);
+
 // Root Endpoint
 app.get('/', (req, res) => {
   res.status(200).json({ status: 'success', message: 'IskolarMatch API Online' });
@@ -113,7 +117,6 @@ app.use('/api/v1/students', studentRoutes);
 app.use('/api/v1/matching', matchingRoutes);
 app.use('/api/v1/documents', documentRoutes);
 app.use('/api/v1/admin/moderation', moderationRoutes);
-app.use('/api/v1/admin/taxonomy', taxonomyRoutes);
 app.use('/api/v1/admin/audit-logs', auditRoutes);
 app.use('/api/v1/admin', broadcastRoutes);
 app.get('/api/v1/broadcasts/active', protect, getActiveUserBroadcasts);

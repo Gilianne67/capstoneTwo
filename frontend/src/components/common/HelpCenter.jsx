@@ -11,6 +11,7 @@ import {
   Bell,
   PlusCircle,
   Trash2,
+  Pencil,
   X,
   Loader2,
   AlertCircle,
@@ -18,6 +19,12 @@ import {
   Mail
 } from 'lucide-react';
 import { API_BASE_URL } from '../../config/api';
+import {
+  FAQ_AUDIENCES,
+  FAQ_AUDIENCE_LABELS,
+  buildFaqWriteBody,
+  filterHelpArticles,
+} from './faqHelp';
 
 const ROUTES = {
   profile: '/dashboard/student/profile',
@@ -35,23 +42,57 @@ const QUICK_LINKS = [
   { label: 'Deadline Alerts', to: ROUTES.alerts, icon: Bell, hint: 'Track upcoming due dates' }
 ];
 
+const PAGE_COPY = {
+  student: {
+    title: 'Help',
+    subtitle: 'Find instant answers, documentation, and operational guides.',
+    search: 'Search help topics, matching, or guides...'
+  },
+  provider: {
+    title: 'Help',
+    subtitle: 'Resource center for scholarship listings, eligibility, matching, and verification.',
+    search: 'Search scholarship listing, matching, eligibility, or verification guides...'
+  },
+  admin: {
+    title: 'Help',
+    subtitle: 'Create, edit, publish, and remove help articles for each portal.',
+    search: 'Search questions, answers, or categories...'
+  }
+};
+
+const emptyDraft = () => ({
+  targetRole: 'all',
+  category: '',
+  question: '',
+  answer: '',
+  isPublished: true
+});
+
+const readJson = async (res) => {
+  try {
+    return await res.json();
+  } catch {
+    return {};
+  }
+};
+
 export default function HelpCenter({ role = 'student', isAdmin = false }) {
+  const copy = PAGE_COPY[role] || PAGE_COPY.student;
   const [faqs, setFaqs] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [audienceFilter, setAudienceFilter] = useState('any');
+  const [statusFilter, setStatusFilter] = useState('any');
+  const [categoryFilter, setCategoryFilter] = useState('any');
   const [openFaq, setOpenFaq] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState(null);
   const [toast, setToast] = useState(null);
 
-  // Admin CRUD Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [newFaq, setNewFaq] = useState({
-    targetRole: role === 'admin' ? 'all' : role,
-    category: '',
-    question: '',
-    answer: ''
-  });
+  const [editingId, setEditingId] = useState(null);
+  const [draft, setDraft] = useState(emptyDraft);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pendingId, setPendingId] = useState(null);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -71,12 +112,12 @@ export default function HelpCenter({ role = 'student', isAdmin = false }) {
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/faqs?role=${role}`, {
+      const res = await fetch(`${API_BASE_URL}/faqs`, {
         headers: getAuthHeaders()
       });
-      if (!res.ok) throw new Error('Failed to fetch help articles.');
-      const data = await res.json();
-      const list = Array.isArray(data.faqs) ? data.faqs : (Array.isArray(data) ? data : []);
+      const data = await readJson(res);
+      if (!res.ok) throw new Error(data.message || 'Failed to fetch help articles.');
+      const list = Array.isArray(data.faqs) ? data.faqs : [];
       setFaqs(list);
     } catch (err) {
       console.error('Fetch FAQs Error:', err);
@@ -90,22 +131,92 @@ export default function HelpCenter({ role = 'student', isAdmin = false }) {
     fetchFAQs();
   }, [role]);
 
-const handleCreateFAQ = async (e) => {
+  const categoryOptions = useMemo(() => {
+    const names = new Set();
+    faqs.forEach((faq) => {
+      if (faq?.category) names.add(faq.category);
+    });
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [faqs]);
+
+  useEffect(() => {
+    if (categoryFilter !== 'any' && !categoryOptions.includes(categoryFilter)) {
+      setCategoryFilter('any');
+    }
+  }, [categoryOptions, categoryFilter]);
+
+  const visibleFaqs = useMemo(() => filterHelpArticles(faqs, {
+    role,
+    isAdmin,
+    query: searchQuery,
+    audience: audienceFilter,
+    status: statusFilter,
+    category: categoryFilter
+  }), [faqs, role, isAdmin, searchQuery, audienceFilter, statusFilter, categoryFilter]);
+
+  const groupedFaqs = useMemo(() => {
+    const map = {};
+    visibleFaqs.forEach((faq) => {
+      const cat = faq.category || 'General';
+      if (!map[cat]) map[cat] = [];
+      map[cat].push(faq);
+    });
+
+    return Object.keys(map).map((category) => ({ category, items: map[category] }));
+  }, [visibleFaqs]);
+
+  const filtersActive = Boolean(searchQuery.trim())
+    || (isAdmin && (audienceFilter !== 'any' || statusFilter !== 'any' || categoryFilter !== 'any'));
+
+  const openCreate = () => {
+    setEditingId(null);
+    setDraft(emptyDraft());
+    setIsModalOpen(true);
+  };
+
+  const openEdit = (faq) => {
+    setEditingId(faq._id);
+    setDraft({
+      targetRole: faq.targetRole || 'all',
+      category: faq.category || '',
+      question: faq.question || '',
+      answer: faq.answer || '',
+      isPublished: faq.isPublished === true
+    });
+    setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
+    if (isSubmitting) return;
+    setIsModalOpen(false);
+    setEditingId(null);
+  };
+
+  const handleSaveFAQ = async (e) => {
     e.preventDefault();
+    const built = buildFaqWriteBody(draft);
+    if (!built.ok) {
+      showToast(built.error, 'error');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      // Updated endpoint from /admin/faqs to /faqs
-      const res = await fetch(`${API_BASE_URL}/faqs`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify(newFaq)
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Failed to create FAQ article.');
+      const res = await fetch(
+        editingId ? `${API_BASE_URL}/faqs/${editingId}` : `${API_BASE_URL}/faqs`,
+        {
+          method: editingId ? 'PATCH' : 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify(built.body)
+        }
+      );
+      const data = await readJson(res);
+      if (!res.ok) throw new Error(data.message || 'Failed to save the FAQ article.');
 
-      showToast('FAQ article created successfully!', 'success');
+      showToast(editingId ? 'FAQ article updated.' : 'FAQ article created successfully!', 'success');
       setIsModalOpen(false);
-      setNewFaq({ targetRole: role === 'admin' ? 'all' : role, category: '', question: '', answer: '' });
+      setEditingId(null);
+      setDraft(emptyDraft());
       fetchFAQs();
     } catch (err) {
       showToast(err.message, 'error');
@@ -114,46 +225,45 @@ const handleCreateFAQ = async (e) => {
     }
   };
 
+  const handleTogglePublished = async (faq) => {
+    if (!faq?._id) return;
+    setPendingId(faq._id);
+    try {
+      const res = await fetch(`${API_BASE_URL}/faqs/${faq._id}`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ isPublished: faq.isPublished !== true })
+      });
+      const data = await readJson(res);
+      if (!res.ok) throw new Error(data.message || 'Failed to update publication status.');
+      showToast(faq.isPublished ? 'FAQ unpublished.' : 'FAQ published.', 'success');
+      fetchFAQs();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setPendingId(null);
+    }
+  };
+
   const handleDeleteFAQ = async (id) => {
     if (!window.confirm('Are you sure you want to delete this FAQ article?')) return;
+    setPendingId(id);
     try {
-      // Updated endpoint from /admin/faqs/:id to /faqs/:id
       const res = await fetch(`${API_BASE_URL}/faqs/${id}`, {
         method: 'DELETE',
         headers: getAuthHeaders()
       });
-      if (!res.ok) throw new Error('Failed to delete FAQ article.');
+      const data = await readJson(res);
+      if (!res.ok) throw new Error(data.message || 'Failed to delete FAQ article.');
 
       showToast('FAQ article deleted.', 'success');
       fetchFAQs();
     } catch (err) {
       showToast(err.message, 'error');
+    } finally {
+      setPendingId(null);
     }
   };
-  
-  const query = searchQuery.trim().toLowerCase();
-
-  const groupedFaqs = useMemo(() => {
-    const map = {};
-    faqs.forEach((faq) => {
-      const cat = faq.category || 'General';
-      if (!map[cat]) map[cat] = [];
-      if (
-        !query ||
-        faq.question.toLowerCase().includes(query) ||
-        faq.answer.toLowerCase().includes(query) ||
-        cat.toLowerCase().includes(query)
-      ) {
-        map[cat].push(faq);
-      }
-    });
-
-    return Object.keys(map)
-      .map((category) => ({ category, items: map[category] }))
-      .filter((group) => group.items.length > 0);
-  }, [faqs, query]);
-
-  const hasMatches = groupedFaqs.length > 0;
 
   const toggleFaq = (id) => {
     setOpenFaq((current) => (current === id ? null : id));
@@ -161,25 +271,25 @@ const handleCreateFAQ = async (e) => {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-12 relative">
-      {/* Toast Notification */}
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-3 bg-slate-900 text-white rounded-xl shadow-xl text-xs font-semibold animate-in fade-in slide-in-from-bottom-3">
-          <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+          {toast.type === 'error'
+            ? <AlertCircle className="h-4 w-4 text-rose-400 shrink-0" />
+            : <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />}
           <span>{toast.message}</span>
         </div>
       )}
 
-      {/* Header Banner */}
       <div className="bg-card-bg rounded-2xl border border-app-text/10 p-6 shadow-xs space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <div className="p-2.5 rounded-xl bg-primary/10 text-primary">
               <HelpCircle className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-xl font-black text-app-text capitalize">{role} Help Center</h1>
+              <h1 className="text-xl font-black text-app-text">{copy.title}</h1>
               <p className="text-xs text-text-muted font-medium">
-                Find instant answers, documentation, and operational guides.
+                {copy.subtitle}
               </p>
             </div>
           </div>
@@ -187,8 +297,8 @@ const handleCreateFAQ = async (e) => {
           {isAdmin && (
             <button
               type="button"
-              onClick={() => setIsModalOpen(true)}
-              className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white rounded-xl text-xs font-bold hover:opacity-90 transition-all cursor-pointer shadow-xs"
+              onClick={openCreate}
+              className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white rounded-xl text-xs font-bold hover:opacity-90 transition-all cursor-pointer shadow-xs shrink-0"
             >
               <PlusCircle className="w-4 h-4" /> Add FAQ Article
             </button>
@@ -198,13 +308,60 @@ const handleCreateFAQ = async (e) => {
         <div className="relative pt-2">
           <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted" />
           <input
-            type="text"
-            placeholder="Search help topics, matching, or guides..."
+            type="search"
+            placeholder={copy.search}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            aria-label="Search help articles"
             className="w-full pl-10 pr-4 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold focus:outline-hidden focus:border-primary text-app-text"
           />
         </div>
+
+        {isAdmin && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <label className="space-y-1">
+              <span className="block text-[10px] font-black uppercase tracking-wider text-text-muted">Audience</span>
+              <select
+                value={audienceFilter}
+                onChange={(e) => setAudienceFilter(e.target.value)}
+                aria-label="Filter by audience"
+                className="w-full px-3 py-2 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text cursor-pointer"
+              >
+                <option value="any">Any audience</option>
+                {FAQ_AUDIENCES.map((audience) => (
+                  <option key={audience} value={audience}>{FAQ_AUDIENCE_LABELS[audience]}</option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1">
+              <span className="block text-[10px] font-black uppercase tracking-wider text-text-muted">Status</span>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                aria-label="Filter by publication status"
+                className="w-full px-3 py-2 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text cursor-pointer"
+              >
+                <option value="any">Published and unpublished</option>
+                <option value="published">Published</option>
+                <option value="unpublished">Unpublished</option>
+              </select>
+            </label>
+            <label className="space-y-1">
+              <span className="block text-[10px] font-black uppercase tracking-wider text-text-muted">Category</span>
+              <select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                aria-label="Filter by category"
+                className="w-full px-3 py-2 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text cursor-pointer"
+              >
+                <option value="any">All categories</option>
+                {categoryOptions.map((category) => (
+                  <option key={category} value={category}>{category}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
       </div>
 
       {errorMessage && (
@@ -226,9 +383,9 @@ const handleCreateFAQ = async (e) => {
               <Loader2 className="w-6 h-6 text-primary animate-spin" />
               <p className="text-xs text-text-muted font-semibold">Loading help articles...</p>
             </div>
-          ) : !hasMatches ? (
+          ) : groupedFaqs.length === 0 ? (
             <div className="bg-card-bg rounded-2xl border border-app-text/10 p-6 text-center text-xs text-text-muted">
-              No help articles matching your search.
+              {filtersActive ? 'No help articles matching your search.' : 'No help articles yet.'}
             </div>
           ) : (
             groupedFaqs.map((group) => (
@@ -240,31 +397,64 @@ const handleCreateFAQ = async (e) => {
                 {group.items.map((faq) => {
                   const faqId = faq._id || faq.id;
                   const isOpen = openFaq === faqId;
+                  const audienceLabel = FAQ_AUDIENCE_LABELS[faq.targetRole] || faq.targetRole;
 
                   return (
                     <div
                       key={faqId}
                       className="bg-card-bg rounded-2xl border border-app-text/10 overflow-hidden shadow-xs transition-colors"
                     >
-                      <div className="flex items-center justify-between p-4 hover:bg-app-bg/50 transition-colors">
+                      <div className="flex items-start justify-between gap-3 p-4 hover:bg-app-bg/50 transition-colors">
                         <button
                           type="button"
                           onClick={() => toggleFaq(faqId)}
+                          aria-expanded={isOpen}
                           className="flex-1 text-left flex items-center justify-between gap-3 text-xs font-bold text-app-text cursor-pointer bg-transparent border-0"
                         >
-                          <span>{faq.question}</span>
+                          <span className="space-y-1.5">
+                            <span className="block">{faq.question}</span>
+                            {isAdmin && (
+                              <span className="flex flex-wrap gap-1.5">
+                                <span className="inline-flex px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-black uppercase tracking-wide">
+                                  {audienceLabel}
+                                </span>
+                                <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide ${faq.isPublished ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                                  {faq.isPublished ? 'Published' : 'Unpublished'}
+                                </span>
+                              </span>
+                            )}
+                          </span>
                           <ChevronDown className={`w-4 h-4 text-text-muted shrink-0 transition-transform ${isOpen ? 'rotate-180 text-primary' : ''}`} />
                         </button>
 
                         {isAdmin && (
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteFAQ(faqId)}
-                            title="Delete FAQ"
-                            className="ml-3 p-1.5 text-text-muted hover:text-rose-600 transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleTogglePublished(faq)}
+                              disabled={pendingId === faqId}
+                              className="px-2.5 py-1.5 rounded-lg border border-app-text/10 text-[10px] font-bold text-app-text hover:bg-app-bg cursor-pointer disabled:opacity-60"
+                            >
+                              {faq.isPublished ? 'Unpublish' : 'Publish'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openEdit(faq)}
+                              title="Edit FAQ"
+                              className="p-1.5 text-text-muted hover:text-primary transition-colors cursor-pointer"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteFAQ(faqId)}
+                              title="Delete FAQ"
+                              disabled={pendingId === faqId}
+                              className="p-1.5 text-text-muted hover:text-rose-600 transition-colors cursor-pointer disabled:opacity-60"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         )}
                       </div>
 
@@ -312,7 +502,6 @@ const handleCreateFAQ = async (e) => {
         )}
       </div>
 
-      {/* Support Contact Card (Student and Provider only) */}
       {(role === 'student' || role === 'provider') && (
         <div className="bg-card-bg rounded-2xl border border-app-text/10 p-5 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="space-y-1 text-center sm:text-left">
@@ -331,64 +520,81 @@ const handleCreateFAQ = async (e) => {
         </div>
       )}
 
-      {/* Admin Add FAQ Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-card-bg rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-app-text/10 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-app-text/10">
-              <h3 className="font-extrabold text-app-text text-sm">Create New Help Article</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-text-muted hover:text-app-text cursor-pointer">
+              <h3 className="font-extrabold text-app-text text-sm">
+                {editingId ? 'Edit Help Article' : 'Create New Help Article'}
+              </h3>
+              <button type="button" onClick={closeModal} className="text-text-muted hover:text-app-text cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateFAQ} className="space-y-3 text-xs">
+            <form onSubmit={handleSaveFAQ} className="space-y-3 text-xs">
               <div>
-                <label className="block font-bold text-app-text mb-1">Target Audience / Role</label>
+                <label className="block font-bold text-app-text mb-1" htmlFor="faq-audience">Target audience</label>
                 <select
-                  value={newFaq.targetRole}
-                  onChange={(e) => setNewFaq({ ...newFaq, targetRole: e.target.value })}
+                  id="faq-audience"
+                  value={draft.targetRole}
+                  onChange={(e) => setDraft({ ...draft, targetRole: e.target.value })}
                   className="w-full px-3 py-2 bg-app-bg rounded-xl border border-app-text/10 font-semibold text-app-text cursor-pointer"
                 >
-                  <option value="all">All Roles</option>
-                  <option value="student">Student Only</option>
-                  <option value="provider">Provider Only</option>
-                  <option value="admin">Admin Only</option>
+                  {FAQ_AUDIENCES.map((audience) => (
+                    <option key={audience} value={audience}>{FAQ_AUDIENCE_LABELS[audience]}</option>
+                  ))}
                 </select>
               </div>
 
               <div>
-                <label className="block font-bold text-app-text mb-1">Category Name</label>
+                <label className="block font-bold text-app-text mb-1" htmlFor="faq-status">Publication status</label>
+                <select
+                  id="faq-status"
+                  value={String(draft.isPublished)}
+                  onChange={(e) => setDraft({ ...draft, isPublished: e.target.value === 'true' })}
+                  className="w-full px-3 py-2 bg-app-bg rounded-xl border border-app-text/10 font-semibold text-app-text cursor-pointer"
+                >
+                  <option value="true">Published</option>
+                  <option value="false">Unpublished</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-app-text mb-1" htmlFor="faq-category">Category</label>
                 <input
+                  id="faq-category"
                   type="text"
                   required
                   placeholder="e.g. Scholarship Matching"
-                  value={newFaq.category}
-                  onChange={(e) => setNewFaq({ ...newFaq, category: e.target.value })}
+                  value={draft.category}
+                  onChange={(e) => setDraft({ ...draft, category: e.target.value })}
                   className="w-full px-3 py-2 bg-app-bg rounded-xl border border-app-text/10 font-semibold text-app-text"
                 />
               </div>
 
               <div>
-                <label className="block font-bold text-app-text mb-1">Question</label>
+                <label className="block font-bold text-app-text mb-1" htmlFor="faq-question">Question</label>
                 <input
+                  id="faq-question"
                   type="text"
                   required
                   placeholder="e.g. How is my match score calculated?"
-                  value={newFaq.question}
-                  onChange={(e) => setNewFaq({ ...newFaq, question: e.target.value })}
+                  value={draft.question}
+                  onChange={(e) => setDraft({ ...draft, question: e.target.value })}
                   className="w-full px-3 py-2 bg-app-bg rounded-xl border border-app-text/10 font-semibold text-app-text"
                 />
               </div>
 
               <div>
-                <label className="block font-bold text-app-text mb-1">Answer</label>
+                <label className="block font-bold text-app-text mb-1" htmlFor="faq-answer">Answer</label>
                 <textarea
+                  id="faq-answer"
                   rows={4}
                   required
-                  placeholder="Provide detailed explanation..."
-                  value={newFaq.answer}
-                  onChange={(e) => setNewFaq({ ...newFaq, answer: e.target.value })}
+                  placeholder="Provide a detailed explanation..."
+                  value={draft.answer}
+                  onChange={(e) => setDraft({ ...draft, answer: e.target.value })}
                   className="w-full px-3 py-2 bg-app-bg rounded-xl border border-app-text/10 font-medium text-app-text resize-none"
                 />
               </div>
@@ -396,7 +602,7 @@ const handleCreateFAQ = async (e) => {
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-app-text/10">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={closeModal}
                   className="px-4 py-2 rounded-xl border border-app-text/10 text-app-text font-bold hover:bg-app-text/5 cursor-pointer"
                 >
                   Cancel
@@ -407,7 +613,7 @@ const handleCreateFAQ = async (e) => {
                   className="px-4 py-2 bg-primary text-white font-bold rounded-xl hover:opacity-90 transition-opacity cursor-pointer flex items-center gap-1.5"
                 >
                   {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  <span>Save Article</span>
+                  <span>{editingId ? 'Save Changes' : 'Save Article'}</span>
                 </button>
               </div>
             </form>

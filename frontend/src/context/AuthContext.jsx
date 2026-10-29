@@ -2,11 +2,24 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { resolveRedirectPath } from './redirectPath';
 import { API_BASE_URL } from '../config/api';
 import { interpretLogoutResult } from './logoutResult';
+import {
+  clearStoredSession as removeStoredCredentials,
+  endedSessionReason,
+  SESSION_ENDED_EVENT,
+  storageEventEndsSession,
+} from './sessionEnded';
+import {
+  isMaintenanceResponse,
+  MAINTENANCE_EVENT,
+  maintenanceMessage,
+} from './maintenanceMode';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [maintenance, setMaintenance] = useState(false);
+  const [maintenanceNotice, setMaintenanceNotice] = useState('');
   const [token, setToken] = useState(() => {
     const raw = localStorage.getItem('token');
     return raw ? raw.replace(/^"|"$/g, '').trim() : null;
@@ -26,6 +39,17 @@ export function AuthProvider({ children }) {
     (userData) => resolveRedirectPath(userData),
     []
   );
+
+  const clearStoredSession = useCallback(() => {
+    removeStoredCredentials(localStorage);
+    setUser(null);
+    setToken(null);
+  }, []);
+
+  const noteMaintenance = useCallback((data) => {
+    setMaintenance(true);
+    setMaintenanceNotice(maintenanceMessage(data));
+  }, []);
 
   // Single initialization effect to verify MongoDB JWT session
   useEffect(() => {
@@ -51,12 +75,14 @@ export function AuthProvider({ children }) {
         const data = await res.json();
         
         if (res.ok && data.success !== false) {
+          setMaintenance(false);
           setUser(data.data || data.user);
           setToken(activeToken);
+        } else if (isMaintenanceResponse(res.status, data)) {
+          noteMaintenance(data);
         } else if (res.status === 401 || res.status === 403) {
-          setUser(null);
-          setToken(null);
-          localStorage.removeItem('token');
+          setMaintenance(false);
+          clearStoredSession();
         } else if (res.status === 429) {
           console.warn('Session check was rate limited. The saved session was kept.');
         }
@@ -68,7 +94,60 @@ export function AuthProvider({ children }) {
     };
 
     initializeAuth();
-  }, [getCleanToken]);
+  }, [getCleanToken, clearStoredSession, noteMaintenance]);
+
+  useEffect(() => {
+    const endSession = () => clearStoredSession();
+    const onStorage = (event) => {
+      if (storageEventEndsSession(event)) endSession();
+    };
+    const onMaintenance = (event) => noteMaintenance(event && event.detail);
+    window.addEventListener(SESSION_ENDED_EVENT, endSession);
+    window.addEventListener(MAINTENANCE_EVENT, onMaintenance);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener(SESSION_ENDED_EVENT, endSession);
+      window.removeEventListener(MAINTENANCE_EVENT, onMaintenance);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [clearStoredSession, noteMaintenance]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const verifyVisibleSession = async () => {
+      if (document.visibilityState === 'hidden') return;
+      const activeToken = getCleanToken();
+      if (!activeToken) return;
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/auth/me`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${activeToken}`,
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled && isMaintenanceResponse(res.status, data)) {
+          noteMaintenance(data);
+        } else if (!cancelled && endedSessionReason(res.status, data)) {
+          clearStoredSession();
+        }
+      } catch {
+        // Keep the signed-in screen when this check cannot reach the server.
+      }
+    };
+
+    window.addEventListener('focus', verifyVisibleSession);
+    document.addEventListener('visibilitychange', verifyVisibleSession);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', verifyVisibleSession);
+      document.removeEventListener('visibilitychange', verifyVisibleSession);
+    };
+  }, [getCleanToken, clearStoredSession, noteMaintenance]);
 
   // Update User state locally (critical after Onboarding/Profile updates)
   const updateUser = (updatedUserData) => {
@@ -190,15 +269,12 @@ const resetPassword = async (email) => {
     const result = interpretLogoutResult({ ok: response.ok, data });
     if (!result.clearSession) return result;
 
-    localStorage.removeItem('token');
-    localStorage.removeItem('iskolar_session');
-    setUser(null);
-    setToken(null);
+    clearStoredSession();
     return result;
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout, resetPassword, updateUser, replaceSession, getRedirectPath, getCleanToken }}>
+    <AuthContext.Provider value={{ user, token, loading, maintenance, maintenanceNotice, login, register, logout, resetPassword, updateUser, replaceSession, getRedirectPath, getCleanToken }}>
       {children}
     </AuthContext.Provider>
   );

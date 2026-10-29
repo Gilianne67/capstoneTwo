@@ -4,6 +4,10 @@ const StudentProfile = require('../models/StudentProfile');
 const Scholarship = require('../models/Scholarship');
 const { getRankedScholarships } = require('../services/matchingService');
 const { safeSyncDeadlineNotifications } = require('../services/notificationService');
+const {
+  isProviderAccountSuspended,
+  suspendedProviderIds,
+} = require('../services/suspendedProviderFilter');
 
 const isValidObjectId = (value) =>
   mongoose.Types.ObjectId.isValid(value) &&
@@ -67,17 +71,26 @@ exports.getSavedScholarships = async (req, res) => {
       SavedMatch.find({ studentProfileId: studentProfile._id })
         .populate(
           'scholarshipId',
-          'name scholarshipType grantValue deadline applicationURL status isArchived'
+          'name scholarshipType grantValue deadline applicationURL status isArchived providerId'
         )
         .sort({ dateSaved: -1 }),
       loadMatchScores(studentProfile)
     ]);
 
-    const savedScholarships = saved
+    const hiddenProviderIds = new Set(
+      (await suspendedProviderIds()).map((id) => String(id))
+    );
+    const visibleSaved = saved.filter((item) => {
+      const scholarship = item.scholarshipId;
+      if (!scholarship || typeof scholarship !== 'object') return true;
+      return !hiddenProviderIds.has(String(scholarship.providerId));
+    });
+
+    const savedScholarships = visibleSaved
       .map((item) => mapSavedScholarship(item, scoreByScholarshipId))
       .filter(Boolean);
 
-    await safeSyncDeadlineNotifications(studentProfile._id, saved);
+    await safeSyncDeadlineNotifications(studentProfile._id, visibleSaved);
 
     return res.status(200).json({
       success: true,
@@ -113,7 +126,7 @@ exports.saveScholarship = async (req, res) => {
       });
     }
 
-    const scholarship = await Scholarship.findById(scholarshipId).select('_id');
+    const scholarship = await Scholarship.findById(scholarshipId).select('_id isArchived adminRemovedAt providerId');
 
     if (!scholarship) {
       return res.status(404).json({
@@ -122,6 +135,14 @@ exports.saveScholarship = async (req, res) => {
       });
     }
 
+    if (scholarship.isArchived === true || scholarship.adminRemovedAt) {
+      return res.status(400).json({
+        success: false,
+        message: 'This scholarship is no longer available.'
+      });
+    }
+
+    const providerSuspended = await isProviderAccountSuspended(scholarship.providerId);
     const existing = await SavedMatch.findOne({
       studentProfileId: studentProfile._id,
       scholarshipId: scholarship._id
@@ -135,6 +156,13 @@ exports.saveScholarship = async (req, res) => {
           _id: scholarship._id,
           dateSaved: existing.dateSaved
         }
+      });
+    }
+
+    if (providerSuspended) {
+      return res.status(400).json({
+        success: false,
+        message: 'This scholarship is no longer available.'
       });
     }
 

@@ -1,13 +1,43 @@
 const Report = require('../models/Report');
 const Scholarship = require('../models/Scholarship');
-const searchSync = require('../services/scholarshipSearchSync');
-const matchCache = require('../services/matchCache');
+const {
+  administrativelyRemoveScholarship: archiveListing,
+} = require('../services/scholarshipArchiveService');
 const {
   notifyScholarshipReportDecision,
   notifyScholarshipListingRemoved,
   notifyProviderListingRemoved
 } = require('../services/notificationService');
 const { recordAuditLog } = require('./auditController');
+
+const rememberAuditFailure = (followUpErrors, audit) => {
+  if (audit && audit.ok === false) {
+    followUpErrors.push({
+      step: 'audit',
+      message: audit.message || 'The moderation audit record could not be saved.',
+    });
+  }
+};
+
+const sendModerationResult = (res, { followUpErrors, failureMessage, successMessage, data }) => {
+  const blocking = followUpErrors.filter((item) => item.step !== 'audit');
+  if (blocking.length > 0) {
+    return res.status(500).json({
+      success: false,
+      message: failureMessage,
+      errors: followUpErrors,
+      data,
+    });
+  }
+
+  const warnings = followUpErrors.filter((item) => item.step === 'audit');
+  return res.status(200).json({
+    success: true,
+    message: successMessage,
+    data,
+    ...(warnings.length > 0 ? { warnings } : {}),
+  });
+};
 
 const CLOSED_REPORT_STATUSES = [
   'Resolved',
@@ -35,58 +65,6 @@ const loadScholarshipState = async (listingId) => {
 
 const listingAlreadyRemoved = (scholarship) =>
   scholarship?.isArchived === true || Boolean(scholarship?.adminRemovedAt);
-
-const archiveListing = async (listingId, followUpErrors, explanation) => {
-  const removedAt = new Date();
-  const scholarship = await Scholarship.findByIdAndUpdate(
-    listingId,
-    {
-      status: 'Closed',
-      isArchived: true,
-      adminRemovedAt: removedAt,
-      adminRemovalReason: typeof explanation === 'string' ? explanation.trim() : '',
-    },
-    { new: true }
-  );
-
-  if (!scholarship) return null;
-
-  if (typeof searchSync?.syncScholarshipSearch === 'function') {
-    try {
-      const syncResult = await searchSync.syncScholarshipSearch(scholarship);
-      if (syncResult && syncResult.synchronized === false && syncResult.reason === 'failed') {
-        followUpErrors.push({
-          step: 'searchSync',
-          message: 'Scholarship search synchronization failed.',
-        });
-      }
-    } catch (syncError) {
-      console.error('Scholarship search sync failed during moderation:', syncError.message);
-      followUpErrors.push({
-        step: 'searchSync',
-        message: 'Scholarship search synchronization failed.',
-      });
-    }
-  }
-
-  try {
-    const cacheResult = await matchCache.invalidateMatchCache();
-    if (cacheResult && cacheResult.ok === false && cacheResult.reason === 'redis_write_failed') {
-      followUpErrors.push({
-        step: 'matchCache',
-        message: 'Match cache invalidation failed.',
-      });
-    }
-  } catch (cacheError) {
-    console.error('Match cache invalidation failed during moderation:', cacheError.message);
-    followUpErrors.push({
-      step: 'matchCache',
-      message: 'Match cache invalidation failed.',
-    });
-  }
-
-  return scholarship;
-};
 
 const releaseRetainedClaim = async (reportId) => {
   if (typeof Report.findOneAndUpdate !== 'function') return null;
@@ -361,39 +339,25 @@ const updateModerationReport = async (req, res) => {
         }
       }
 
-      try {
-        const adminActor = req.user
-          ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email
-          : 'Admin User';
+      const adminActor = req.user
+        ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email
+        : 'Admin User';
 
-        await recordAuditLog({
-          actor: adminActor,
-          role: 'Admin',
-          action: 'MODERATION_REPORT_RESOLVED',
-          details: `Moderation report ${id} resolved with action: ${claimed.resolution}.`,
-          ipAddress: req.ip || req.headers?.['x-forwarded-for'] || '127.0.0.1',
-          severity: 'Info',
-        });
-      } catch (auditErr) {
-        console.error('Moderation audit logging failed:', auditErr.message);
-        followUpErrors.push({
-          step: 'audit',
-          message: 'The moderation audit record could not be saved.',
-        });
-      }
+      const audit = await recordAuditLog({
+        actor: adminActor,
+        actorId: req.user && (req.user._id || req.user.id),
+        role: (req.user && req.user.role) || 'Admin',
+        action: 'MODERATION_REPORT_RESOLVED',
+        details: `Moderation report ${id} for scholarship "${claimed.listingTitle || scholarshipTitle || 'Unknown scholarship'}" (ID: ${claimed.listingId || 'unknown'}) resolved with outcome ${claimed.resolution || 'Resolved'}.`,
+        ipAddress: req.ip || req.headers?.['x-forwarded-for'] || '127.0.0.1',
+        severity: 'Info',
+      });
+      rememberAuditFailure(followUpErrors, audit);
 
-      if (followUpErrors.length > 0) {
-        return res.status(500).json({
-          success: false,
-          message: 'The report was updated, but a follow-up step failed.',
-          errors: followUpErrors,
-          data: claimed,
-        });
-      }
-
-      return res.status(200).json({
-        success: true,
-        message: 'Report updated successfully.',
+      return sendModerationResult(res, {
+        followUpErrors,
+        failureMessage: 'The report was updated, but a follow-up step failed.',
+        successMessage: 'Report updated successfully.',
         data: claimed,
       });
     }
@@ -423,44 +387,29 @@ const updateModerationReport = async (req, res) => {
       await report.save();
     }
 
-    // 📝 AUDIT LOG: Moderation Action Recorded
-    try {
-      const adminActor = req.user 
-        ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
-        : 'Admin User';
+    const adminActor = req.user
+      ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email
+      : 'Admin User';
 
-      await recordAuditLog({
-        actor: adminActor,
-        role: 'Admin',
-        action: alreadyResolved ? 'MODERATION_REPORT_RETRY' : 'MODERATION_REPORT_RESOLVED',
-        details: alreadyResolved
-          ? `Moderation report ${id} retry repeated action ${report.resolution || action || 'Resolved'} without changing the saved resolution.`
-          : `Moderation report ${id} resolved with action: ${action || 'Resolved'}.`,
-        ipAddress: req.ip || req.headers?.['x-forwarded-for'] || '127.0.0.1',
-        severity: 'Info'
-      });
-    } catch (auditErr) {
-      console.error('Moderation audit logging failed:', auditErr.message);
-      followUpErrors.push({
-        step: 'audit',
-        message: 'The moderation audit record could not be saved.',
-      });
-    }
+    const audit = await recordAuditLog({
+      actor: adminActor,
+      actorId: req.user && (req.user._id || req.user.id),
+      role: (req.user && req.user.role) || 'Admin',
+      action: alreadyResolved ? 'MODERATION_REPORT_RETRY' : 'MODERATION_REPORT_RESOLVED',
+      details: alreadyResolved
+        ? `Moderation report ${id} for scholarship "${report.listingTitle || 'Unknown scholarship'}" (ID: ${report.listingId || 'unknown'}) kept outcome ${report.resolution || action || 'Resolved'}.`
+        : `Moderation report ${id} for scholarship "${report.listingTitle || 'Unknown scholarship'}" (ID: ${report.listingId || 'unknown'}) resolved with outcome ${action || report.resolution || 'Resolved'}.`,
+      ipAddress: req.ip || req.headers?.['x-forwarded-for'] || '127.0.0.1',
+      severity: 'Info'
+    });
+    rememberAuditFailure(followUpErrors, audit);
 
-    if (followUpErrors.length > 0) {
-      return res.status(500).json({
-        success: false,
-        message: alreadyResolved
-          ? 'The saved resolution was kept, but a follow-up step failed.'
-          : 'The report was updated, but a follow-up step failed.',
-        errors: followUpErrors,
-        data: report,
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: alreadyResolved
+    return sendModerationResult(res, {
+      followUpErrors,
+      failureMessage: alreadyResolved
+        ? 'The saved resolution was kept, but a follow-up step failed.'
+        : 'The report was updated, but a follow-up step failed.',
+      successMessage: alreadyResolved
         ? 'The existing resolution was kept.'
         : 'Report updated successfully.',
       data: report,

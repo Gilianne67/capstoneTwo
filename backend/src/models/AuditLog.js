@@ -8,9 +8,15 @@ const auditLogSchema = new mongoose.Schema(
       trim: true,
       index: true
     },
+    // Optional stable account id. Older rows omit it and stay valid.
+    actorId: {
+      type: String,
+      trim: true,
+      maxlength: 64,
+    },
     role: {
       type: String,
-      enum: ['Admin', 'Provider', 'Student', 'System'],
+      enum: ['Admin', 'Superadmin', 'Provider', 'Student', 'System'],
       default: 'System',
       index: true
     },
@@ -18,7 +24,7 @@ const auditLogSchema = new mongoose.Schema(
       type: String,
       required: [true, 'Audit action code is required'],
       trim: true,
-      index: true // e.g. 'USER_LOGIN', 'TAXONOMY_CREATE', 'DOCUMENT_VIEW'
+      index: true // e.g. 'USER_LOGIN', 'EXPORT_LOGS', 'DOCUMENT_VIEW'
     },
     details: {
       type: String,

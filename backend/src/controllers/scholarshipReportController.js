@@ -1,7 +1,9 @@
 const mongoose = require('mongoose');
 const Report = require('../models/Report');
 const Scholarship = require('../models/Scholarship');
+const { isProviderAccountSuspended } = require('../services/suspendedProviderFilter');
 const Provider = require('../models/Provider');
+const { recordAuditLog, withAuditWarning } = require('./auditController');
 
 const REPORT_CATEGORIES = [
   'Incorrect or misleading information',
@@ -108,6 +110,13 @@ const createScholarshipReport = async (req, res) => {
       });
     }
 
+    if (await isProviderAccountSuspended(scholarship.providerId)) {
+      return res.status(404).json({
+        success: false,
+        message: 'Scholarship not found.',
+      });
+    }
+
     if (scholarship.isArchived === true) {
       return res.status(400).json({
         success: false,
@@ -147,11 +156,21 @@ const createScholarshipReport = async (req, res) => {
       resolution: 'NONE',
     });
 
-    return res.status(201).json({
+    const audit = await recordAuditLog({
+      actor: req.user?.name || req.user?.email || reporterId,
+      actorId: reporterId,
+      role: 'Student',
+      action: 'SCHOLARSHIP_REPORTED',
+      details: `Student ${reporterId} reported scholarship ${scholarship._id} (report ${report._id}). Category: ${category}.`,
+      ipAddress: req.ip || req.headers?.['x-forwarded-for'] || '127.0.0.1',
+      severity: 'Warning',
+    });
+
+    return res.status(201).json(withAuditWarning({
       success: true,
       message: 'Scholarship report submitted.',
       data: report,
-    });
+    }, audit));
   } catch (error) {
     if (isDuplicateKeyError(error)) {
       return res.status(409).json({

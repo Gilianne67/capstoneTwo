@@ -207,7 +207,7 @@ Check a row only after the case in `REGRESSION_TEST_CASES.md` has a status.
 - [ ] ADMIN-001 Admin login
 - [ ] ADMIN-002 Dashboard loads
 - [ ] ADMIN-003 Pending verification count
-- [ ] ADMIN-004 Consent metric does not track live consent
+- [ ] ADMIN-004 Guardian consent waiting count
 - [ ] ADMIN-005 Queue filters
 - [ ] ADMIN-006 Details and document
 - [ ] ADMIN-007 Approve persists and unlocks provider
@@ -215,7 +215,6 @@ Check a row only after the case in `REGRESSION_TEST_CASES.md` has a status.
 - [ ] ADMIN-009 Reject persists and blocks login
 - [ ] ADMIN-010 Admin API RBAC
 - [ ] ADMIN-011 Content Moderation prototype
-- [ ] ADMIN-012 Taxonomy prototype
 - [ ] ADMIN-013 Audit prototype
 - [ ] ADMIN-014 Settings prototype
 - [ ] ADMIN-015 Admin notifications prototype
@@ -354,7 +353,7 @@ Stop the staging release if any case here fails.
 | SAVE-004 | Save survives login |
 | NOTIF-001 | Deadline alert for a saved scholarship inside 7 days |
 | ADMIN-001 | Admin login |
-| ADMIN-002 | Dashboard counts load from the API |
+| ADMIN-002 | Operations dashboard current totals, pending actions, activity, and alerts |
 | ADMIN-007 | Approve from the admin UI |
 | ADMIN-008 | Reject reason required |
 | ADMIN-010 | Admin APIs reject other roles |
@@ -382,7 +381,7 @@ E2E-003, E2E-004, E2E-005, and E2E-007 are not in every staging smoke run becaus
 
 Run every ID in section A before a prototype presentation or final defense.
 
-That is 220 cases:
+That is 219 cases:
 
 | Module | IDs | Count |
 | --- | --- | --- |
@@ -397,13 +396,13 @@ That is 220 cases:
 | Matching | MATCH-001–MATCH-028 | 28 |
 | Saved scholarships | SAVE-001–SAVE-008 | 8 |
 | Notifications | NOTIF-001–NOTIF-009 | 9 |
-| Admin | ADMIN-001–ADMIN-018 | 18 |
+| Admin | ADMIN-001–ADMIN-011, ADMIN-013–ADMIN-018 | 17 |
 | Document security | DOC-001–DOC-008 | 8 |
 | Navigation | NAV-001–NAV-018 | 18 |
 | Security | SEC-001–SEC-012 | 12 |
 | End to end | E2E-001–E2E-007 | 7 |
 
-Include the prototype cases ADMIN-011 through ADMIN-016, PROV-011, and NAV-017. A pass means the screen tells the truth about not saving. A pass does not mean the feature stores data.
+Include the prototype cases ADMIN-011 and ADMIN-013 through ADMIN-016, PROV-011, and NAV-017. A pass means the screen tells the truth about not saving. A pass does not mean the feature stores data.
 
 Skip SEC-010 on a shared staging server. It can lock the IP for 10 minutes.
 
@@ -419,15 +418,15 @@ Skip SEC-010 on a shared staging server. It can lock the IP for 10 minutes.
 | Matching service or course catalog | MATCH-001–MATCH-028, SEARCH-001–SEARCH-009, SCH-015–SCH-017, E2E-001, E2E-005, E2E-006 | Admin prototype pages, forgot password |
 | Scholarship model or `CreateListing` / scholarship controller | SCH-001–SCH-020, MATCH-022–MATCH-024, SEARCH-003–SEARCH-005, E2E-005 | Consent, admin settings |
 | Provider onboarding or verification | PROV-001–PROV-012, VER-001–VER-014, ADMIN-003, ADMIN-005–ADMIN-010, DOC-001–DOC-008, E2E-002, E2E-003, E2E-007 | GWA score math |
-| Saved scholarships | SAVE-001–SAVE-008, NOTIF-001–NOTIF-007 | Admin taxonomy |
+| Saved scholarships | SAVE-001–SAVE-008, NOTIF-001–NOTIF-007 | Admin settings |
 | Notification service or Deadline Alerts | NOTIF-001–NOTIF-009, SAVE-005, SAVE-006 | Course alias cases |
 | Admin dashboard or verification queue | ADMIN-001–ADMIN-010, ADMIN-017, VER-003–VER-013 | Homepage simulator |
-| Admin prototype pages only | ADMIN-011–ADMIN-016 | Matching, consent, documents |
+| Admin prototype pages only | ADMIN-011, ADMIN-013–ADMIN-016 | Matching, consent, documents |
 | Document routes | DOC-001–DOC-008, SEC-008, VER-004 | Ranking weights |
 | `App.jsx` routes or sidebar | NAV-001–NAV-018, AUTH-011–AUTH-016, AUTH-020 | Score arithmetic, unless a route to Match Feed moved |
 | Security middleware only | SEC-001–SEC-012, AUTH-003, AUTH-009–AUTH-014, DOC-001–DOC-003, DOC-007 | Prototype copy, unless middleware blocks those pages |
 | Any staging merge, unknown blast radius | Section B smoke | Nothing in section B |
-| Presentation or final defense | Section C, all 220 | Only SEC-010 on shared staging |
+| Presentation or final defense | Section C, all 219 | Only SEC-010 on shared staging |
 
 When two rows apply, run the union. Do not skip a smoke case because the change looks unrelated if the diff touches auth, matching, scholarships, or routing.
 
@@ -479,7 +478,6 @@ These are current product limits. A test fails when the UI hides the limit or cl
 | Surface | What is true today | Cases |
 | --- | --- | --- |
 | Content Moderation | Not stored. Resolve and remove are not saved. | ADMIN-011, ADMIN-018 |
-| Taxonomy & Tags | Not stored. Tags added here do not change scholarships. | ADMIN-012, SCH-020 |
 | Audit & Compliance | No audit log is connected. Summary text says it is not evaluated. | ADMIN-013 |
 | System Settings | Controls do not save. Password change on that screen is unavailable. | ADMIN-014 |
 | Admin Notifications | Broadcasts are not sent. Mark-read is not saved. | ADMIN-015 |
@@ -487,7 +485,6 @@ These are current product limits. A test fails when the UI hides the limit or cl
 | Provider analytics | No analytics route. The page shows simulated metrics and says the API is offline. | PROV-011 |
 | Homepage featured scholarships | Fixed CHED, DOST-SEI, and SM cards. Not the database. | NAV-017 |
 | Homepage eligibility checker | Labeled Instant Matching Simulator. Local arithmetic only. | NAV-017 |
-| Pending Minor Consents on the admin dashboard | Counts `ParentalConsent` documents. The live minor flow stores consent on the user and does not add those documents. | ADMIN-004 |
 | Forgot password | API returns success and logs a link. There is no reset page and no working reset email. | AUTH-022 |
 | Application tracker | `ApplicationTracker.jsx` is not routed. | NAV-013 |
 | Custom eligibility requests | A provider can submit a request. No admin screen approves it into matching. | SCH-020 |

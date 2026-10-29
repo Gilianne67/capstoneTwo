@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Bell, LogOut, Loader2, User as UserIcon, WifiOff } from 'lucide-react';
 import Sidebar from '../components/navigation/SideBar';
+import BroadcastBanner from '../components/common/BroadcastBanner';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config/api';
 import { resolveAccountMenuInitial, resolveAccountMenuName } from '../features/auth/accountMenuName';
@@ -116,7 +117,7 @@ export default function AppLayout() {
     ? '/dashboard/admin/settings'
     : role === 'student'
       ? '/dashboard/student/profile'
-      : '/dashboard/provider';
+      : null;
 
   if (loading) {
     return (
@@ -185,17 +186,21 @@ export default function AppLayout() {
               {/* User Dropdown Popup */}
               {isUserMenuOpen && (
                 <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-lg py-1 z-30">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsUserMenuOpen(false);
-                      navigate(settingsPath);
-                    }}
-                    className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
-                  >
-                    <UserIcon className="w-3.5 h-3.5 text-slate-400" /> Account Settings
-                  </button>
-                  <div className="my-1 border-t border-slate-100" />
+                  {settingsPath && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsUserMenuOpen(false);
+                          navigate(settingsPath);
+                        }}
+                        className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                      >
+                        <UserIcon className="w-3.5 h-3.5 text-slate-400" /> Account Settings
+                      </button>
+                      <div className="my-1 border-t border-slate-100" />
+                    </>
+                  )}
                   <button
                     type="button"
                     onClick={handleLogout}
@@ -216,6 +221,7 @@ export default function AppLayout() {
 
         {/* Dashboard Content Area */}
         <main className="flex-1 p-6 max-w-7xl w-full mx-auto">
+          {(isStudentRole || isProviderRole) && <BroadcastBanner />}
           <Outlet context={{ session: user, role, isUsingMockData }} />
         </main>
       </div>
