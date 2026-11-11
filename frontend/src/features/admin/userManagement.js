@@ -9,7 +9,7 @@ export const ACCOUNT_STATUS_FILTERS = [
   { value: 'all', label: 'All statuses' },
   { value: 'active', label: 'Active' },
   { value: 'suspended', label: 'Suspended' },
-  { value: 'pending_consent', label: 'Pending consent' },
+  { value: 'pending_consent', label: 'Under 18' },
 ];
 
 const readSearchValue = (params, key) => {
@@ -74,7 +74,7 @@ export function providerVerificationPath(providerId) {
 
 /**
  * UI hint only. The status endpoint still rejects unauthorized changes.
- * pending_consent is not an action this screen can send.
+ * pending_consent is retained for existing under-18 records and cannot be assigned here.
  */
 export function statusActionFor(actor, target) {
   if (!target) return { allowed: false, reason: 'missing' };

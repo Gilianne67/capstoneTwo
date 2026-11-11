@@ -4,7 +4,6 @@ const {
   getAdminDashboard,
   updateProviderVerification,
   updateScholarshipStatus,
-  updateConsentStatus,
   getPendingProviders,
   getProviderById,
   reviewProviderApplication,
@@ -86,7 +85,6 @@ router.patch(
 );
 router.get('/scholarships', getAdminScholarships);
 router.patch('/scholarships/:id/status', updateScholarshipStatus);
-router.patch('/parental-consent/:id/status', updateConsentStatus);
 
 // GET /api/v1/admin/users - Paginated directory. Search name/email and filter by role.
 router.get('/users', getAdminUsers);

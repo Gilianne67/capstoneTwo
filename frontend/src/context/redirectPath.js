@@ -1,7 +1,6 @@
 /**
  * Post-login and session redirect target.
- * Pending guardian consent stays on the parental consent waiting screen. 
- * It does not open the dashboard or the onboarding form.
+ * Students go to onboarding until their profile is saved, then to the dashboard.
  */
 export function isFinalProviderRejection(userData) {
   return Boolean(userData?.isFinalRejection ?? userData?.is_final_rejection);
@@ -27,8 +26,6 @@ export function resolveRedirectPath(userData) {
     userData?.verification_status ||
     ''
   ).toLowerCase();
-  const status = String(userData?.status || '').toLowerCase();
-
   if (role === 'provider') {
     if (!isOnboarded) {
       return '/provider/onboarding';
@@ -48,9 +45,6 @@ export function resolveRedirectPath(userData) {
   }
 
   if (role === 'student') {
-    if (status === 'pending_consent') {
-      return '/consent/verify';
-    }
     if (!isOnboarded) {
       return '/onboarding';
     }
@@ -72,12 +66,10 @@ const providerIsOnboarded = (userData) =>
   Boolean(userData?.isOnboarded ?? userData?.is_onboarded);
 
 /**
- * The guardian consent screen stays reachable without a session. Guardians
- * open the emailed link before they have an account. Student onboarding
- * requires the account created at registration.
+ * Student and provider onboarding require the account created at registration.
  */
-export function isSessionOptionalRoute(pathname) {
-  return pathname === '/consent/verify';
+export function isSessionOptionalRoute() {
+  return false;
 }
 
 const studentIsOnboarded = (userData) =>
@@ -85,8 +77,6 @@ const studentIsOnboarded = (userData) =>
 
 export function canAccessStudentOnboarding(userData) {
   if (userData?.role?.toLowerCase() !== 'student') return false;
-  const status = String(userData?.status || '').toLowerCase();
-  if (status === 'pending_consent') return false;
   return !studentIsOnboarded(userData);
 }
 

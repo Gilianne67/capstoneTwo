@@ -40,8 +40,8 @@ assert.equal(endedSessionReason(403, {
 
 assert.equal(endedSessionReason(403, {
   success: false,
-  requiresConsent: true,
-  message: 'Your account is waiting for parental consent.',
+  underage: true,
+  message: 'ISKOLARMATCH is currently available only to students aged 18 and above.',
 }), null);
 
 assert.equal(endedSessionReason(401, {
@@ -68,13 +68,13 @@ assert.equal(isPublicAuthPath('/login'), true);
 assert.equal(isPublicAuthPath('/reset-password/abc'), true);
 assert.equal(isPublicAuthPath('/verify-email/abc'), true);
 assert.equal(isPublicAuthPath('/verify-holding'), true);
-assert.equal(isPublicAuthPath('/consent/verify'), true);
+assert.equal(isPublicAuthPath('/consent/verify'), false);
 assert.equal(isPublicAuthPath('/onboarding'), false);
 assert.equal(isPublicAuthPath('/'), true);
 assert.equal(isPublicAuthPath('/dashboard/student'), false);
 
 assert.equal(signInPathAfterSessionEnd('/onboarding'), '/auth?mode=signin');
-assert.equal(signInPathAfterSessionEnd('/consent/verify'), null);
+assert.equal(signInPathAfterSessionEnd('/consent/verify'), '/auth?mode=signin');
 assert.equal(signInPathAfterSessionEnd('/dashboard/student'), '/auth?mode=signin');
 assert.equal(signInPathAfterSessionEnd('/dashboard/provider'), '/auth?mode=signin');
 assert.equal(signInPathAfterSessionEnd('/auth'), null);

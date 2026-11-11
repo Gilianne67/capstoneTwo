@@ -102,6 +102,7 @@ const student = {
   id: STUDENT_ID,
   role: 'student',
   status: 'active',
+  dob: new Date('2000-01-15T00:00:00.000Z'),
 };
 
 const admin = {
@@ -792,6 +793,7 @@ const runDatabaseTests = async () => {
       role: 'student',
       status: 'active',
       isVerified: true,
+      dob: new Date('2000-01-15T00:00:00.000Z'),
     });
     const adminUser = await User.create({
       name: `${MARKER} Admin`,

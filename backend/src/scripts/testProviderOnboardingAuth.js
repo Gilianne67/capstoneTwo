@@ -36,6 +36,7 @@ const users = {
     id: 'student-a',
     role: 'student',
     status: 'active',
+    dob: new Date('2000-01-15T00:00:00.000Z'),
     email: 'student.a@example.com',
     name: 'Student A',
   },

@@ -89,17 +89,12 @@ const UserSchema = new mongoose.Schema(
       type: String,
     },
 
-    // Onboarding & Parental Consent fields
     dob: { type: Date },
     course: { type: String, trim: true },
     yearLevel: { type: String, trim: true },
     gpa: { type: Number },
     region: { type: String, trim: true },
     householdIncome: { type: String },
-    guardianName: { type: String, trim: true },
-    guardianEmail: { type: String, lowercase: true, trim: true },
-    consentToken: { type: String },
-    consentApprovedAt: { type: Date },
   },
   { timestamps: true }
 );

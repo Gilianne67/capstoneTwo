@@ -85,13 +85,13 @@ Every case below includes: Test Case ID, Module, Feature, Test Scenario, Precond
 - **Feature:** Student registration
 - **Test Scenario:** A visitor can register as a student and receive a session.
 - **Preconditions:** The email has never been used.
-- **Test Data:** Name `QA Student`, email `qa.auth001.<stamp>@example.com`, password `Secret1`, role Student.
+- **Test Data:** Name `QA Student`, email `qa.auth001.<stamp>@example.com`, password `Secret1`, role Student, date of birth `2004-05-15`.
 - **Steps:**
   1. Open `http://localhost:5173/auth?mode=signup`.
   2. Leave the role on **Student**.
-  3. Enter the name, email, and password.
+  3. Enter the name, email, password, and date of birth.
   4. Submit the form.
-- **Expected Result:** Registration succeeds. The browser stores a token. The address becomes `/onboarding`. `POST /api/v1/auth/register` returns `201` with `role` `student`, `isOnboarded` false, and `status` `active`.
+- **Expected Result:** Registration succeeds. The browser stores a token. The address becomes `/onboarding`. `POST /api/v1/auth/register` returns `201` with `role` `student`, `isOnboarded` false, and `status` `active`. A student request without a date of birth returns `400`.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** Critical
@@ -510,7 +510,7 @@ Every case below includes: Test Case ID, Module, Feature, Test Scenario, Precond
 - **Feature:** Registration creates a student account
 - **Test Scenario:** Signup creates a student user and opens onboarding.
 - **Preconditions:** Unused email.
-- **Test Data:** Name `QA Student Onboard`, email `qa.stu001.<stamp>@example.com`, password `Secret1`.
+- **Test Data:** Name `QA Student Onboard`, email `qa.stu001.<stamp>@example.com`, password `Secret1`, date of birth `2004-05-15`.
 - **Steps:**
   1. Register as Student.
   2. Confirm the landing page.
@@ -532,7 +532,7 @@ Every case below includes: Test Case ID, Module, Feature, Test Scenario, Precond
 - **Test Data:** Date of birth `2004-05-15`, academic level `College`, year `2nd Year`, course `BS Computer Science`, GWA `1.50`, region `Bicol Region`, income `Below ₱10,000 / month`.
 - **Steps:**
   1. Fill every required onboarding field.
-  2. Confirm guardian fields are hidden.
+  2. Confirm the form has no guardian name or guardian email.
   3. Submit **Activate Profile**.
   4. On the "Get Better Scholarship Matches" dialog, choose the profile or dashboard action.
   5. Open Student Profile.
@@ -566,36 +566,36 @@ Every case below includes: Test Case ID, Module, Feature, Test Scenario, Precond
 
 - **Module:** Student Registration & Onboarding
 - **Feature:** Adult student
-- **Test Scenario:** A student 18 or older is not asked for a guardian.
+- **Test Scenario:** A student who is exactly 18 can continue onboarding.
 - **Preconditions:** Student on `/onboarding`.
-- **Test Data:** Date of birth at least 18 years before today.
+- **Test Data:** The calendar date of the student's 18th birthday.
 - **Steps:**
   1. Enter that date of birth.
   2. Inspect the form.
-- **Expected Result:** The parent/guardian block is not shown. The button reads **Activate Profile**. Submit does not set `status` to `pending_consent`.
+- **Expected Result:** No guardian fields are shown. The button reads **Activate Profile**. Submit does not set `status` to `pending_consent` and does not ask for guardian approval.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** High
 - **Test Type:** Positive
 - **Regression Required?** Full regression
-- **Notes:** Age is calculated in the browser from the date of birth.
+- **Notes:** Age is calculated from the calendar date. Exactly 18 is accepted.
 
 ### STU-005
 
 - **Module:** Student Registration & Onboarding
-- **Feature:** Minor identification on the form
-- **Test Scenario:** A date of birth under 18 reveals guardian fields.
-- **Preconditions:** Student on `/onboarding`.
+- **Feature:** Under-18 registration is rejected
+- **Test Scenario:** A date of birth under 18 cannot create a student account.
+- **Preconditions:** Signed out. Unused email.
 - **Test Data:** Date of birth less than 18 years before today.
 - **Steps:**
-  1. Enter that date of birth.
-- **Expected Result:** A **Parent / Guardian Consent Required (Under 18)** section appears. Guardian name and guardian email are required. The button reads **Submit & Send Guardian Email**.
+  1. On student signup, enter that date of birth and submit.
+- **Expected Result:** The form shows `ISKOLARMATCH is currently available only to students aged 18 and above.` No guardian section appears. No account is created. Direct registration with the same date returns `400` and the same sentence.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** Critical
-- **Test Type:** Positive
+- **Test Type:** Negative
 - **Regression Required?** Critical smoke
-- **Notes:** Approval behavior is covered in the consent module.
+- **Notes:** Access after registration is covered by AGE-005 through AGE-009.
 
 ### STU-006
 
@@ -870,237 +870,244 @@ Every case below includes: Test Case ID, Module, Feature, Test Scenario, Precond
 
 ---
 
-# 4. MINOR / GUARDIAN CONSENT
+# 4. ADULT-ONLY STUDENT ACCESS
 
-### CONSENT-001
+Students must be 18 or older. Registration, onboarding, login, and protected student routes all use the calendar date of birth. A missing date is not treated as proof that the student is an adult. Existing user and student-profile records are left in place when access is denied. Provider and administrator accounts are not age-checked. Logout still accepts a token so it can be revoked.
 
-- **Module:** Minor / Guardian Consent
-- **Feature:** Minor identification
-- **Test Scenario:** Age under 18 is treated as a minor during onboarding.
-- **Preconditions:** New student account.
-- **Test Data:** Date of birth `2012-01-15`.
+There is no guardian email, guardian consent form, consent token, or `/consent/verify` page. `GET /api/v1/consent/verify`, `POST /api/v1/consent/approve`, and `POST /api/v1/consent/resend` return `404`.
+
+Login and protected-route denials return `403` with `success: false`, `code`, `message`, and `underage`. Registration denials return `400` with `error` set to the same sentence the form shows.
+
+### AGE-001
+
+- **Module:** Adult-only student access
+- **Feature:** Under-18 registration
+- **Test Scenario:** A student younger than 18 cannot register from the form or from a direct API call.
+- **Preconditions:** Unused email. Signed out.
+- **Test Data:** Date of birth that is 17 years before today. Name `QA Minor`, email `qa.age001.<stamp>@example.com`, password `Secret1`.
 - **Steps:**
-  1. Open `/onboarding`.
-  2. Enter that date of birth.
-- **Expected Result:** The form sets the minor state and shows the guardian section.
+  1. Open `/auth?mode=signup` as Student.
+  2. Enter the name, email, password, and that date of birth.
+  3. Submit.
+  4. Repeat with `POST /api/v1/auth/register` and the same body, including `role: "student"` and `dateOfBirth`.
+- **Expected Result:** The form shows `ISKOLARMATCH is currently available only to students aged 18 and above.` The API returns `400` and that same sentence. No user row is created. No guardian fields appear.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** Critical
-- **Test Type:** Positive
+- **Test Type:** Negative / Security
 - **Regression Required?** Critical smoke
-- **Notes:** The cutoff is the 18th birthday in the browser's local date calculation.
+- **Notes:** Calculate age from the calendar date. Do not use a date that only looks under 18 because of timezone conversion.
 
-### CONSENT-002
+### AGE-002
 
-- **Module:** Minor / Guardian Consent
-- **Feature:** Guardian name and email required
-- **Test Scenario:** A minor cannot submit without guardian name and email.
-- **Preconditions:** Minor date of birth entered. Other onboarding fields valid.
-- **Test Data:** Blank guardian name and blank guardian email.
+- **Module:** Adult-only student access
+- **Feature:** Registration date validation
+- **Test Scenario:** Invalid, future, and missing dates are rejected. A student who is exactly 18 or older is accepted.
+- **Preconditions:** Unused emails. Signed out.
+- **Test Data:** `2024-02-31`; tomorrow's date; a body with no `dateOfBirth`; the calendar date of the 18th birthday; a date at least 19 years before today.
 - **Steps:**
-  1. Submit the form.
-  2. Call `POST /api/v1/user/onboarding` with `isMinor: true` and no `guardianEmail`.
-- **Expected Result:** The form does not finish onboarding. The API returns `400` and `Guardian email is required for minors.` Status does not become `pending_consent` for that failed request.
+  1. `POST /api/v1/auth/register` once for each payload, role `student`.
+  2. For the two adult dates, call `GET /api/v1/auth/me` with the returned token.
+- **Expected Result:** Invalid returns `400` and `Date of birth is invalid.` Future returns `400` and `Date of birth cannot be in the future.` Missing returns `400` and `Date of birth is required.` Exactly 18 and 19 or older return `201`, role `student`, `status` `active`, and `isOnboarded` false. The stored date matches the submitted calendar date.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** Critical
 - **Test Type:** Validation
 - **Regression Required?** Critical smoke
-- **Notes:** The form also marks guardian name required.
+- **Notes:** Provider registration does not send a date of birth. That case is AGE-010.
 
-### CONSENT-003
+### AGE-003
 
-- **Module:** Minor / Guardian Consent
-- **Feature:** Student cannot use their own email as guardian email
-- **Test Scenario:** Guardian email equal to the student email is rejected.
-- **Preconditions:** Minor onboarding otherwise valid.
-- **Test Data:** Guardian email exactly equal to the student account email, including different letter case.
+- **Module:** Adult-only student access
+- **Feature:** Under-18 onboarding
+- **Test Scenario:** Onboarding rejects a date of birth under 18 and does not save a profile.
+- **Preconditions:** Student account created with an adult date of birth, still on `/onboarding`.
+- **Test Data:** Date of birth `2012-01-15`. Other required onboarding fields filled with the shared College profile.
 - **Steps:**
-  1. Enter the student's own email in Guardian email.
-  2. Submit.
-- **Expected Result:** The form shows that the guardian email cannot match the student email. The API returns `400` and `Guardian email cannot be the same as your student account email.`
+  1. Submit onboarding with that date of birth.
+  2. Confirm `POST /api/v1/user/onboarding`.
+- **Expected Result:** `400` and `ISKOLARMATCH is currently available only to students aged 18 and above.` `isOnboarded` stays false. No student profile is stored. Status stays `active`.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** Critical
-- **Test Type:** Negative / Validation
-- **Regression Required?** Critical smoke
-- **Notes:**
+- **Test Type:** Negative
+- **Regression Required?** Full regression
+- **Notes:** The form does not reveal guardian name or guardian email for this date.
 
-### CONSENT-004
+### AGE-004
 
-- **Module:** Minor / Guardian Consent
-- **Feature:** Consent email and token generation
-- **Test Scenario:** Valid minor onboarding stores a guardian and attempts a consent email.
-- **Preconditions:** SMTP may be unconfigured. That must not be treated as a missing feature.
-- **Test Data:** Guardian name `QA Guardian`, guardian email `qa.guardian.<stamp>@example.com`, other minor onboarding fields valid.
+- **Module:** Adult-only student access
+- **Feature:** Adult onboarding
+- **Test Scenario:** An adult student finishes onboarding without a guardian and the profile remains after logout and login.
+- **Preconditions:** AGE-002 adult account, not yet onboarded.
+- **Test Data:** Shared adult college profile. Also send `guardianName` and `guardianEmail` in the API body.
 - **Steps:**
-  1. Submit minor onboarding.
-  2. Read the API response and the server log.
-- **Expected Result:** Response is `200` and `Onboarding completed. Consent email sent to guardian.` User status is `pending_consent`, `isOnboarded` is true, and guardian name and email are stored. The server log contains a consent link of the form `<client>/consent/verify?token=...`. If SMTP fails, the API can still return success and the log contains `MAILER ERROR`. Record the log link so CONSENT-007 can be executed.
+  1. Submit onboarding from the form.
+  2. Read the student profile.
+  3. Log out, log in, and read the profile again.
+- **Expected Result:** `200`. Status stays `active`. `isOnboarded` is true. Course, academic level, year, GWA, region, and date of birth match the form. `isMinor` is false. Guardian name and email are not stored. The same values are present after the new login. No consent screen appears.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** Critical
-- **Test Type:** Positive
+- **Test Type:** Positive / Persistence
 - **Regression Required?** Critical smoke
-- **Notes:** After minor onboarding, the Operations Dashboard count "Students awaiting guardian consent" includes this student. That count reads `User.status` of `pending_consent`. The dashboard does not approve consent.
+- **Notes:** A data-privacy checkbox on the form is not guardian consent.
 
-### CONSENT-005
+### AGE-005
 
-- **Module:** Minor / Guardian Consent
-- **Feature:** Pending consent state
-- **Test Scenario:** After minor onboarding, the student sees the waiting screen.
-- **Preconditions:** CONSENT-004 completed in this session.
-- **Test Data:** That minor student.
+- **Module:** Adult-only student access
+- **Feature:** Active student with no date of birth
+- **Test Scenario:** An active student with no date of birth on the user record or the student profile cannot log in.
+- **Preconditions:** Existing student, `status` `active`, `isVerified` true, `User.dob` empty, and no `StudentProfile.dateOfBirth`. Do not delete or edit the record except to confirm those fields are empty.
+- **Test Data:** That account.
 - **Steps:**
-  1. Stay on the onboarding result.
-  2. Refresh `/onboarding`.
-- **Expected Result:** The page states that a verification link was sent to the guardian email. It does not open the student dashboard.
+  1. `POST /api/v1/auth/login` with the correct password.
+  2. Read the user record again.
+- **Expected Result:** `403`, `code` `DOB_UNVERIFIED`, `underage` false, and `This account cannot access the platform until a valid date of birth is provided and verified.` No token. The user row, status, and empty date of birth are unchanged.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** Critical
-- **Test Type:** Positive
+- **Test Type:** Security
 - **Regression Required?** Critical smoke
-- **Notes:**
+- **Notes:** Do not treat a missing date as age 18 or older.
 
-### CONSENT-006
+### AGE-006
 
-- **Module:** Minor / Guardian Consent
-- **Feature:** Student blocked while consent is pending
-- **Test Scenario:** A pending-consent student cannot use the dashboard, matching, or a new login.
-- **Preconditions:** User status `pending_consent`. Token from registration may still be in the browser until the next protected student call.
-- **Test Data:** That student.
+- **Module:** Adult-only student access
+- **Feature:** Existing token without a date of birth
+- **Test Scenario:** A JWT already issued to a student with no date of birth cannot open protected student routes. Logout still revokes it.
+- **Preconditions:** AGE-005 account. A token signed for that user, or a token captured before the date of birth was removed.
+- **Test Data:** Bearer token and the same token in the `token` cookie.
 - **Steps:**
-  1. Open `/dashboard/student`.
-  2. Call `GET /api/v1/matching` with the student token.
-  3. Log out and try to sign in again.
-- **Expected Result:** Dashboard navigation returns to `/onboarding`. Matching returns `403` with `requiresConsent: true` and the parental-consent message. Login returns the same `403` and does not issue a usable dashboard session.
+  1. `GET /api/v1/students/profile` with the bearer token.
+  2. `GET /api/v1/auth/me` with the cookie.
+  3. `GET /api/v1/matching`.
+  4. `GET /api/v1/auth/logout` with the bearer token.
+  5. Repeat the profile request with the logged-out token.
+- **Expected Result:** The first three return `403`, `code` `DOB_UNVERIFIED`, and the missing-date message. Logout returns `200`. The reused token then returns `401`. The account is not deleted.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** Critical
-- **Test Type:** Negative / Security
+- **Test Type:** Security
 - **Regression Required?** Critical smoke
-- **Notes:**
+- **Notes:** The age decision is loaded from the database. A date-of-birth claim inside the JWT does not grant access.
 
-### CONSENT-007
+### AGE-007
 
-- **Module:** Minor / Guardian Consent
-- **Feature:** Guardian approval
-- **Test Scenario:** Opening the consent link and approving activates the student.
-- **Preconditions:** A consent link from the server log in CONSENT-004. The token is unused.
-- **Test Data:** That token.
+- **Module:** Adult-only student access
+- **Feature:** Date of birth stored only on the user
+- **Test Scenario:** A student whose only date of birth is `User.dob` is allowed when that date is 18 or older and rejected when it is under 18, invalid, or in the future.
+- **Preconditions:** No student profile for these accounts. Records are not deleted by the test.
+- **Test Data:** One adult date, one date under 18, one invalid stored value, and one future stored date.
 - **Steps:**
-  1. Open `/consent/verify?token=<token>` while signed out.
-  2. Confirm the student name is shown.
-  3. Approve consent.
-  4. Call `GET /api/v1/consent/verify?token=<token>` and then `POST /api/v1/consent/approve` with `{ "token": "<token>" }` if the screen is unclear.
-- **Expected Result:** Verify returns `200` and the student summary. Approve returns `200` and `Account verified successfully.` The user status becomes `active` and `consentApprovedAt` is set.
-- **Actual Result:**
-- **Status:** Not Run
-- **Priority:** Critical
-- **Test Type:** Positive
-- **Regression Required?** Critical smoke
-- **Notes:** The verify page is public. It does not require the student to be signed in.
-
-### CONSENT-008
-
-- **Module:** Minor / Guardian Consent
-- **Feature:** Student becomes active after approval
-- **Test Scenario:** The student can sign in after guardian approval.
-- **Preconditions:** CONSENT-007 passed. Student is onboarded.
-- **Test Data:** Minor student email and password.
-- **Steps:**
-  1. Sign in.
-  2. Open `/dashboard/student`.
-- **Expected Result:** Login returns `200`. The student is not sent back to the consent waiting screen. The dashboard opens. Status remains `active` after refresh.
-- **Actual Result:**
-- **Status:** Not Run
-- **Priority:** Critical
-- **Test Type:** Positive
-- **Regression Required?** Critical smoke
-- **Notes:** Province and municipality may still be empty, so Match Feed can still show the complete-profile message. That is profile completion, not consent.
-
-### CONSENT-009
-
-- **Module:** Minor / Guardian Consent
-- **Feature:** Adult student does not require guardian consent
-- **Test Scenario:** Adult onboarding never enters `pending_consent`.
-- **Preconditions:** New student.
-- **Test Data:** Date of birth `2004-05-15`, no guardian fields, `isMinor` false.
-- **Steps:**
-  1. Complete adult onboarding.
-  2. Sign out and sign in.
-- **Expected Result:** Status is `active`. No guardian email is stored. Login is allowed. No consent screen appears.
+  1. Log in as each account.
+  2. For the adult account, call `GET /api/v1/students/profile`.
+- **Expected Result:** The adult login returns `200` and a token. The profile route is not blocked for age. The under-18 login returns `403`, `code` `UNDERAGE_STUDENT`, `underage` true, and the 18+ sentence, with no token. Invalid returns `403` and `Date of birth is invalid.` Future returns `403` and `Date of birth cannot be in the future.` Stored values are unchanged.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** High
-- **Test Type:** Positive
+- **Test Type:** Security
 - **Regression Required?** Full regression
 - **Notes:**
 
-### CONSENT-010
+### AGE-008
 
-- **Module:** Minor / Guardian Consent
-- **Feature:** Unauthorized consent resend
-- **Test Scenario:** Only the pending student can resend their own consent email.
-- **Preconditions:** One pending-consent student and one other account.
-- **Test Data:** Other account token. Body may include the pending student's user id.
+- **Module:** Adult-only student access
+- **Feature:** Date of birth stored only on the student profile
+- **Test Scenario:** When `User.dob` is empty, the profile date of birth is used. It is not copied onto the user record by the access check.
+- **Preconditions:** One adult profile date and one under-18 profile date. Both users have no `User.dob`.
+- **Test Data:** Those two accounts.
 - **Steps:**
-  1. Call `POST /api/v1/consent/resend` with no token.
-  2. Call it as a provider or as an active adult student.
-  3. As the pending student, call it with a different `userId`.
-  4. As the pending student, call it with a different `guardianEmail`.
-- **Expected Result:**
-  - No token: `401`.
-  - Wrong role or status: `403` and `Only a student awaiting guardian consent can resend the consent email.`
-  - Different user id: `403` and `You can only resend consent for your own account.`
-  - Different guardian email: `400` and `Guardian email does not match the address on this account.`
+  1. Log in as each account.
+  2. For the adult account, call a protected student route.
+  3. Read both user records.
+- **Expected Result:** The adult receives `200` and can open the student route. The under-18 account receives `403`, `UNDERAGE_STUDENT`, and the 18+ sentence. `User.dob` is still empty on both records. A legacy `pending_consent` status is left as stored.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** High
-- **Test Type:** Negative / Security
+- **Test Type:** Security
 - **Regression Required?** Full regression
-- **Notes:** The pending student can resend for their own stored guardian email. A second route `POST /api/v1/user/consent/resend` uses the same rules.
+- **Notes:** `StudentProfile.isMinor` is not an access check.
 
-### CONSENT-011
+### AGE-009
 
-- **Module:** Minor / Guardian Consent
-- **Feature:** Invalid consent token
-- **Test Scenario:** Missing, tampered, and wrong-purpose tokens are rejected.
-- **Preconditions:** None.
-- **Test Data:** No token, token `abc`, and a normal login JWT.
+- **Module:** Adult-only student access
+- **Feature:** Conflicting dates of birth
+- **Test Scenario:** Different calendar dates on the user and the student profile deny access, and neither value is overwritten.
+- **Preconditions:** `User.dob` and `StudentProfile.dateOfBirth` are both present and are not the same calendar day. One pair may be two adult dates.
+- **Test Data:** That account and an existing JWT for it.
 - **Steps:**
-  1. Open `/consent/verify` with no query token.
-  2. Open `/consent/verify?token=abc`.
+  1. Log in.
+  2. Call `GET /api/v1/students/profile` with the existing token.
+  3. Read the user date and the profile date.
+- **Expected Result:** Both calls return `403`, `code` `DOB_CONFLICT`, `underage` false, and `This account has conflicting dates of birth and cannot access the platform until a valid date of birth is verified.` Both stored dates and the account status are unchanged. The same calendar day stored as a date and as `YYYY-MM-DD` is not a conflict.
+- **Actual Result:**
+- **Status:** Not Run
+- **Priority:** High
+- **Test Type:** Security
+- **Regression Required?** Full regression
+- **Notes:** Do not pick the adult date and ignore the other one.
+
+### AGE-010
+
+- **Module:** Adult-only student access
+- **Feature:** Provider without a date of birth
+- **Test Scenario:** Provider registration and login do not require a date of birth.
+- **Preconditions:** Unused provider email. A verified provider account that has no date of birth.
+- **Test Data:** Organization `QA Age Provider`, email `qa.age010.<stamp>@example.com`, password `Secret1`.
+- **Steps:**
+  1. Register as Sponsor / Provider without a date of birth.
+  2. Log in as the existing verified provider.
+  3. `GET /api/v1/provider/profile`.
+  4. `GET /api/v1/admin/users` with the provider token.
+- **Expected Result:** Registration returns `201`. Login returns `200` and does not include `DOB_UNVERIFIED` or `UNDERAGE_STUDENT`. The provider route is allowed or returns the normal missing-profile response. The admin route returns `403` because the role is provider.
+- **Actual Result:**
+- **Status:** Not Run
+- **Priority:** High
+- **Test Type:** Regression
+- **Regression Required?** Full regression
+- **Notes:**
+
+### AGE-011
+
+- **Module:** Adult-only student access
+- **Feature:** Administrator access
+- **Test Scenario:** Administrator login and admin routes are not age-checked.
+- **Preconditions:** Seeded administrator with no date of birth.
+- **Test Data:** That administrator. A student token from AGE-005 or AGE-001's rejected registration must not be used here.
+- **Steps:**
+  1. Log in as the administrator.
+  2. `GET /api/v1/admin/users`.
+  3. `GET /api/v1/provider/profile` with the administrator token.
+- **Expected Result:** Login returns `200`. The user list returns `200`. The provider route returns `403` for role, not `DOB_UNVERIFIED` or `UNDERAGE_STUDENT`.
+- **Actual Result:**
+- **Status:** Not Run
+- **Priority:** High
+- **Test Type:** Regression
+- **Regression Required?** Full regression
+- **Notes:** Self-registration as admin is still rejected.
+
+### AGE-012
+
+- **Module:** Adult-only student access
+- **Feature:** Guardian consent is not available
+- **Test Scenario:** Consent pages and consent APIs do not authenticate a student.
+- **Preconditions:** Signed out.
+- **Test Data:** `/consent/verify?token=abc`.
+- **Steps:**
+  1. Open that URL.
+  2. `GET /api/v1/consent/verify?token=abc`.
   3. `POST /api/v1/consent/approve` with `{ "token": "abc" }`.
-- **Expected Result:** Missing token returns `400` and `Verification token is missing`. A bad token returns `400` and an invalid or expired token message. No user status changes.
+  4. `POST /api/v1/consent/resend`.
+- **Expected Result:** The URL does not load a consent approval page and does not open the student dashboard. Each API call returns `404`. No consent email is sent.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** High
-- **Test Type:** Negative / Security
+- **Test Type:** Security
 - **Regression Required?** Full regression
-- **Notes:** Consent tokens expire after 7 days. An expired token returns `Consent token has expired. Please request a new one.`
-
-### CONSENT-012
-
-- **Module:** Minor / Guardian Consent
-- **Feature:** Consent status persistence
-- **Test Scenario:** Pending and approved statuses remain after refresh and a new login attempt.
-- **Preconditions:** One student left pending, and the student from CONSENT-008.
-- **Test Data:** Both accounts.
-- **Steps:**
-  1. Refresh `/onboarding` as the pending student.
-  2. Sign out and try to sign in.
-  3. Sign in as the approved student and refresh the dashboard.
-- **Expected Result:** The pending student still sees the guardian waiting state and still cannot log into the dashboard. The approved student remains active.
-- **Actual Result:**
-- **Status:** Not Run
-- **Priority:** High
-- **Test Type:** Persistence
-- **Regression Required?** Full regression
-- **Notes:**
+- **Notes:** Older database rows may still have `pending_consent`. That status is not assigned to new students and it is not a guardian-approval workflow.
 
 ---
-
 # 5. PROVIDER REGISTRATION & ONBOARDING
 
 ### PROV-001
@@ -3030,7 +3037,7 @@ Student deadline alerts are generated for saved scholarships only. Windows are 7
   1. Open `/dashboard/admin`.
   2. Refresh.
   3. Repeat the load once with the database unavailable, or force `GET /api/v1/admin/dashboard` to fail.
-- **Expected Result:** `GET /api/v1/admin/dashboard` returns `200` with `summary`, `pendingActions`, `activity`, `alerts`, and `metrics`. Summary cards are current totals: Student accounts, Provider accounts, Active accounts, Suspended accounts, Verified organizations, Open scholarships, and Archived scholarships. The page states that active accounts are separate from verified organizations, and that open scholarships follow the All Scholarships Open filter, including listings from suspended providers. Pending actions show counts and links for provider verification, unresolved scholarship reports, pending eligibility reviews, and students awaiting guardian consent. Recent activity lists persisted audit events with a fixed description, timestamp, and severity, and does not show raw audit details or email addresses. There are no scholarship publish buttons and no consent approve or reject buttons. A failed read shows a database-read error and a Retry control, and does not replace the totals with zeros. Maintenance mode, when enabled, is the only other alert. The response does not include `pendingProviders`, `pendingListings`, or `pendingConsents`.
+- **Expected Result:** `GET /api/v1/admin/dashboard` returns `200` with `summary`, `pendingActions`, `activity`, `alerts`, and `metrics`. Summary cards are current totals: Student accounts, Provider accounts, Active accounts, Suspended accounts, Verified organizations, Open scholarships, and Archived scholarships. The page states that active accounts are separate from verified organizations, and that open scholarships follow the All Scholarships Open filter, including listings from suspended providers. Pending actions show counts and links for provider verification, unresolved scholarship reports, and pending eligibility reviews. There is no action for students awaiting guardian consent. Recent activity lists persisted audit events with a fixed description, timestamp, and severity, and does not show raw audit details or email addresses. There are no scholarship publish buttons and no guardian-consent approve or reject buttons. A failed read shows a database-read error and a Retry control, and does not replace the totals with zeros. Maintenance mode, when enabled, is the only other alert. The response does not include `pendingProviders`, `pendingListings`, or `pendingConsents`.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** Critical
@@ -3060,18 +3067,18 @@ Student deadline alerts are generated for saved scholarships only. Windows are 7
 ### ADMIN-004
 
 - **Module:** Admin Module
-- **Feature:** Students awaiting guardian consent
-- **Test Scenario:** Minor onboarding increases the waiting count, and the dashboard does not approve consent.
-- **Preconditions:** Operations dashboard visible. Complete CONSENT-004.
-- **Test Data:** The new pending-consent student.
+- **Feature:** No guardian-consent queue
+- **Test Scenario:** The operations dashboard does not approve guardian consent.
+- **Preconditions:** Operations dashboard visible.
+- **Test Data:** None.
 - **Steps:**
   1. Refresh the operations dashboard.
-  2. Open Students awaiting guardian consent.
-- **Expected Result:** The count increases by one for that student. It reads student accounts whose `User.status` is `pending_consent`. The link opens `/dashboard/admin/users?role=student&status=pending_consent`. The page has no consent approve or reject buttons. Confirm the guardian flow with CONSENT-005 instead.
+  2. Read the pending actions.
+- **Expected Result:** Pending actions are provider verification, unresolved scholarship reports, and pending eligibility reviews. There is no "Students awaiting guardian consent" action and no consent approve or reject button. A historical `pending_consent` value may still be filtered in user management. It is not assigned to new students and it does not approve access.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** High
-- **Test Type:** Positive
+- **Test Type:** Negative
 - **Regression Required?** Full regression
 - **Notes:** Mark Fail if the dashboard offers an admin approval action for guardian consent.
 
@@ -3728,13 +3735,13 @@ Use a file uploaded in PROV-004. Its URL looks like `/api/v1/documents/<filename
 ### NAV-016
 
 - **Module:** Navigation & Routing
-- **Feature:** Consent route
-- **Test Scenario:** The public consent URL is reachable signed out.
-- **Preconditions:** A real consent token, or the URL with a bad token.
+- **Feature:** Consent route removed
+- **Test Scenario:** The old public consent URL does not approve a student.
+- **Preconditions:** Signed out.
 - **Test Data:** `/consent/verify?token=abc`.
 - **Steps:**
   1. Open that URL signed out.
-- **Expected Result:** The consent page loads and shows an invalid-token state. It does not redirect to the student dashboard.
+- **Expected Result:** No consent approval page is shown and the student dashboard does not open. `GET /api/v1/consent/verify?token=abc` returns `404`.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** Medium
@@ -3850,15 +3857,16 @@ These cases are API-focused. UI redirects for the same rules are in Authenticati
 ### SEC-004
 
 - **Module:** Security / Access Control
-- **Feature:** Pending consent token
-- **Test Scenario:** A student in `pending_consent` cannot call student routes.
-- **Preconditions:** Minor student after onboarding, token still stored.
-- **Test Data:** That token.
+- **Feature:** Student age gate
+- **Test Scenario:** An under-18 student and a student with no date of birth cannot call protected student routes.
+- **Preconditions:** One stored under-18 student token. One active student token whose user and profile have no date of birth.
+- **Test Data:** Those tokens.
 - **Steps:**
-  1. `GET /api/v1/matching`.
-  2. `GET /api/v1/students/profile`.
-  3. `GET /api/v1/students/saved-scholarships`.
-- **Expected Result:** Each returns `403` with `requiresConsent: true`.
+  1. `GET /api/v1/matching` with each token.
+  2. `GET /api/v1/students/profile` with each token.
+  3. `GET /api/v1/students/saved-scholarships` with each token.
+  4. `GET /api/v1/auth/logout` with the missing-date token.
+- **Expected Result:** The under-18 calls return `403`, `code` `UNDERAGE_STUDENT`, and the 18+ sentence. The missing-date calls return `403`, `code` `DOB_UNVERIFIED`, and the message that a valid date of birth must be provided and verified. Logout returns `200`. Neither account is deleted.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** Critical
@@ -3943,14 +3951,14 @@ These cases are API-focused. UI redirects for the same rules are in Authenticati
 ### SEC-009
 
 - **Module:** Security / Access Control
-- **Feature:** Admin registration and consent resend
-- **Test Scenario:** Admin signup and cross-account consent resend stay blocked.
-- **Preconditions:** Pending-consent student id. Another user's token.
-- **Test Data:** AUTH-003 payload and CONSENT-010 payload.
+- **Feature:** Admin registration and removed consent API
+- **Test Scenario:** Admin signup stays blocked, and the old consent resend route is gone.
+- **Preconditions:** Unused email. Any user token.
+- **Test Data:** AUTH-003 payload.
 - **Steps:**
   1. Repeat the admin register call.
-  2. Repeat the cross-account resend call.
-- **Expected Result:** Register returns `403`. Resend returns `403` or `401` as in CONSENT-010. No admin user and no email to a different guardian are created by these calls.
+  2. `POST /api/v1/consent/resend` with a user token.
+- **Expected Result:** Register returns `403`. No admin user is created. Consent resend returns `404`. No guardian email is sent.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** High
@@ -4088,27 +4096,24 @@ These cases are API-focused. UI redirects for the same rules are in Authenticati
 ### E2E-004
 
 - **Module:** Cross-module / End-to-end
-- **Feature:** Minor consent path
-- **Test Scenario:** Minor registration, onboarding, guardian approval, student access, and matching.
-- **Preconditions:** Unused student email. A guardian email that is not the student's email. Server log is available if email is not delivered. A matching Open scholarship exists for the profile you will complete after approval.
-- **Test Data:** Date of birth `2012-01-15`. Guardian `QA Guardian` / `qa.e2e004.guardian.<stamp>@example.com`. After approval, complete the shared College profile only if the minor's academic level in onboarding was College. Otherwise build a consistent Senior High profile and a Senior High scholarship.
+- **Feature:** Adult student path
+- **Test Scenario:** An adult student registers, finishes onboarding, and reaches matching. An under-18 registration does not.
+- **Preconditions:** Unused student email. A matching Open scholarship exists for the shared College profile.
+- **Test Data:** Date of birth `2004-05-15` for the adult. A second unused email and date of birth `2012-01-15`.
 - **Steps:**
-  1. Register as Student.
-  2. Enter the minor date of birth and confirm guardian fields appear.
-  3. Try the student's own email as guardian and confirm it is rejected.
-  4. Submit with the guardian email.
-  5. Confirm the waiting screen and that dashboard and login are blocked.
-  6. Open the consent link from the server log and approve.
-  7. Sign in as the student.
-  8. Complete any missing profile fields.
-  9. Open Match Feed.
-- **Expected Result:** Pending status blocks dashboard, matching, and login. Approval sets status active. The new login reaches the student area. Match Feed returns real matches or a true empty list, not sample cards. Consent status is still active after refresh.
+  1. Try to register the under-18 date and stop when it is rejected.
+  2. Register the adult student.
+  3. Finish onboarding with the shared College profile.
+  4. Log out and log in.
+  5. Confirm the profile values are still stored.
+  6. Open Match Feed.
+- **Expected Result:** The under-18 attempt shows the 18+ sentence and creates no account. The adult account is `active`, onboarded, and has no guardian fields. Profile values survive the new login. Match Feed returns real matches or a true empty list, not sample cards. No consent page or consent email is involved.
 - **Actual Result:**
 - **Status:** Not Run
 - **Priority:** Critical
 - **Test Type:** End-to-end
 - **Regression Required?** Critical smoke
-- **Notes:** Use a College academic level during minor onboarding if the prepared scholarship is College. Academic level is a hard filter.
+- **Notes:** Use the shared College profile when the prepared scholarship is College. Academic level is a hard filter.
 
 ### E2E-005
 

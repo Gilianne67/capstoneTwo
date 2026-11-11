@@ -1255,7 +1255,7 @@ const renderReportCsv = (reportName, report, generatedAt = new Date()) => {
       ['Provider account status', 'Providers'],
       ['Active', insights.accountStatus.active],
       ['Suspended', insights.accountStatus.suspended],
-      ['Pending consent', insights.accountStatus.pending_consent],
+      ['Restricted', insights.accountStatus.pending_consent],
       [],
       ['Institution', 'Verification status', 'Account suspended', 'Total listings', 'Student-facing available', 'Archived', 'Created in period'],
       ...insights.scholarshipsByProvider.rows.map((row) => [

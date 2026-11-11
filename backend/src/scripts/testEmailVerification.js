@@ -8,7 +8,6 @@ const fs = require('fs');
 const path = require('path');
 const User = require('../models/User');
 const StudentProfile = require('../models/StudentProfile');
-const ParentConsent = require('../models/ParentalConsent');
 const AuditLog = require('../models/AuditLog');
 const emailService = require('../utils/emailService');
 const {
@@ -23,7 +22,6 @@ const { handleOnboarding } = require('../controllers/userController');
 
 const users = new Map();
 const emails = [];
-const consentRecords = [];
 let failVerification = false;
 let sequence = 0;
 
@@ -117,10 +115,6 @@ User.create = async (data) => {
 };
 
 StudentProfile.findOneAndUpdate = async () => ({});
-ParentConsent.findOneAndUpdate = async (_filter, data) => {
-  consentRecords.push(data);
-  return data;
-};
 AuditLog.create = async () => ({});
 
 emailService.sendVerificationEmail = async (email, name, verifyUrl) => {
@@ -128,11 +122,6 @@ emailService.sendVerificationEmail = async (email, name, verifyUrl) => {
     throw new Error('provider unavailable');
   }
   emails.push({ type: 'verify', email, name, verifyUrl });
-  return { id: `email-${emails.length}` };
-};
-
-emailService.sendParentConsentEmail = async (payload) => {
-  emails.push({ type: 'consent', ...payload });
   return { id: `email-${emails.length}` };
 };
 
@@ -197,6 +186,7 @@ const main = async () => {
       email: 'Ava@Example.com',
       password: 'password-12345678',
       role: 'student',
+      dateOfBirth: '2000-01-15',
     },
     ip: '127.0.0.1',
   });
@@ -210,6 +200,7 @@ const main = async () => {
       email: 'ava@example.com',
       password: 'password-12345678',
       role: 'student',
+      dateOfBirth: '2000-01-15',
     },
     ip: '127.0.0.1',
   });
@@ -228,6 +219,7 @@ const main = async () => {
       email: 'AVA@EXAMPLE.COM',
       password: 'password-12345678',
       role: 'student',
+      dateOfBirth: '2000-01-15',
     },
     ip: '127.0.0.1',
   });
@@ -241,6 +233,7 @@ const main = async () => {
       email: '  ava@example.com  ',
       password: 'password-12345678',
       role: 'student',
+      dateOfBirth: '2000-01-15',
     },
     ip: '127.0.0.1',
   });
@@ -276,6 +269,7 @@ const main = async () => {
           email: 'race@example.com',
           password: 'password-12345678',
           role: 'student',
+          dateOfBirth: '2000-01-15',
         },
         ip: '127.0.0.1',
       }),
@@ -285,6 +279,7 @@ const main = async () => {
           email: '  RACE@example.com  ',
           password: 'password-12345678',
           role: 'student',
+          dateOfBirth: '2000-01-15',
         },
         ip: '127.0.0.1',
       }),
@@ -312,6 +307,7 @@ const main = async () => {
         email: 'duplicate.key@example.com',
         password: 'password-12345678',
         role: 'student',
+      dateOfBirth: '2000-01-15',
       },
       ip: '127.0.0.1',
     });
@@ -434,6 +430,7 @@ const main = async () => {
       email: 'ben@example.com',
       password: 'password-12345678',
       role: 'student',
+      dateOfBirth: '2000-01-15',
     },
     ip: '127.0.0.1',
   });
@@ -511,6 +508,7 @@ const main = async () => {
       email: 'cara@example.com',
       password: 'password-12345678',
       role: 'student',
+      dateOfBirth: '2000-01-15',
     },
     ip: '127.0.0.1',
   });
@@ -557,41 +555,25 @@ const main = async () => {
     1
   );
 
+  const usersBeforeMinor = users.size;
   const minorSignup = await invoke(register, {
     body: {
       name: 'Diego Ramos',
       email: 'diego@example.com',
       password: 'password-12345678',
       role: 'student',
+      dateOfBirth: '2012-04-02',
     },
     ip: '127.0.0.1',
   });
-  assert.strictEqual(minorSignup.statusCode, 201);
-  const diego = storedUser('diego@example.com');
-  const minorOnboarding = await invoke(handleOnboarding, {
-    user: { id: diego._id },
-    body: {
-      ...adultProfile,
-      dob: '2012-04-02',
-      isMinor: true,
-      guardianName: 'Elena Ramos',
-      guardianEmail: 'guardian@example.com',
-    },
-    ip: '127.0.0.1',
-    headers: {},
-  });
-  assert.strictEqual(minorOnboarding.statusCode, 200);
-  assert.strictEqual(minorOnboarding.body.user.status, 'pending_consent');
-  assert.strictEqual(diego.emailVerificationToken, undefined);
-  assert.strictEqual(verificationEmails().filter((email) => email.email === 'diego@example.com').length, 0);
-  const consentEmails = emails.filter((email) => email.type === 'consent');
-  assert.strictEqual(consentEmails.length, 1);
-  assert.strictEqual(consentEmails[0].guardianEmail, 'guardian@example.com');
-  assert.ok(consentEmails[0].consentLink.startsWith('http://students.example/consent/verify?token='));
-  assert.ok(!consentEmails[0].consentLink.includes('/verify-email/'));
-  const consentToken = new URL(consentEmails[0].consentLink).searchParams.get('token');
-  assert.strictEqual(consentRecords.at(-1).consentToken, consentToken);
-  assert.strictEqual(consentRecords.at(-1).guardianEmail, 'guardian@example.com');
+  assert.strictEqual(minorSignup.statusCode, 400);
+  assert.strictEqual(
+    minorSignup.body.message,
+    'ISKOLARMATCH is currently available only to students aged 18 and above.'
+  );
+  assert.strictEqual(storedUser('diego@example.com'), null);
+  assert.strictEqual(users.size, usersBeforeMinor);
+  assert.strictEqual(emails.some((email) => email.type === 'consent'), false);
 
   delete process.env.CLIENT_URL;
   process.env.FRONTEND_URL = 'http://frontend.example/';

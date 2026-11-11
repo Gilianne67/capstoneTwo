@@ -28,6 +28,7 @@ const makeUser = (id, email, extra = {}) => {
     id,
     role: 'student',
     status: 'active',
+    dob: new Date('2000-01-15T00:00:00.000Z'),
     name: 'Test User',
     email,
     isVerified: false,

@@ -13,9 +13,9 @@ import {
   AlertCircle,
   ArrowLeft,
   KeyRound,
-  ShieldAlert,
   Check,
-  X
+  X,
+  Calendar
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { API_BASE_URL } from '../../config/api';
@@ -24,6 +24,7 @@ import {
   resolveLoginFormMessage,
   resolveRegistrationFormOutcome,
 } from './authFormErrors';
+import { evaluateDateOfBirth, todayInputValue } from './studentAge';
 
 // Strict Email Format Regex
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
@@ -39,7 +40,6 @@ export default function AuthPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [pendingConsentError, setPendingConsentError] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
   const [hasAuthError, setHasAuthError] = useState(false);
   const submitLock = useRef(false);
@@ -49,6 +49,7 @@ export default function AuthPage() {
     organizationName: '',
     email: '',
     password: '',
+    dateOfBirth: '',
   });
 
   // Sync state with URL Search Parameters
@@ -69,7 +70,6 @@ export default function AuthPage() {
   const handleChange = (e) => {
     if (errorMessage) setErrorMessage('');
     if (hasAuthError) setHasAuthError(false);
-    if (pendingConsentError) setPendingConsentError(false);
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
@@ -78,13 +78,13 @@ export default function AuthPage() {
     setAuthMode(mode);
     setErrorMessage('');
     setHasAuthError(false);
-    setPendingConsentError(false);
     setResetSuccess(false);
     setFormData({
       fullName: '',
       organizationName: '',
       email: '',
       password: '',
+      dateOfBirth: '',
     });
   };
 
@@ -139,7 +139,6 @@ export default function AuthPage() {
     setIsLoading(true);
     setErrorMessage('');
     setHasAuthError(false);
-    setPendingConsentError(false);
 
     const emailTrimmed = formData.email.trim().toLowerCase();
     const passwordTrimmed = formData.password.trim();
@@ -173,6 +172,16 @@ export default function AuthPage() {
           name,
           ...(signupRole === 'provider' && { organization: name }),
         };
+
+        if (signupRole === 'student') {
+          const dobResult = evaluateDateOfBirth(formData.dateOfBirth);
+          if (!dobResult.ok) {
+            setHasAuthError(true);
+            setErrorMessage(dobResult.message);
+            return;
+          }
+          payload.dateOfBirth = formData.dateOfBirth;
+        }
 
         let registeredUser;
         try {
@@ -234,13 +243,8 @@ export default function AuthPage() {
       }
 
       const loginOutcome = resolveLoginFormMessage(err);
-      if (loginOutcome.kind === 'consent') {
-        setPendingConsentError(true);
-        setErrorMessage(loginOutcome.message);
-      } else {
-        setHasAuthError(true);
-        setErrorMessage(loginOutcome.message || 'Invalid email or password. Please try again.');
-      }
+      setHasAuthError(true);
+      setErrorMessage(loginOutcome.message || 'Invalid email or password. Please try again.');
     } finally {
       submitLock.current = false;
       setIsLoading(false);
@@ -376,28 +380,11 @@ export default function AuthPage() {
                 </div>
               )}
 
-              {/* Pending Consent Warning Banner */}
-              {pendingConsentError ? (
-                <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-xs text-amber-800 space-y-2">
-                  <div className="flex items-center gap-2 font-bold text-amber-900">
-                    <ShieldAlert className="h-5 w-5 text-amber-600 shrink-0" />
-                    <span>Parental Authorization Required</span>
-                  </div>
-                  <p className="leading-relaxed">
-                    {errorMessage}
-                  </p>
-                  <div className="text-[11px] text-amber-700 font-medium border-t border-amber-500/15 pt-2">
-                    Tip: Ask your guardian to check their email inbox (and spam folder) for the authorization link.
-                  </div>
+              {errorMessage && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-center gap-2.5 text-xs text-rose-600">
+                  <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+                  <span>{errorMessage}</span>
                 </div>
-              ) : (
-                /* Standard Error Alert */
-                errorMessage && (
-                  <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-center gap-2.5 text-xs text-rose-600">
-                    <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
-                    <span>{errorMessage}</span>
-                  </div>
-                )
               )}
 
               {/* Generic Privacy-Safe Confirmation Screen */}
@@ -480,6 +467,29 @@ export default function AuthPage() {
                           className="w-full pl-10 pr-4 py-3 rounded-xl bg-app-bg border border-app-text/10 text-sm text-app-text focus:outline-none focus:border-primary transition-colors"
                         />
                       </div>
+                    </div>
+                  )}
+
+                  {authMode === 'signup' && signupRole === 'student' && (
+                    <div>
+                      <label className="block text-xs font-bold text-app-text mb-1.5">
+                        Date of Birth
+                      </label>
+                      <div className="relative">
+                        <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
+                        <input
+                          type="date"
+                          name="dateOfBirth"
+                          required
+                          max={todayInputValue()}
+                          value={formData.dateOfBirth}
+                          onChange={handleChange}
+                          className="w-full pl-10 pr-4 py-3 rounded-xl bg-app-bg border border-app-text/10 text-sm text-app-text focus:outline-none focus:border-primary transition-colors"
+                        />
+                      </div>
+                      <p className="mt-1.5 text-[11px] text-text-muted">
+                        ISKOLARMATCH is available only to students aged 18 and above.
+                      </p>
                     </div>
                   )}
 

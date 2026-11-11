@@ -68,14 +68,13 @@ const actions = visiblePendingActions([
   { id: 'provider-verification', label: 'Pending provider verification', count: 3, path: PENDING_ACTION_PATHS['provider-verification'] },
   { id: 'scholarship-reports', label: 'Unresolved scholarship reports', count: 0, path: PENDING_ACTION_PATHS['scholarship-reports'] },
   { id: 'eligibility-reviews', label: 'Pending eligibility reviews', count: 1, path: PENDING_ACTION_PATHS['eligibility-reviews'] },
-  { id: 'guardian-consent', label: 'Students awaiting guardian consent', count: 2, path: PENDING_ACTION_PATHS['guardian-consent'], note: 'Waiting on the guardian.' },
+  { id: 'guardian-consent', label: 'Students awaiting guardian consent', count: 2, path: '/dashboard/admin/users?role=student&status=pending_consent', note: 'Waiting on the guardian.' },
   { id: 'fake-task', label: 'Invented queue', count: 9, path: 'javascript:alert(1)' },
 ]);
 assert.deepEqual(actions.map((item) => [item.id, item.count, item.path]), [
   ['provider-verification', 3, '/dashboard/admin/verification'],
   ['scholarship-reports', 0, '/dashboard/admin/moderation?status=Unresolved'],
   ['eligibility-reviews', 1, '/dashboard/admin/eligibility-criteria?status=Pending'],
-  ['guardian-consent', 2, '/dashboard/admin/users?role=student&status=pending_consent'],
 ]);
 assert.equal(visiblePendingActions([]).length, 0);
 

@@ -250,6 +250,9 @@ const createUser = (overrides) => {
     email: overrides.email,
     role: overrides.role,
     status: overrides.status || 'active',
+    dob: overrides.role === 'student'
+      ? (overrides.dob || new Date('2000-01-15T00:00:00.000Z'))
+      : overrides.dob,
     isVerified: overrides.isVerified !== false,
     isOnboarded: overrides.isOnboarded !== false,
     createdAt: overrides.createdAt,

@@ -43,7 +43,7 @@ const formatRegistered = (value) => {
 
 const statusBadge = (status) => {
   if (status === 'suspended') return { status: 'inactive', label: 'Suspended' };
-  if (status === 'pending_consent') return { status: 'pending', label: 'Pending consent' };
+  if (status === 'pending_consent') return { status: 'pending', label: 'Under 18' };
   if (status === 'active') return { status: 'active', label: 'Active' };
   return { status: 'draft', label: status || 'Unknown' };
 };
@@ -51,7 +51,7 @@ const statusBadge = (status) => {
 const actionNote = (reason) => {
   if (reason === 'self') return 'Signed-in account';
   if (reason === 'admin-restricted') return 'Only a super admin can change this account';
-  if (reason === 'unsupported-status') return 'Managed by parental consent';
+  if (reason === 'unsupported-status') return 'Restricted to students aged 18 and above';
   return '';
 };
 

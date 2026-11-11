@@ -68,7 +68,8 @@ const student = {
   _id: 'student-1',
   id: 'student-1',
   role: 'student',
-  status: 'active'
+  status: 'active',
+  dob: new Date('2000-01-15T00:00:00.000Z'),
 };
 
 const ownedListing = {

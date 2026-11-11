@@ -24,7 +24,6 @@ configureTrustProxy(app);
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const adminRoutes = require('./routes/adminRoutes');
-const consentRoutes = require('./routes/consentRoutes');
 const providerRoutes = require('./routes/providerRoutes');
 const scholarshipRoutes = require('./routes/scholarshipRoutes');
 const studentRoutes = require('./routes/studentRoutes');
@@ -108,7 +107,6 @@ app.get('/api/v1/health', (req, res) => {
 // Mount Application Routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/user', userRoutes);
-app.use('/api/v1/consent', consentRoutes);
 app.use('/api/v1/provider', providerRoutes);
 app.use('/api/v1/providers', providerRoutes);
 app.use('/api/v1/admin', adminRoutes);

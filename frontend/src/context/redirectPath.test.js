@@ -29,7 +29,7 @@ check('a copied provider onboarding URL without a session goes to sign in', () =
 
 check('a copied student onboarding URL without a session goes to sign in', () => {
   assert.equal(isSessionOptionalRoute('/onboarding'), false);
-  assert.equal(isSessionOptionalRoute('/consent/verify'), true);
+  assert.equal(isSessionOptionalRoute('/consent/verify'), false);
 });
 
 const newStudent = {
@@ -78,16 +78,16 @@ check('an admin cannot open student onboarding', () => {
   assert.equal(studentFlowRedirect(superadmin, '/onboarding'), '/dashboard/admin');
 });
 
-check('pending guardian consent stays on the consent screen', () => {
-  const minor = {
+check('a legacy onboarded student is not sent to a consent screen', () => {
+  const legacy = {
     role: 'student',
     isOnboarded: true,
     status: 'pending_consent',
   };
-  assert.equal(canAccessStudentOnboarding(minor), false);
-  assert.equal(studentFlowRedirect(minor, '/onboarding'), '/consent/verify');
-  assert.equal(resolveRedirectPath(minor), '/consent/verify');
-  assert.equal(isSessionOptionalRoute('/consent/verify'), true);
+  assert.equal(canAccessStudentOnboarding(legacy), false);
+  assert.equal(studentFlowRedirect(legacy, '/onboarding'), '/dashboard/student');
+  assert.equal(resolveRedirectPath(legacy), '/dashboard/student');
+  assert.equal(isSessionOptionalRoute('/consent/verify'), false);
 });
 
 check('a newly registered provider can open onboarding', () => {

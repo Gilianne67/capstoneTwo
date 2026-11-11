@@ -129,6 +129,9 @@ const makeUser = (overrides) => {
     email: overrides.email,
     role: overrides.role || 'student',
     status: overrides.status || 'active',
+    dob: (overrides.role || 'student') === 'student'
+      ? (overrides.dob || new Date('2000-01-15T00:00:00.000Z'))
+      : overrides.dob,
     name: overrides.name || 'Test User',
     password: overrides.password || 'current-secret',
     _secret: overrides.password || 'current-secret',

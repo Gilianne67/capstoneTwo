@@ -592,8 +592,21 @@ const main = async () => {
   assert.strictEqual(acceptedDemand.body.recorded, 1);
   assert.deepStrictEqual(insertedDemand.at(-1), { dimension: 'region', value: 'Davao Region' });
 
-  const server = await startServer();
+  const RealDate = Date;
+  const frozenMs = NOW.getTime();
+  const FrozenDate = function DateProxy(...args) {
+    if (!new.target) return RealDate(frozenMs);
+    if (args.length === 0) return new RealDate(frozenMs);
+    return new RealDate(...args);
+  };
+  FrozenDate.prototype = RealDate.prototype;
+  FrozenDate.now = () => frozenMs;
+  FrozenDate.parse = RealDate.parse;
+  FrozenDate.UTC = RealDate.UTC;
+  global.Date = FrozenDate;
+  let server;
   try {
+    server = await startServer();
     const adminToken = tokenFor('admin-1', 'admin');
     const studentToken = tokenFor('student-http', 'student');
     const providerToken = tokenFor('provider-http', 'provider');
@@ -707,7 +720,8 @@ const main = async () => {
     });
     assert.strictEqual(demandAnon.status, 401);
   } finally {
-    await new Promise((resolve) => server.close(resolve));
+    global.Date = RealDate;
+    if (server) await new Promise((resolve) => server.close(resolve));
   }
 
   console.log('Admin analytics tests passed');

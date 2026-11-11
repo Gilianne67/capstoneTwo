@@ -1,9 +1,8 @@
 /**
- * Phase 3 audit attribution, sensitive details, consent failures, and seed safety.
+ * Phase 3 audit attribution, sensitive details, and seed safety.
  * MongoDB is not required.
  */
 const assert = require('assert');
-const jwt = require('jsonwebtoken');
 
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'audit-phase3-secret';
 
@@ -18,13 +17,11 @@ const { updatePassword } = require('../controllers/authController');
 const { updateScholarshipStatus } = require('../controllers/adminController');
 const { updateModerationReport } = require('../controllers/moderationController');
 const { updateProfile } = require('../controllers/studentProfileController');
-const { verifyConsent } = require('../controllers/userController');
 const matchCache = require('../services/matchCache');
 const errorHandler = require('../middleware/error');
 const { seedAuditLogs, resetRequested } = require('./seedAuditLogs');
 
 const SECRET_PASSWORD = 'current-secret-value';
-const SECRET_TOKEN = 'not-a-real-consent-token';
 const GWA = '1.25';
 const INCOME = 'Below 10000 / month';
 
@@ -234,53 +231,6 @@ const run = async () => {
     return { _id: `audit-${audits.length}`, ...entry };
   };
 
-  const invalidConsent = await invoke(verifyConsent, {
-    query: { token: SECRET_TOKEN },
-    ip: '127.0.0.1',
-    headers: {},
-  });
-  assert.strictEqual(invalidConsent.statusCode, 400);
-  assert.strictEqual(invalidConsent.body.message, 'The consent link is invalid or has expired.');
-  assert.strictEqual(invalidConsent.body.warnings, undefined);
-  assert.strictEqual(audits.at(-1).action, 'CONSENT_TOKEN_REJECTED');
-  assert.strictEqual(JSON.stringify(invalidConsent.body).includes(SECRET_TOKEN), false);
-  assert.strictEqual(JSON.stringify(audits.at(-1)).includes(SECRET_TOKEN), false);
-  assert.strictEqual(audits.at(-1).details.includes('jwt'), false);
-
-  const expiredToken = jwt.sign(
-    {
-      userId: 'student-9',
-      purpose: 'parental_consent',
-      exp: Math.floor(Date.now() / 1000) - 60,
-    },
-    process.env.JWT_SECRET
-  );
-  const expiredConsent = await invoke(verifyConsent, {
-    query: { token: expiredToken },
-    ip: '127.0.0.1',
-    headers: {},
-  });
-  assert.strictEqual(expiredConsent.statusCode, 400);
-  assert.match(expiredConsent.body.message, /expired/i);
-  assert.strictEqual(expiredConsent.body.message.includes(expiredToken), false);
-  assert.strictEqual(audits.at(-1).action, 'CONSENT_TOKEN_REJECTED');
-  assert.match(audits.at(-1).details, /expired/);
-  assert.match(audits.at(-1).details, /student-9/);
-  assert.strictEqual(audits.at(-1).actorId, 'student-9');
-  assert.strictEqual(JSON.stringify(audits.at(-1)).includes(expiredToken), false);
-
-  createImpl = async () => {
-    throw new Error('audit store unavailable');
-  };
-  const unstoredConsent = await invoke(verifyConsent, {
-    query: { token: SECRET_TOKEN },
-    ip: '127.0.0.1',
-    headers: {},
-  });
-  assert.strictEqual(unstoredConsent.statusCode, 400);
-  assert.strictEqual(unstoredConsent.body.warnings, undefined);
-  assert.strictEqual(unstoredConsent.body.message.includes('audit'), false);
-
   let deleted = 0;
   let connected = 0;
   const preserved = await seedAuditLogs({
@@ -311,6 +261,9 @@ const run = async () => {
   assert.strictEqual(connected, 1);
   assert.strictEqual(wiped.inserted, 3);
 
+  createImpl = async () => {
+    throw new Error('audit store unavailable');
+  };
   const failedInsert = await auditController.recordAuditLog({
     actor: 'Ada Super',
     role: 'Superadmin',

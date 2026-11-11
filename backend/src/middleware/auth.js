@@ -6,6 +6,7 @@ const {
   isFinalRejection,
   declinedProviderLoginMessage,
 } = require('../utils/providerVerification');
+const { enforceStudentAge, studentAgeDenial } = require('../utils/studentAge');
 
 const isLogoutRequest = (req) =>
   req.method === 'GET' && String(req.originalUrl || req.url || '').split('?')[0].endsWith('/auth/logout');
@@ -102,6 +103,18 @@ const protect = async (req, res, next) => {
       });
     }
 
+    if (!isLogoutRequest(req)) {
+      const ageDenial = await enforceStudentAge(req.user);
+      if (ageDenial) {
+        return res.status(403).json({
+          success: false,
+          underage: Boolean(ageDenial.underage),
+          code: ageDenial.code,
+          message: ageDenial.message,
+        });
+      }
+    }
+
     if (req.user.role === 'provider' && !isLogoutRequest(req)) {
       const provider = await Provider.findOne({ userId: req.user._id }).select(
         'verificationStatus rejectionReason isFinalRejection'
@@ -133,9 +146,6 @@ const protect = async (req, res, next) => {
   }
 };
 
-const isStudentPendingConsent = (user) =>
-  user?.role === 'student' && user?.status === 'pending_consent';
-
 /**
  * Stored super-admin accounts use `superadmin`. Older checks also say
  * `super_admin` or `super-admin`. Those spellings are the same privilege.
@@ -166,13 +176,16 @@ const authorize = (...roles) => {
       });
     }
 
-    if (isStudentPendingConsent(req.user) && roles.includes('student')) {
-      return res.status(403).json({
-        success: false,
-        requiresConsent: true,
-        message:
-          'Your account is waiting for parental consent. Please check your parent or guardian email for the approval link.',
-      });
+    if (roles.includes('student')) {
+      const ageDenial = studentAgeDenial(req.user);
+      if (ageDenial) {
+        return res.status(403).json({
+          success: false,
+          underage: Boolean(ageDenial.underage),
+          code: ageDenial.code,
+          message: ageDenial.message,
+        });
+      }
     }
 
     const allowed = roles.map((role) => canonicalRole(role));
@@ -192,7 +205,6 @@ const authorize = (...roles) => {
 module.exports = {
   protect,
   authorize,
-  isStudentPendingConsent,
   canonicalRole,
   isSuperadminRole,
   isAdminRole,

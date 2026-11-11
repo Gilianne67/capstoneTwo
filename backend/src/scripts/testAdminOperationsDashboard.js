@@ -378,13 +378,13 @@ const main = async () => {
   assert.match(dashboard.summary.captions.openScholarships, /suspended providers/i);
   assert.match(dashboard.summary.captions.activeAccounts, /not the verified-organization count/i);
   assert.match(dashboard.summary.captions.providerAccounts, /Separate from verified organizations/i);
-  assert.equal(dashboard.pendingActions.map((item) => item.count).join(','), '3,6,1,1');
+  assert.equal(dashboard.pendingActions.map((item) => item.count).join(','), '3,6,1');
   assert.deepEqual(dashboard.pendingActions.map((item) => item.path), [
     '/dashboard/admin/verification',
     '/dashboard/admin/moderation?status=Unresolved',
     '/dashboard/admin/eligibility-criteria?status=Pending',
-    '/dashboard/admin/users?role=student&status=pending_consent',
   ]);
+  assert.equal(dashboard.pendingActions.some((item) => item.id === 'guardian-consent'), false);
   assert.equal(dashboard.activity.length, 8);
   assert.equal(dashboard.activity.some((item) => item.action === 'USER_LOGIN'), false);
   assert.equal(dashboard.activity.some((item) => item.id === 'audit-secret-only'), true);
@@ -433,7 +433,7 @@ const main = async () => {
   assert.equal(empty.summary.verifiedProviderOrganizations, 0);
   assert.equal(empty.summary.openScholarships, 0);
   assert.equal(empty.summary.archivedScholarships, 0);
-  assert.deepEqual(empty.pendingActions.map((item) => item.count), [0, 0, 0, 0]);
+  assert.deepEqual(empty.pendingActions.map((item) => item.count), [0, 0, 0]);
   assert.deepEqual(empty.activity, []);
   assert.deepEqual(empty.alerts, []);
   assert.equal(empty.pendingProviders, undefined);

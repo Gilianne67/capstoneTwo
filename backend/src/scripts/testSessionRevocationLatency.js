@@ -192,6 +192,7 @@ const main = async () => {
         name: 'Latency Subject',
         role: 'student',
         status: 'active',
+        dob: new Date('2000-01-15T00:00:00.000Z'),
         statusChangedAt: null,
         async save() {
           users.set(id, this);
@@ -311,6 +312,7 @@ const main = async () => {
       name: 'Other Subject',
       role: 'student',
       status: 'active',
+      dob: new Date('2000-01-15T00:00:00.000Z'),
       async save() {
         users.set(otherId, this);
         return this;
