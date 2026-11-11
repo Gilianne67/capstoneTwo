@@ -42,8 +42,8 @@ Check a row only after the case in `REGRESSION_TEST_CASES.md` has a status.
 - [ ] STU-001 Registration opens onboarding
 - [ ] STU-002 Adult onboarding saves
 - [ ] STU-003 Required onboarding fields
-- [ ] STU-004 Adult hides guardian fields
-- [ ] STU-005 Minor shows guardian fields
+- [ ] STU-004 Adult date of birth is accepted
+- [ ] STU-005 Under-18 registration is rejected
 - [ ] STU-006 Guest cannot open onboarding
 - [ ] STU-007 Provider cannot open student onboarding
 - [ ] STU-008 Onboarding values survive refresh
@@ -63,20 +63,20 @@ Check a row only after the case in `REGRESSION_TEST_CASES.md` has a status.
 - [ ] PROF-009 Profile is only the signed-in student
 - [ ] PROF-010 Provider cannot update a student profile
 
-### Minor / guardian consent
+### Adult-only student access
 
-- [ ] CONSENT-001 Minor identification
-- [ ] CONSENT-002 Guardian name and email required
-- [ ] CONSENT-003 Own email rejected
-- [ ] CONSENT-004 Token and email attempt
-- [ ] CONSENT-005 Pending waiting screen
-- [ ] CONSENT-006 Pending student blocked
-- [ ] CONSENT-007 Guardian approval
-- [ ] CONSENT-008 Student active after approval
-- [ ] CONSENT-009 Adult skips consent
-- [ ] CONSENT-010 Unauthorized resend
-- [ ] CONSENT-011 Invalid token
-- [ ] CONSENT-012 Status persists
+- [ ] AGE-001 Under-18 registration rejected
+- [ ] AGE-002 Invalid, future, missing, 18, and 19+ dates
+- [ ] AGE-003 Under-18 onboarding rejected
+- [ ] AGE-004 Adult onboarding persists without a guardian
+- [ ] AGE-005 Active student with no date of birth cannot log in
+- [ ] AGE-006 Existing token without a date of birth is rejected
+- [ ] AGE-007 Date of birth only on the user record
+- [ ] AGE-008 Date of birth only on the student profile
+- [ ] AGE-009 Conflicting dates of birth are denied
+- [ ] AGE-010 Provider without a date of birth
+- [ ] AGE-011 Administrator is not age-checked
+- [ ] AGE-012 Consent routes are gone
 
 ### Provider registration & onboarding
 
@@ -207,7 +207,7 @@ Check a row only after the case in `REGRESSION_TEST_CASES.md` has a status.
 - [ ] ADMIN-001 Admin login
 - [ ] ADMIN-002 Dashboard loads
 - [ ] ADMIN-003 Pending verification count
-- [ ] ADMIN-004 Guardian consent waiting count
+- [ ] ADMIN-004 No guardian-consent queue
 - [ ] ADMIN-005 Queue filters
 - [ ] ADMIN-006 Details and document
 - [ ] ADMIN-007 Approve persists and unlocks provider
@@ -250,7 +250,7 @@ Check a row only after the case in `REGRESSION_TEST_CASES.md` has a status.
 - [ ] NAV-013 Retired settings and alerts routes
 - [ ] NAV-014 Logout redirect
 - [ ] NAV-015 `/dashboard` by role
-- [ ] NAV-016 Public consent URL
+- [ ] NAV-016 Consent URL is not available
 - [ ] NAV-017 Homepage simulator is not matching
 - [ ] NAV-018 Pending provider can open verification only
 
@@ -259,12 +259,12 @@ Check a row only after the case in `REGRESSION_TEST_CASES.md` has a status.
 - [ ] SEC-001 Anonymous protected APIs
 - [ ] SEC-002 Student cannot call provider or admin writes
 - [ ] SEC-003 Provider cannot call student APIs
-- [ ] SEC-004 Pending consent blocked
+- [ ] SEC-004 Under-18 and missing date of birth blocked
 - [ ] SEC-005 Rejected provider blocked except logout
 - [ ] SEC-006 Self-verify blocked
 - [ ] SEC-007 Cross-provider scholarship edit blocked
 - [ ] SEC-008 Document rules
-- [ ] SEC-009 Admin signup and consent resend
+- [ ] SEC-009 Admin signup blocked and consent API absent
 - [ ] SEC-010 Rate limit
 - [ ] SEC-011 Public health check
 - [ ] SEC-012 Cannot reassign `providerId`
@@ -274,7 +274,7 @@ Check a row only after the case in `REGRESSION_TEST_CASES.md` has a status.
 - [ ] E2E-001 Student register → onboard → profile → match → details → save
 - [ ] E2E-002 Provider register → onboard → approve → create scholarship
 - [ ] E2E-003 Provider register → onboard → reject → cannot create
-- [ ] E2E-004 Minor → consent → approve → match
+- [ ] E2E-004 Adult register, onboard, and match; under 18 rejected
 - [ ] E2E-005 Deadline passes → hidden from match/search → Closed
 - [ ] E2E-006 Approved provider scholarship appears in Match Feed
 - [ ] E2E-007 Rejection stops the current session and the next login
@@ -283,7 +283,7 @@ Check a row only after the case in `REGRESSION_TEST_CASES.md` has a status.
 
 ## B. Critical smoke test suite
 
-Run this set after every merge to staging. It is the smallest set that still covers sign-in, role walls, consent, provider approval, scholarship create, matching, save, documents, and the three main end-to-end paths.
+Run this set after every merge to staging. It is the smallest set that still covers sign-in, role walls, the 18+ student gate, provider approval, scholarship create, matching, save, documents, and the three main end-to-end paths.
 
 Stop the staging release if any case here fails.
 
@@ -303,20 +303,16 @@ Stop the staging release if any case here fails.
 | AUTH-016 | Role redirect |
 | STU-001 | Signup lands on onboarding |
 | STU-002 | Adult onboarding saves |
-| STU-005 | Minor fields appear |
+| STU-005 | Under-18 registration is rejected |
 | PROF-002 | Profile save |
 | PROF-003 | Profile survives refresh |
 | PROF-004 | Profile survives a new login |
 | PROF-006 | Completion rules |
 | PROF-007 | Incomplete profile blocks discovery |
 | PROF-008 | Complete profile can match |
-| CONSENT-001 | Minor detected |
-| CONSENT-002 | Guardian email required |
-| CONSENT-003 | Own email blocked |
-| CONSENT-004 | Consent token created |
-| CONSENT-006 | Pending student blocked |
-| CONSENT-007 | Guardian can approve |
-| CONSENT-008 | Student can sign in after approval |
+| AGE-001 | Under-18 registration rejected |
+| AGE-005 | Student with no date of birth cannot log in |
+| AGE-006 | Existing token without a date of birth is rejected |
 | PROV-001 | Provider signup |
 | PROV-005 | Onboarding reaches Pending Review |
 | PROV-006 | Pending provider is restricted |
@@ -364,14 +360,14 @@ Stop the staging release if any case here fails.
 | NAV-007 | Provider onboarding and pending URLs |
 | SEC-001 | Anonymous API wall |
 | SEC-002 | Student cannot write provider or admin data |
-| SEC-004 | Pending consent API wall |
+| SEC-004 | Under-18 and missing date of birth blocked |
 | SEC-005 | Rejected provider API wall |
 | SEC-007 | Cannot edit another provider's scholarship |
 | E2E-001 | Student path |
 | E2E-002 | Provider approval path |
 | E2E-006 | Match reaches the student |
 
-Smoke total: 81 cases.
+Smoke total: 77 cases.
 
 E2E-003, E2E-004, E2E-005, and E2E-007 are not in every staging smoke run because they need extra accounts and a deadline edit. They are required in the full suite before a defense.
 
@@ -388,7 +384,7 @@ That is 219 cases:
 | Authentication & RBAC | AUTH-001–AUTH-022 | 22 |
 | Student registration & onboarding | STU-001–STU-010 | 10 |
 | Student profile | PROF-001–PROF-010 | 10 |
-| Minor / guardian consent | CONSENT-001–CONSENT-012 | 12 |
+| Adult-only student access | AGE-001–AGE-012 | 12 |
 | Provider registration & onboarding | PROV-001–PROV-012 | 12 |
 | Provider verification | VER-001–VER-014 | 14 |
 | Scholarship management | SCH-001–SCH-020 | 20 |
@@ -412,16 +408,16 @@ Skip SEC-010 on a shared staging server. It can lock the IP for 10 minutes.
 
 | If the merge changes… | Run these | Safe to skip |
 | --- | --- | --- |
-| `authController`, `AuthContext`, `AuthPage`, `auth.js` | AUTH-001–AUTH-022, SEC-001, SEC-004, SEC-005, SEC-009, NAV-002, NAV-014, NAV-015 | MATCH score cases, scholarship field cases, admin prototype pages |
-| Student onboarding form or `userController` onboarding | STU-001–STU-010, CONSENT-001–CONSENT-012, SEC-004, E2E-004 | Provider verification, admin prototype pages |
+| `authController`, `AuthContext`, `AuthPage`, `auth.js` | AUTH-001–AUTH-022, AGE-001–AGE-012, SEC-001, SEC-004, SEC-005, SEC-009, NAV-002, NAV-014, NAV-015 | MATCH score cases, scholarship field cases, admin prototype pages |
+| Student onboarding form or `userController` onboarding | STU-001–STU-010, AGE-001–AGE-012, SEC-004, E2E-004 | Provider verification, admin prototype pages |
 | `StudentProfile` or `StudentProfile.jsx` | PROF-001–PROF-010, MATCH-025, MATCH-026, SEARCH-008, STU-010 | Provider document cases |
 | Matching service or course catalog | MATCH-001–MATCH-028, SEARCH-001–SEARCH-009, SCH-015–SCH-017, E2E-001, E2E-005, E2E-006 | Admin prototype pages, forgot password |
-| Scholarship model or `CreateListing` / scholarship controller | SCH-001–SCH-020, MATCH-022–MATCH-024, SEARCH-003–SEARCH-005, E2E-005 | Consent, admin settings |
+| Scholarship model or `CreateListing` / scholarship controller | SCH-001–SCH-020, MATCH-022–MATCH-024, SEARCH-003–SEARCH-005, E2E-005 | Adult-only access, admin settings |
 | Provider onboarding or verification | PROV-001–PROV-012, VER-001–VER-014, ADMIN-003, ADMIN-005–ADMIN-010, DOC-001–DOC-008, E2E-002, E2E-003, E2E-007 | GWA score math |
 | Saved scholarships | SAVE-001–SAVE-008, NOTIF-001–NOTIF-007 | Admin settings |
 | Notification service or Deadline Alerts | NOTIF-001–NOTIF-009, SAVE-005, SAVE-006 | Course alias cases |
 | Admin dashboard or verification queue | ADMIN-001–ADMIN-010, ADMIN-017, VER-003–VER-013 | Homepage simulator |
-| Admin prototype pages only | ADMIN-011, ADMIN-013–ADMIN-016 | Matching, consent, documents |
+| Admin prototype pages only | ADMIN-011, ADMIN-013–ADMIN-016 | Matching, adult-only access, documents |
 | Document routes | DOC-001–DOC-008, SEC-008, VER-004 | Ranking weights |
 | `App.jsx` routes or sidebar | NAV-001–NAV-018, AUTH-011–AUTH-016, AUTH-020 | Score arithmetic, unless a route to Match Feed moved |
 | Security middleware only | SEC-001–SEC-012, AUTH-003, AUTH-009–AUTH-014, DOC-001–DOC-003, DOC-007 | Prototype copy, unless middleware blocks those pages |
@@ -441,7 +437,7 @@ Create these before the run. Use a new email stamp for destructive cases so a fa
 | Admin | Must already exist in MongoDB. Signup cannot create it. | ADMIN, VER, E2E-002, E2E-003, E2E-006, E2E-007 |
 | Adult student | Register in AUTH-001 or STU-001, then finish onboarding | Profile, search, save |
 | Complete College student | Adult student plus province, municipality, citizenship, GWA scale | MATCH, SEARCH, E2E-001, E2E-006 |
-| Minor student | Register, date of birth under 18, other guardian email | CONSENT, E2E-004 |
+| Under-18 attempt | Register with a date of birth under 18. The attempt must be rejected and must not create an account. | AGE-001, STU-005, E2E-004 |
 | Pending provider | Register and submit onboarding with a PDF | PROV, VER, E2E-002 |
 | Verified provider | Admin approves a pending provider | SCH, MATCH setup, E2E-006 |
 | Second verified provider | Same, separate organization | SCH-013, SEC-007, DOC-003 |
@@ -455,10 +451,10 @@ Files:
 - One `.txt` file for the rejected upload check.
 - Optional file over 10 MB.
 
-Consent email:
+Adult-only access:
 
-- If SMTP is not configured, copy the consent URL from the API log. The path is `/consent/verify?token=...`.
-- Do not mark consent failed only because the inbox is empty when the log shows `MAILER ERROR` and the token was still saved.
+- A missing date of birth is a failed access check. Do not fill one in during the test and then mark the account as passing.
+- Do not delete the student or profile row when access is denied.
 
 Deadline alerts:
 

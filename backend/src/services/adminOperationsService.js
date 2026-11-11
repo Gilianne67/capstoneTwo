@@ -231,13 +231,6 @@ const buildDashboard = ({
       path: '/dashboard/admin/eligibility-criteria?status=Pending',
       note: 'Opens eligibility requests that are pending review.',
     },
-    {
-      id: 'guardian-consent',
-      label: 'Students awaiting guardian consent',
-      count: accounts.pendingConsentStudents,
-      path: '/dashboard/admin/users?role=student&status=pending_consent',
-      note: 'Waiting on the guardian. This dashboard does not approve consent.',
-    },
   ];
 
   const alerts = [];

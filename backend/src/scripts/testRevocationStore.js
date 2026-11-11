@@ -215,6 +215,7 @@ const main = async () => {
     id: 'student-active',
     email: 'active@example.test',
     role: 'student',
+    dob: new Date('2000-01-15T00:00:00.000Z'),
     status: 'active',
     name: 'Active Student',
   };
@@ -223,6 +224,7 @@ const main = async () => {
     id: 'student-other',
     email: 'other@example.test',
     role: 'student',
+    dob: new Date('2000-01-15T00:00:00.000Z'),
     status: 'active',
     name: 'Other Student',
   };
@@ -282,6 +284,7 @@ const main = async () => {
     id: 'student-password',
     email: 'password@example.test',
     role: 'student',
+    dob: new Date('2000-01-15T00:00:00.000Z'),
     status: 'active',
     name: 'Password Student',
     passwordChangedAt: null,
@@ -328,6 +331,7 @@ const main = async () => {
     id: 'student-sessions',
     email: 'sessions@example.test',
     role: 'student',
+    dob: new Date('2000-01-15T00:00:00.000Z'),
     status: 'active',
   };
   users.set(sessionUser._id, sessionUser);
@@ -346,6 +350,7 @@ const main = async () => {
     id: 'student-suspended',
     email: 'suspended@example.test',
     role: 'student',
+    dob: new Date('2000-01-15T00:00:00.000Z'),
     status: 'suspended',
   };
   users.set(suspended._id, suspended);
@@ -367,6 +372,7 @@ const main = async () => {
   const unsavedToken = signToken({
     _id: 'student-unsaved',
     role: 'student',
+    dob: new Date('2000-01-15T00:00:00.000Z'),
     status: 'active',
   });
   users.set('student-unsaved', {
@@ -374,6 +380,7 @@ const main = async () => {
     id: 'student-unsaved',
     email: 'unsaved@example.test',
     role: 'student',
+    dob: new Date('2000-01-15T00:00:00.000Z'),
     status: 'active',
     name: 'Unsaved Student',
   });
@@ -413,6 +420,7 @@ const main = async () => {
     id: 'student-outage',
     email: 'outage@example.test',
     role: 'student',
+    dob: new Date('2000-01-15T00:00:00.000Z'),
     status: 'active',
     name: 'Outage Student',
   };
@@ -442,6 +450,7 @@ const main = async () => {
     id: 'student-partial-durable',
     email: 'partial-durable@example.test',
     role: 'student',
+    dob: new Date('2000-01-15T00:00:00.000Z'),
     status: 'active',
     name: 'Partial Durable',
   };
@@ -474,6 +483,7 @@ const main = async () => {
     id: 'student-legacy-key',
     email: 'legacy-key@example.test',
     role: 'student',
+    dob: new Date('2000-01-15T00:00:00.000Z'),
     status: 'active',
     name: 'Legacy Key',
   };

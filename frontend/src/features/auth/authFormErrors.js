@@ -8,13 +8,14 @@ export function isRateLimitError(error) {
   return /too many (requests|attempts|email requests)/i.test(String(error?.message || ''));
 }
 
-export function isPendingConsentError(error) {
+export function isUnderageStudentError(error) {
   const message = String(error?.message || '').toLowerCase();
-  return Boolean(
-    error?.requiresConsent ||
-    message.includes('parental consent') ||
-    message.includes('pending_consent')
-  );
+  return Boolean(error?.underage || message.includes('aged 18 and above'));
+}
+
+export function isDobAccessError(error) {
+  const code = String(error?.code || '');
+  return code === 'DOB_UNVERIFIED' || code === 'DOB_CONFLICT';
 }
 
 export function isVerificationDeclinedError(error) {
@@ -35,12 +36,17 @@ export function resolveLoginFormMessage(error) {
     };
   }
 
-  if (isPendingConsentError(error)) {
+  if (isUnderageStudentError(error)) {
     return {
-      kind: 'consent',
-      message:
-        error?.message ||
-        'Your account is pending parental consent. Please ask your parent/guardian to approve the verification email.',
+      kind: 'underage',
+      message: error?.message || 'ISKOLARMATCH is currently available only to students aged 18 and above.',
+    };
+  }
+
+  if (isDobAccessError(error)) {
+    return {
+      kind: 'dob-access',
+      message: error.message,
     };
   }
 
@@ -78,6 +84,13 @@ export function resolveRegistrationFormOutcome(error) {
     return {
       kind: 'declined',
       message: error?.message || 'Your organization verification was declined. You cannot register again with this email.',
+    };
+  }
+
+  if (isUnderageStudentError(error)) {
+    return {
+      kind: 'underage',
+      message: error?.message || 'ISKOLARMATCH is currently available only to students aged 18 and above.',
     };
   }
 

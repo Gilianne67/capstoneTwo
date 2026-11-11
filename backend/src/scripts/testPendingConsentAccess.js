@@ -5,11 +5,10 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Provider = require('../models/Provider');
 const { authorize, protect } = require('../middleware/auth');
-const { resendConsentEmail } = require('../controllers/userController');
 const matchingRoutes = require('../routes/matchingRoutes');
 const studentRoutes = require('../routes/studentRoutes');
 const userRoutes = require('../routes/userRoutes');
-const consentRoutes = require('../routes/consentRoutes');
+const { MISSING_DOB_ACCESS_MESSAGE } = require('../utils/studentAge');
 
 const secret = process.env.JWT_SECRET || 'fallback_secret';
 
@@ -25,6 +24,7 @@ const approvedStudent = {
   role: 'student',
   status: 'active',
   isOnboarded: true,
+  dob: new Date('2000-01-15T00:00:00.000Z'),
 };
 
 const onboardedStudent = {
@@ -32,6 +32,7 @@ const onboardedStudent = {
   role: 'student',
   status: 'active',
   isOnboarded: true,
+  dob: new Date('2000-01-15T00:00:00.000Z'),
 };
 
 const signToken = (user) =>
@@ -104,7 +105,9 @@ const main = async () => {
 
   assert.strictEqual(blockedProfile.nextCalled, false);
   assert.strictEqual(blockedProfile.statusCode, 403);
-  assert.strictEqual(blockedProfile.body.requiresConsent, true);
+  assert.strictEqual(blockedProfile.body.underage, false);
+  assert.strictEqual(blockedProfile.body.code, 'DOB_UNVERIFIED');
+  assert.strictEqual(blockedProfile.body.message, MISSING_DOB_ACCESS_MESSAGE);
   assert.strictEqual(blockedMatches.nextCalled, false);
   assert.strictEqual(blockedMatches.statusCode, 403);
   assert.strictEqual(blockedScholarship.nextCalled, false);
@@ -116,38 +119,10 @@ const main = async () => {
   assert.ok(matchingHandlers.includes('authorizeRequest'));
   assert.ok(profileHandlers.includes('authorizeRequest'));
 
-  const resendHandlers = handlersFor(userRoutes, 'post', '/consent/resend');
-  const consentResendHandlers = handlersFor(consentRoutes, 'post', '/resend');
-  const approveHandlers = handlersFor(consentRoutes, 'post', '/approve');
-  const verifyHandlers = handlersFor(consentRoutes, 'get', '/verify');
-  assert.ok(resendHandlers.includes('protect'));
-  assert.ok(!resendHandlers.includes('authorizeRequest'));
-  assert.ok(consentResendHandlers.includes('protect'));
-  assert.ok(!consentResendHandlers.includes('authorizeRequest'));
-
-  const unauthenticatedResend = await runMiddleware(resendConsentEmail, {
-    body: { userId: 'someone-else' },
-  });
-  assert.strictEqual(unauthenticatedResend.nextCalled, false);
-  assert.strictEqual(unauthenticatedResend.statusCode, 401);
-
-  const crossAccountResend = await runMiddleware(resendConsentEmail, {
-    user: {
-      _id: 'student-pending',
-      id: 'student-pending',
-      role: 'student',
-      status: 'pending_consent',
-    },
-    body: { userId: 'another-student', guardianEmail: 'guardian@example.com' },
-  });
-  assert.strictEqual(crossAccountResend.nextCalled, false);
-  assert.strictEqual(crossAccountResend.statusCode, 403);
-  assert.strictEqual(approveHandlers.length, 1);
-  assert.ok(!approveHandlers.includes('protect'));
-  assert.ok(!approveHandlers.includes('authorizeRequest'));
-  assert.strictEqual(verifyHandlers.length, 1);
-  assert.ok(!verifyHandlers.includes('protect'));
-  assert.ok(!verifyHandlers.includes('authorizeRequest'));
+  assert.equal(
+    userRoutes.stack.some((entry) => entry.route && String(entry.route.path).includes('consent')),
+    false
+  );
 
   const frontendPath = path.resolve(
     __dirname,
@@ -155,8 +130,7 @@ const main = async () => {
   );
   const { resolveRedirectPath } = await import(pathToFileURL(frontendPath).href);
 
-  // Pending minors wait on the parental consent screen, not the student onboarding form.
-  assert.strictEqual(resolveRedirectPath(pendingStudent), '/consent/verify');
+  assert.strictEqual(resolveRedirectPath(pendingStudent), '/dashboard/student');
   assert.strictEqual(
     resolveRedirectPath({
       role: 'provider',

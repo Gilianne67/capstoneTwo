@@ -16,7 +16,6 @@ import AuthPage from './features/auth/AuthPage';
 import OnboardingForm from './features/public-landing/pages/OnboardingForm';
 import ProviderOnboarding from './features/public-landing/pages/ProviderOnboarding';
 import PendingApproval from './features/public-landing/pages/PendingApproval';
-import ParentConsentPage from './features/public-landing/pages/ParentConsentPage';
 import VerifyHoldingPage from './features/public-landing/pages/VerifyHoldingPage';
 import VerifyEmailPage from './features/public-landing/pages/VerifyEmailPage';
 import OnboardingPage from './features/auth/OnboardingPage';
@@ -66,7 +65,6 @@ function ProtectedRouteGuard({ allowedRoles, children }) {
     );
   }
 
-  // Guardian consent stays available without a session.
   // Student and provider onboarding require the account created at registration.
   if (!user && !isSessionOptionalRoute(location.pathname)) {
     return <Navigate to="/auth?mode=signin" state={{ from: location }} replace />;
@@ -76,12 +74,6 @@ function ProtectedRouteGuard({ allowedRoles, children }) {
   if (user) {
     const isVerified = user?.isVerified ?? user?.is_verified ?? false;
     const holdingPath = '/verify-holding';
-    const status = String(user?.status || '').toLowerCase();
-
-    // If student has pending parental consent, steer them to the consent waiting page
-    if (user.role === 'student' && status === 'pending_consent' && location.pathname !== '/consent/verify') {
-      return <Navigate to="/consent/verify" replace />;
-    }
 
     if (!isVerified && location.pathname.startsWith('/dashboard') && location.pathname !== holdingPath) {
       if (user.role === 'provider') {
@@ -138,11 +130,6 @@ function OnboardingGuard({ children }) {
 
   if (!user) return <Navigate to="/auth?mode=signin" replace />;
 
-  const status = String(user?.status || '').toLowerCase();
-  if (user.role === 'student' && status === 'pending_consent') {
-    return <Navigate to="/consent/verify" replace />;
-  }
-
   const isVerified = user?.isVerified ?? user?.is_verified ?? false;
   if (user.role === 'student' && !isVerified) {
     return (
@@ -181,11 +168,6 @@ function DashboardRedirect() {
   
   if (!user) return <Navigate to="/auth?mode=signin" replace />;
 
-  const status = String(user?.status || '').toLowerCase();
-  if (user.role === 'student' && status === 'pending_consent') {
-    return <Navigate to="/consent/verify" replace />;
-  }
-  
   const isVerified = user?.isVerified ?? user?.is_verified ?? false;
   if (user.role === 'student' && !isVerified) {
     return (
@@ -210,8 +192,7 @@ export default function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/login" element={<AuthPage />} />
-            <Route path="/consent/verify" element={<ParentConsentPage />} />
-            
+
             {/* Public verification routes. Unverified sign-in does not create a session, so this page stays outside the route guard. The address is not read from the URL. */}
             <Route path="/verify-holding" element={<VerifyHoldingPage />} />
             <Route path="/verify-email/:token" element={<VerifyEmailPage />} />

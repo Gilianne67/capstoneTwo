@@ -970,6 +970,105 @@ test('recommendation classification is correct', () => {
   assert.strictEqual(lowCompatibility.classification, 'Low Compatibility');
 });
 
+test('chapter IV verification scenario ranks the three approved weight configurations', () => {
+  const student = baseStudent({
+    academicLevel: 'College',
+    gwa: 1.2,
+    gwaScale: '1.00-5.00',
+    incomeBracket: BELOW_10K,
+    specialEligibilityFlags: { is4PsBeneficiary: true }
+  });
+  const requirements = {
+    academicRequirements: [
+      { gradingScale: '1.00-5.00', minimumGPA: 1.5 }
+    ],
+    incomeRequirement: { maxMonthlyIncome: 43828 },
+    specialTags: [
+      { tagName: '4Ps Beneficiary', mode: 'Preferred' }
+    ]
+  };
+  const academicFocused = baseScholarship({
+    name: 'Academic-focused',
+    ...requirements,
+    criteriaWeights: {
+      gwaWeight: 0.7,
+      incomeWeight: 0.3,
+      tagsWeight: 0
+    }
+  });
+  const financialFocused = baseScholarship({
+    name: 'Financial-focused',
+    ...requirements,
+    criteriaWeights: {
+      gwaWeight: 0.2,
+      incomeWeight: 0.6,
+      tagsWeight: 0.2
+    }
+  });
+  const defaultWeighted = baseScholarship({
+    name: 'Default',
+    ...requirements,
+    criteriaWeights: {
+      gwaWeight: 0.4,
+      incomeWeight: 0.4,
+      tagsWeight: 0.2
+    }
+  });
+  const scholarships = [financialFocused, defaultWeighted, academicFocused];
+
+  scholarships.forEach((scholarship) => {
+    assert.strictEqual(eligible(student, scholarship), true, scholarship.name);
+  });
+
+  const results = rankScholarships(
+    student,
+    scholarships,
+    CATALOG_INDEX,
+    FIXED_NOW
+  );
+
+  assert.deepStrictEqual(
+    results.map((result) => [
+      result.scholarship.name,
+      result.weights,
+      result.gpaScore,
+      result.incomeScore,
+      result.tagsScore,
+      result.totalScore,
+      result.classification
+    ]),
+    [
+      [
+        'Academic-focused',
+        { gwaWeight: 0.7, incomeWeight: 0.3, tagsWeight: 0 },
+        100,
+        85,
+        100,
+        95.5,
+        'Highly Recommended'
+      ],
+      [
+        'Default',
+        { gwaWeight: 0.4, incomeWeight: 0.4, tagsWeight: 0.2 },
+        100,
+        85,
+        100,
+        94,
+        'Highly Recommended'
+      ],
+      [
+        'Financial-focused',
+        { gwaWeight: 0.2, incomeWeight: 0.6, tagsWeight: 0.2 },
+        100,
+        85,
+        100,
+        91,
+        'Highly Recommended'
+      ]
+    ]
+  );
+});
+
 test('a scholarship that fails a hard filter never receives a ranking score', () => {
   const student = baseStudent();
   const openScholarship = baseScholarship({ name: 'Open' });

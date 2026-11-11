@@ -23,6 +23,7 @@ import {
 } from '../profileCompletion';
 
 import { API_BASE_URL } from '../../../config/api';
+import { evaluateDateOfBirth } from '../../auth/studentAge';
 
 const YEAR_LEVELS_BY_ACADEMIC_LEVEL = {
   'Senior High School': ['Grade 11', 'Grade 12'],
@@ -88,9 +89,7 @@ const EMPTY_PROFILE = {
     isDisasterAffected: false,
     isWorkingStudent: false,
     is4PsBeneficiary: false
-  },
-
-  isMinor: false
+  }
 };
 
 export default function StudentProfile() {
@@ -390,6 +389,12 @@ export default function StudentProfile() {
       return;
     }
 
+    const dobResult = evaluateDateOfBirth(formData.dateOfBirth);
+    if (!dobResult.ok) {
+      setErrorMessage(dobResult.message);
+      return;
+    }
+
     if (
       formData.gwaScale === '1.00-5.00' &&
       (gwaValue < 1 || gwaValue > 5)
@@ -471,9 +476,7 @@ export default function StudentProfile() {
           is4PsBeneficiary:
             !!formData.specialEligibilityFlags
               .is4PsBeneficiary
-        },
-
-        isMinor: !!formData.isMinor
+        }
       };
 
       /*

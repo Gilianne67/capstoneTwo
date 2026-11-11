@@ -29,8 +29,7 @@ export function isPublicAuthPath(pathname) {
     || path.startsWith('/login')
     || path.startsWith('/verify-email')
     || path.startsWith('/verify-holding')
-    || path.startsWith('/reset-password')
-    || path.startsWith('/consent/verify');
+    || path.startsWith('/reset-password');
 }
 
 export function signInPathAfterSessionEnd(pathname) {

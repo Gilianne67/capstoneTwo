@@ -1,6 +1,5 @@
 const Provider = require('../models/Provider');
 const User = require('../models/User');
-const ParentalConsent = require('../models/ParentalConsent');
 const SystemConfig = require('../models/SystemConfig');
 const asyncHandler = require('../utils/asyncHandler');
 const ErrorResponse = require('../utils/errorResponse');
@@ -368,43 +367,6 @@ exports.updateScholarshipStatus = asyncHandler(async (req, res, next) => {
   }, moderationAudit));
 });
 
-// @desc    Patch Parental Consent Verification Status
-// @route   PATCH /api/v1/admin/parental-consent/:id/status
-// @access  Private (Admin / Super Admin)
-exports.updateConsentStatus = asyncHandler(async (req, res, next) => {
-  const { id } = req.params;
-  const { status } = req.body;
-
-  const isApproved = ['APPROVED', 'VERIFIED'].includes(String(status).toUpperCase());
-  const updatedStatus = isApproved ? 'Verified' : 'Rejected';
-  const consent = await ParentalConsent.findByIdAndUpdate(id, { status: updatedStatus }, { new: true });
-
-  if (!consent) {
-    return next(new ErrorResponse(`Consent record not found with ID ${id}`, 404));
-  }
-
-  // 📝 AUDIT LOG: Consent Moderation Action
-  const adminActor = req.user 
-    ? `${req.user.firstName || req.user.name || ''} ${req.user.lastName || ''}`.trim() || req.user.email 
-    : 'Admin User';
-
-  const consentAudit = await recordAuditLog({
-    actor: adminActor,
-    actorId: req.user && (req.user._id || req.user.id),
-    role: (req.user && req.user.role) || 'Admin',
-    action: 'CONSENT_MODERATED',
-    details: `Admin updated parental consent status for Student "${consent.studentName || 'N/A'}" to ${updatedStatus}.`,
-    ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
-    severity: isApproved ? 'Info' : 'Warning'
-  });
-
-  res.status(200).json(withAuditWarning({
-    success: true,
-    message: `Consent record updated to ${updatedStatus}`,
-    data: consent
-  }, consentAudit));
-});
-
 // @desc    Get all pending or submitted provider applications for review
 // @route   GET /api/v1/admin/providers/pending
 // @access  Private (Super Admin)
@@ -624,7 +586,7 @@ exports.updateUserAccountStatus = asyncHandler(async (req, res, next) => {
 
   if (status === 'pending_consent') {
     return next(new ErrorResponse(
-      'Administrators cannot set an account to pending consent. That state is assigned by the student consent workflow.',
+      'Administrators cannot set an account to pending consent. Existing records may still have that status, but it is no longer assigned.',
       400
     ));
   }

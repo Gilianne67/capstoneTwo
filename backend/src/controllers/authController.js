@@ -28,6 +28,7 @@ const {
   FINAL_REJECTION_REGISTRATION_MESSAGE,
   RESUBMIT_REGISTRATION_MESSAGE,
 } = require('../utils/providerVerification');
+const { evaluateDateOfBirth, enforceStudentAge } = require('../utils/studentAge');
 
 // Generic authentication error message to prevent account enumeration
 const GENERIC_AUTH_ERROR = 'Invalid credentials or account temporarily locked. Please try again later.';
@@ -228,6 +229,16 @@ exports.register = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse(`Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`, 400));
   }
 
+  const isStudentRegistration = role !== 'provider';
+  let studentDob = null;
+  if (isStudentRegistration) {
+    const dobResult = evaluateDateOfBirth(req.body.dateOfBirth || req.body.dob);
+    if (!dobResult.ok) {
+      return next(new ErrorResponse(dobResult.message, 400));
+    }
+    studentDob = dobResult.date;
+  }
+
   // 4. Create User Record with isVerified = false & isOnboarded = false.
   // A unique email index rejects a request that passes the lookup at the same time as another insert.
   let user;
@@ -241,6 +252,7 @@ exports.register = asyncHandler(async (req, res, next) => {
       isOnboarded: false,
       isVerified: false,
       status: 'active',
+      ...(studentDob ? { dob: studentDob } : {}),
     });
   } catch (err) {
     if (!isDuplicateKeyError(err)) throw err;
@@ -623,22 +635,26 @@ exports.login = asyncHandler(async (req, res, next) => {
     }, audit));
   }
 
-  // 4. Check Parental Consent Status (For Students)
-  if (user.status === 'pending_consent') {
-    const audit = await recordAuditLog({
-      actor: user.email,
-      role: 'Student',
-      action: 'LOGIN_BLOCKED',
-      details: `Login blocked for ${user.email}: Account pending parental consent.`,
-      ipAddress: clientIp,
-      severity: 'Info'
-    });
+  // Students under 18 cannot receive a session. Existing records are left in place.
+  if (user.role === 'student') {
+    const ageDenial = await enforceStudentAge(user);
+    if (ageDenial) {
+      const audit = await recordAuditLog({
+        actor: user.email,
+        role: 'Student',
+        action: 'LOGIN_BLOCKED',
+        details: `Login blocked for ${user.email}: ${ageDenial.message}`,
+        ipAddress: clientIp,
+        severity: 'Info'
+      });
 
-    return res.status(403).json(withAuditWarning({
-      success: false,
-      requiresConsent: true,
-      message: 'Your account is pending parental consent. Please ask your parent/guardian to approve the request sent to their email.',
-    }, audit));
+      return res.status(403).json(withAuditWarning({
+        success: false,
+        underage: Boolean(ageDenial.underage),
+        code: ageDenial.code,
+        message: ageDenial.message,
+      }, audit));
+    }
   }
 
   // 5. Provider Status Check

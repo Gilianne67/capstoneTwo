@@ -10,8 +10,6 @@ export function OnboardingPage() {
   const { token: contextToken, updateUser, user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Registration passes the email in navigation state. A later sign-in uses
-  // the authenticated account so the guardian-email check still has it.
   const registeredEmail = location.state?.registeredEmail || user?.email || '';
 
   const handleOnboardingSubmit = async (formData) => {
@@ -63,20 +61,14 @@ export function OnboardingPage() {
         updateUser(data.user);
       }
 
-      const finalEmail = registeredEmail || data.user?.email || formData.guardianEmail || '';
-      const isMinorAccount = formData.isMinor || formData.age < 18 || data.user?.status === 'pending_consent';
-
-      if (isMinorAccount) {
-        navigate(`/consent/verify?email=${encodeURIComponent(finalEmail)}`, { replace: true });
-      } else {
-        navigate('/verify-holding', {
-          replace: true,
-          state: {
-            email: finalEmail,
-            ...(data.emailSent === false ? { emailNotice: data.message } : {}),
-          },
-        });
-      }
+      const finalEmail = registeredEmail || data.user?.email || '';
+      navigate('/verify-holding', {
+        replace: true,
+        state: {
+          email: finalEmail,
+          ...(data.emailSent === false ? { emailNotice: data.message } : {}),
+        },
+      });
     } catch (err) {
       console.error('Onboarding Submission Error:', err);
       alert(err.message || 'We could not process your onboarding request.');

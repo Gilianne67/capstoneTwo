@@ -369,7 +369,7 @@ export default function AnalyticsReports() {
                   <MetricCard title="Registered users" value={formatCount(overview.totalRegisteredUsers)} trend={`${formatCount(overview.registrationsInPeriod.total)} new in period`} icon={Users} color="amber" />
                   <MetricCard title="Students" value={formatCount(overview.totalStudents)} trend={`${formatCount(overview.registrationsInPeriod.students)} new in period`} icon={GraduationCap} color="blue" />
                   <MetricCard title="Scholarship providers" value={formatCount(overview.totalProviders)} trend={`${formatCount(overview.registrationsInPeriod.providers)} new in period`} icon={Building2} color="emerald" />
-                  <MetricCard title="Active accounts" value={formatCount(overview.totalActiveAccounts)} trend={`${formatCount(overview.totalSuspendedAccounts)} suspended · ${formatCount(overview.totalPendingConsentAccounts)} pending consent`} icon={Users} color="indigo" />
+                  <MetricCard title="Active accounts" value={formatCount(overview.totalActiveAccounts)} trend={`${formatCount(overview.totalSuspendedAccounts)} suspended · ${formatCount(overview.totalPendingConsentAccounts)} under 18`} icon={Users} color="indigo" />
                   <MetricCard title="Scholarship listings" value={formatCount(overview.totalScholarshipListings)} trend="Includes archived and suspended-provider listings" icon={GraduationCap} color="amber" />
                   <MetricCard title="Active open scholarships" value={formatCount(overview.activeOpenScholarships)} trend="Open, not archived, provider not suspended" icon={GraduationCap} color="emerald" />
                   <MetricCard title="Archived scholarships" value={formatCount(overview.archivedScholarships)} trend={`${formatCount(overview.administrativelyRemovedScholarships)} administratively removed`} icon={GraduationCap} color="rose" />
@@ -599,7 +599,7 @@ export default function AnalyticsReports() {
                       <MeterList rows={[
                         { label: 'Active', count: providerReport.accountStatus.active },
                         { label: 'Suspended', count: providerReport.accountStatus.suspended },
-                        { label: 'Pending consent', count: providerReport.accountStatus.pending_consent },
+                        { label: 'Restricted', count: providerReport.accountStatus.pending_consent },
                       ]} tone="bg-blue-500" />
                     </div>
                   </div>

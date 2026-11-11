@@ -134,6 +134,7 @@ const main = async () => {
     isVerified: true,
     isOnboarded: true,
     status: 'active',
+    dob: new Date('2000-01-15T00:00:00.000Z'),
   });
 
   const pendingConsent = await addUser({
@@ -285,9 +286,14 @@ const main = async () => {
     headers: {},
   });
   assert.strictEqual(consentLogin.statusCode, 403);
-  assert.strictEqual(consentLogin.body.requiresConsent, true);
-  assert.match(consentLogin.body.message, /parental consent/i);
+  assert.strictEqual(consentLogin.body.underage, false);
+  assert.strictEqual(consentLogin.body.code, 'DOB_UNVERIFIED');
+  assert.strictEqual(
+    consentLogin.body.message,
+    'This account cannot access the platform until a valid date of birth is provided and verified.'
+  );
   assert.strictEqual(pendingConsent.status, 'pending_consent');
+  assert.ok(users.has(String(pendingConsent._id)));
 
   const usersBeforeDuplicate = users.size;
   const createdBeforeDuplicate = createdEmails.length;
@@ -376,6 +382,7 @@ const main = async () => {
       email: 'ben@example.com',
       password: 'correct-password-15',
       role: 'student',
+      dateOfBirth: '2000-01-15',
     },
     ip: '127.0.0.1',
   });

@@ -4,7 +4,8 @@ import {
   getApiErrorMessage,
   DUPLICATE_EMAIL_MESSAGE,
   isDuplicateEmailError,
-  isPendingConsentError,
+  isUnderageStudentError,
+  isDobAccessError,
   isRateLimitError,
   isVerificationDeclinedError,
   resolveLoginFormMessage,
@@ -49,14 +50,40 @@ check('login still uses a generic credential message for ordinary failures', () 
   assert.equal(isVerificationDeclinedError(invalid), false);
 });
 
-check('pending consent login stays on the consent banner', () => {
-  const consent = resolveLoginFormMessage({
-    requiresConsent: true,
-    message: 'Your account is pending parental consent. Please ask your parent/guardian to approve the request sent to their email.',
+check('underage login shows the 18+ message', () => {
+  const underage = resolveLoginFormMessage({
+    underage: true,
+    message: 'ISKOLARMATCH is currently available only to students aged 18 and above.',
   });
-  assert.equal(consent.kind, 'consent');
-  assert.equal(isPendingConsentError(consent), true);
-  assert.match(consent.message, /parental consent/i);
+  assert.equal(underage.kind, 'underage');
+  assert.equal(isUnderageStudentError(underage), true);
+  assert.equal(underage.message, 'ISKOLARMATCH is currently available only to students aged 18 and above.');
+});
+
+check('missing or conflicting date of birth stays on the login form', () => {
+  const missing = resolveLoginFormMessage({
+    code: 'DOB_UNVERIFIED',
+    message: 'This account cannot access the platform until a valid date of birth is provided and verified.',
+  });
+  const conflict = resolveLoginFormMessage({
+    code: 'DOB_CONFLICT',
+    message: 'This account has conflicting dates of birth and cannot access the platform until a valid date of birth is verified.',
+  });
+  assert.equal(missing.kind, 'dob-access');
+  assert.match(missing.message, /provided and verified/);
+  assert.equal(isDobAccessError({ code: 'DOB_UNVERIFIED' }), true);
+  assert.equal(conflict.kind, 'dob-access');
+  assert.match(conflict.message, /conflicting dates of birth/);
+  assert.doesNotMatch(missing.message, /invalid email/i);
+});
+
+check('underage registration keeps the server message', () => {
+  const outcome = resolveRegistrationFormOutcome({
+    underage: true,
+    message: 'ISKOLARMATCH is currently available only to students aged 18 and above.',
+  });
+  assert.equal(outcome.kind, 'underage');
+  assert.equal(outcome.message, 'ISKOLARMATCH is currently available only to students aged 18 and above.');
 });
 
 check('duplicate registration for a declined provider stays on the form', () => {

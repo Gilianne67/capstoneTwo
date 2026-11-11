@@ -1,6 +1,5 @@
 import { useState, useMemo } from 'react';
 import { 
-  ShieldAlert, 
   GraduationCap, 
   ArrowRight, 
   Loader2, 
@@ -8,8 +7,9 @@ import {
   Sparkles
 } from 'lucide-react';
 import { REGIONS, PROVINCES, MUNICIPALITIES } from "../../../data/locationData";
+import { evaluateDateOfBirth, todayInputValue } from "../../auth/studentAge";
 
-export function OnboardingForm({ onSubmit, isSubmitting = false, registeredEmail = '' }) {
+export function OnboardingForm({ onSubmit, isSubmitting = false }) {
   const [formData, setFormData] = useState({
     dob: '',
     course: '',
@@ -20,12 +20,9 @@ export function OnboardingForm({ onSubmit, isSubmitting = false, registeredEmail
     province: '',
     municipality: '',
     householdIncome: 'Below ₱10,000 / month',
-    guardianName: '',
-    guardianEmail: '',
     dpaConsent: false
   });
 
-  const [isMinor, setIsMinor] = useState(false);
   const [calculatedAge, setCalculatedAge] = useState(null);
   const [error, setError] = useState(null);
 
@@ -45,17 +42,11 @@ export function OnboardingForm({ onSubmit, isSubmitting = false, registeredEmail
     setFormData(prev => ({ ...prev, dob: dobValue }));
 
     if (dobValue) {
-      const birthDate = new Date(dobValue);
-      const today = new Date();
-      let age = today.getFullYear() - birthDate.getFullYear();
-      const monthDiff = today.getMonth() - birthDate.getMonth();
-
-      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-        age--;
-      }
-
-      setCalculatedAge(age);
-      setIsMinor(age < 18);
+      const result = evaluateDateOfBirth(dobValue);
+      setCalculatedAge(result.ok ? result.age : null);
+      setError(result.ok ? null : result.message);
+    } else {
+      setCalculatedAge(null);
     }
   };
 
@@ -88,18 +79,10 @@ export function OnboardingForm({ onSubmit, isSubmitting = false, registeredEmail
       return;
     }
 
-    if (isMinor) {
-      const guardianEmail = formData.guardianEmail.trim().toLowerCase();
-
-      if (!guardianEmail) {
-        setError('Guardian email is required for students under 18.');
-        return;
-      }
-
-      if (registeredEmail && guardianEmail === registeredEmail.trim().toLowerCase()) {
-        setError('Parent/Guardian email cannot be the same as your student account email.');
-        return;
-      }
+    const dobResult = evaluateDateOfBirth(formData.dob);
+    if (!dobResult.ok) {
+      setError(dobResult.message);
+      return;
     }
 
     const gwa = parseFloat(formData.gpa);
@@ -124,8 +107,7 @@ export function OnboardingForm({ onSubmit, isSubmitting = false, registeredEmail
         ...formData,
         gpa: gwa,
         gwaScale,
-        isMinor,
-        age: calculatedAge
+        age: dobResult.age
       });
     } else {
       console.error('onSubmit prop is missing or not a function');
@@ -168,42 +150,10 @@ export function OnboardingForm({ onSubmit, isSubmitting = false, registeredEmail
             value={formData.dob}
             onChange={handleDobChange}
             required
+            max={todayInputValue()}
             className="w-full px-3.5 py-2.5 bg-app-bg rounded-xl border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none"
           />
         </div>
-
-        {isMinor && (
-          <div className="p-4 bg-amber-50/60 border border-amber-200 rounded-xl space-y-3">
-            <div className="flex items-center gap-2 text-amber-800 text-xs font-bold">
-              <ShieldAlert className="w-4 h-4 shrink-0 text-amber-600" />
-              <span>Parent / Guardian Consent Required (Under 18)</span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-              <div>
-                <label className="block text-xs font-bold text-app-text mb-1">Guardian Full Name</label>
-                <input
-                  type="text"
-                  name="guardianName"
-                  value={formData.guardianName}
-                  onChange={handleChange}
-                  required={isMinor}
-                  className="w-full px-3 py-2 bg-white rounded-lg border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-app-text mb-1">Guardian Email Address</label>
-                <input
-                  type="email"
-                  name="guardianEmail"
-                  value={formData.guardianEmail}
-                  onChange={handleChange}
-                  required={isMinor}
-                  className="w-full px-3 py-2 bg-white rounded-lg border border-app-text/10 text-xs font-semibold text-app-text focus:border-primary focus:outline-none"
-                />
-              </div>
-            </div>
-          </div>
-        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
@@ -387,7 +337,7 @@ export function OnboardingForm({ onSubmit, isSubmitting = false, registeredEmail
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
             <>
-              <span>{isMinor ? 'Submit & Send Guardian Email' : 'Activate Profile & Verify Email'}</span>
+              <span>Activate Profile & Verify Email</span>
               <ArrowRight className="w-4 h-4" />
             </>
           )}

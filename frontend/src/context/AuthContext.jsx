@@ -175,7 +175,8 @@ export function AuthProvider({ children }) {
     if (!response.ok) {
       const err = new Error(data.message || data.error || 'Invalid email or password.');
       err.verificationDeclined = Boolean(data.verificationDeclined);
-      err.requiresConsent = Boolean(data.requiresConsent);
+      err.underage = Boolean(data.underage);
+      err.code = data.code || '';
       throw err;
     }
 

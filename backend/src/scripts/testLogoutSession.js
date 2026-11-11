@@ -87,6 +87,7 @@ const main = async () => {
     role: 'student',
     status: 'active',
     isOnboarded: true,
+    dob: new Date('2000-01-15T00:00:00.000Z'),
   };
 
   User.findById = () => ({

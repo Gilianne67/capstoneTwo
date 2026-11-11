@@ -53,7 +53,7 @@ const errorHandler = require('../middleware/error');
 
 const changedAt = new Date('2026-06-01T00:00:00.000Z');
 const users = new Map([
-  ['student-1', { _id: 'student-1', role: 'student', status: 'active', email: 'student@example.test', name: 'Ana' }],
+  ['student-1', { _id: 'student-1', role: 'student', status: 'active', email: 'student@example.test', name: 'Ana', dob: new Date('2000-01-15T00:00:00.000Z') }],
   ['provider-1', { _id: 'provider-1', role: 'provider', status: 'active', email: 'provider@example.test', name: 'North' }],
   ['admin-1', {
     _id: 'admin-1',

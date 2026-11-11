@@ -4,7 +4,6 @@ export const PENDING_ACTION_PATHS = {
   'provider-verification': '/dashboard/admin/verification',
   'scholarship-reports': '/dashboard/admin/moderation?status=Unresolved',
   'eligibility-reviews': '/dashboard/admin/eligibility-criteria?status=Pending',
-  'guardian-consent': '/dashboard/admin/users?role=student&status=pending_consent',
 };
 
 const SUMMARY_FIELDS = [

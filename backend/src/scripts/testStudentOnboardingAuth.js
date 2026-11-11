@@ -9,7 +9,6 @@ const Provider = require('../models/Provider');
 const { protect, authorize } = require('../middleware/auth');
 const studentRoutes = require('../routes/studentRoutes');
 const userRoutes = require('../routes/userRoutes');
-const consentRoutes = require('../routes/consentRoutes');
 const { handleOnboarding: studentOnboarding } = require('../controllers/userController');
 const {
   createProfile,
@@ -26,6 +25,7 @@ const users = {
     role: 'student',
     status: 'active',
     isOnboarded: false,
+    dob: new Date('2000-01-15T00:00:00.000Z'),
     email: 'new.student@example.com',
     name: 'New Student',
   },
@@ -138,17 +138,7 @@ const main = async () => {
   const onboardingHandlers = routeHandlers(userRoutes, 'post', '/onboarding');
   assert.ok(onboardingHandlers.some((handler) => handler.name === 'protect'));
   assert.equal(onboardingHandlers.at(-1), studentOnboarding);
-
-  const consentVerify = routeHandlers(consentRoutes, 'get', '/verify');
-  const consentApprove = routeHandlers(consentRoutes, 'post', '/approve');
-  const userConsentVerify = routeHandlers(userRoutes, 'get', '/consent/verify');
-  const userConsentApprove = routeHandlers(userRoutes, 'post', '/consent/approve');
-  [consentVerify, consentApprove, userConsentVerify, userConsentApprove].forEach((handlers) => {
-    assert.equal(handlers.some((handler) => handler.name === 'protect'), false);
-    assert.equal(handlers.some((handler) => handler.name === 'authorizeRequest'), false);
-  });
-  assert.ok(routeHandlers(userRoutes, 'post', '/consent/resend').some((handler) => handler.name === 'protect'));
-  assert.ok(routeHandlers(consentRoutes, 'post', '/resend').some((handler) => handler.name === 'protect'));
+  assert.equal(userRoutes.stack.some((entry) => entry.route && String(entry.route.path).includes('consent')), false);
 
   const anonymous = await run(protect, {
     headers: {},
@@ -246,12 +236,12 @@ const main = async () => {
   lookups.length = 0;
   const pendingConsent = await run(studentOnboarding, {
     user: { id: 'student-minor', _id: 'student-minor', role: 'student', status: 'pending_consent' },
-    body: { userId: 'student-new', dob: '2012-01-15', guardianEmail: 'guardian@example.com' },
+    body: { userId: 'student-new', dob: '2012-01-15' },
     ip: '127.0.0.1',
     headers: {},
   });
-  assert.equal(pendingConsent.res.statusCode, 403);
-  assert.match(pendingConsent.res.body.message, /parental consent/i);
+  assert.equal(pendingConsent.res.statusCode, 400);
+  assert.match(pendingConsent.res.body.message, /already been completed/i);
   assert.deepStrictEqual(lookups, ['student-minor']);
 
   console.log('student onboarding auth tests passed');
